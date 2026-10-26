@@ -1,0 +1,253 @@
+{
+  "runId": "run-20261026-155117-e1edef",
+  "startedAt": "2026-10-26T15:51:17.036Z",
+  "finishedAt": "2026-10-26T15:51:23.100Z",
+  "durationMs": 6064,
+  "gitHead": "e4888478c11e3b6305c5f45852b6e3bf6ef15025",
+  "gitBranch": "codex/prod-release-m1-m4",
+  "gitWorktreeSha256": "21d6dd7ad5ec68f132068bd2b4b4303e4569345709483d47ca40bdc01658c3f5",
+  "total": 12,
+  "passed": 0,
+  "failed": 12,
+  "results": [
+    {
+      "id": "V01",
+      "name": "V01: 账号锁可被平行异步调用绕过；fallback 还存在嵌套死锁",
+      "passed": false,
+      "durationMs": 659,
+      "detail": {
+        "bypassResult": {
+          "hasWebLocks": true,
+          "beforeRelease": [
+            "first-enter",
+            "second-enter"
+          ],
+          "after": [
+            "first-enter",
+            "second-enter",
+            "first-exit"
+          ]
+        },
+        "deadlockResult": {
+          "outcome": "hung"
+        },
+        "noLockBypass": false,
+        "noDeadlock": false
+      }
+    },
+    {
+      "id": "V02",
+      "name": "V02: 自动重试在退避期转成假冲突；已过期上传租约永远不能重领",
+      "passed": false,
+      "durationMs": 142,
+      "detail": {
+        "conflictResult": {
+          "firstCode": "NETWORK",
+          "backoffScheduled": true,
+          "secondCode": "CONTENT_DIVERGED",
+          "secondStatus": "conflict",
+          "posts": 1,
+          "conflictPersisted": true
+        },
+        "leaseResult": {
+          "aCode": "SYNC_IN_PROGRESS_OTHER_TAB",
+          "bCode": "SYNC_IN_PROGRESS_OTHER_TAB",
+          "remaining": 1
+        },
+        "noFalseConflict": false,
+        "expiredLeaseRecoverable": false
+      }
+    },
+    {
+      "id": "V03",
+      "name": "V03: 初始化选择和重连会话缺少 epoch 守卫，迟到响应仍污染新账号或复活已退出身份",
+      "passed": false,
+      "durationMs": 414,
+      "detail": {
+        "initChoiceResult": {
+          "before": {
+            "user": "B",
+            "name": "STATE_B",
+            "phase": "authenticated"
+          },
+          "after": {
+            "user": "B",
+            "name": "A_INIT_LATE",
+            "phase": "authenticated"
+          }
+        },
+        "refreshResult": {
+          "before": {
+            "user": null,
+            "phase": "unauthenticated"
+          },
+          "after": {
+            "user": null,
+            "name": "A_INIT_LATE",
+            "phase": "unauthenticated",
+            "csrfPresent": false
+          }
+        },
+        "guardResult": {
+          "code": "AUTH_EPOCH_CHANGED",
+          "persisted": "LATE_OTHER_SESSION_STATE"
+        },
+        "initChoiceSafe": false,
+        "refreshSafe": true,
+        "guardSafe": false
+      }
+    },
+    {
+      "id": "V04",
+      "name": "V04: 强制裁决第二次 GET 偷换审核基线，仍能覆盖用户未审阅的云端内容",
+      "passed": false,
+      "durationMs": 139,
+      "detail": {
+        "forceUploadResult": {
+          "status": "synced",
+          "gets": 2,
+          "postedExpected": 2,
+          "postedName": "LOCAL"
+        },
+        "forcePullResult": {
+          "reviewedLocal": 1,
+          "result": "synced",
+          "name": "REMOTE"
+        },
+        "uploadAbortsOnRemoteChange": false,
+        "pullRespectsLocalEdit": false
+      }
+    },
+    {
+      "id": "V05",
+      "name": "V05: 媒体映射事务中等待异步 hash，快照/outbox/媒体可能部分提交",
+      "passed": false,
+      "durationMs": 168,
+      "detail": {
+        "mediaResult": {
+          "result": {
+            "changed": false,
+            "revision": 0
+          },
+          "snapshotRef": "data:image/png;base64,aGk=",
+          "outboxRef": "/api/media/uploaded",
+          "mediaStored": true
+        }
+      }
+    },
+    {
+      "id": "V06",
+      "name": "V06: Docker最终镜像漏复制 release.json，部署后版本接口退化为unknown，健康检查仍绿",
+      "passed": false,
+      "durationMs": 234,
+      "detail": {
+        "hasCopyRelease": false,
+        "runtimeHealthyWithMissingConfig": true,
+        "healthData": {
+          "ok": true,
+          "status": "healthy",
+          "generationId": "gen_1793029879025_0ca5093bfad6ef98",
+          "time": "2026-10-26T15:51:19.025Z",
+          "uptime": 0.186918416
+        },
+        "versionData": {
+          "version": "unknown",
+          "build": "unknown",
+          "schemaVersion": 3,
+          "apkVersion": "unknown",
+          "apkVersionCode": 0,
+          "apkDownloadUrl": "/api/download/apk",
+          "apkSha256": "",
+          "apkSizeBytes": 0,
+          "apkPackageName": "com.ruyne.kaogong",
+          "apkCertFingerprint": "",
+          "apkReleased": false,
+          "deployedAt": "",
+          "summary": "",
+          "servedAt": "2026-10-26T15:51:19.030Z"
+        }
+      }
+    },
+    {
+      "id": "V07",
+      "name": "V07: 上传配额检查发生在落盘之后，拒绝请求仍能生成不记账的孤儿附件",
+      "passed": false,
+      "durationMs": 180,
+      "detail": {
+        "firstStatus": 200,
+        "rejects": [
+          413,
+          413,
+          413
+        ],
+        "attachmentCount": 4
+      }
+    },
+    {
+      "id": "V08",
+      "name": "V08: 历史恢复不检查已删除的媒体，恢复成功后同步被 INVALID_MEDIA_REF 堵塞",
+      "passed": false,
+      "durationMs": 182,
+      "detail": {
+        "restoreStatus": 200,
+        "laterSyncStatus": 400
+      }
+    },
+    {
+      "id": "V09",
+      "name": "V09: 游客 StudyRecord 的 sourceId 没有随自定义题本/课程重映射",
+      "passed": false,
+      "durationMs": 0,
+      "detail": {
+        "mergedBookId": "gb_mvpfp1fj_evd7",
+        "planSourceId": "gb_mvpfp1fj_evd7",
+        "recordSourceId": "legacy-book",
+        "recordHasExistingBook": false
+      }
+    },
+    {
+      "id": "V10",
+      "name": "V10: SW先自动接管，点击更新时却只等未来controllerchange，稳定误报12秒更新失败",
+      "passed": false,
+      "durationMs": 3613,
+      "detail": {
+        "result": {
+          "ok": false,
+          "timedOut": true
+        },
+        "applyElapsedMs": 3503
+      }
+    },
+    {
+      "id": "V11",
+      "name": "V11: 版本节流缓存未绑定本地build/安装身份，升级后仍提示同一个更新",
+      "passed": false,
+      "durationMs": 20,
+      "detail": {
+        "currentBuild": "20261027.01",
+        "status": "update_available",
+        "installed": "1.0.2",
+        "webUpdateAvailable": true,
+        "fromCache": true,
+        "fetches": 1
+      }
+    },
+    {
+      "id": "V12",
+      "name": "V12: Android安装流程有两个可达状态机缺口：首次授权不续跑、取消安装后一直busy",
+      "passed": false,
+      "durationMs": 5,
+      "detail": {
+        "firstInstallDenied": {
+          "ok": false,
+          "code": "INSTALL_PERMISSION_REQUIRED",
+          "requiresPermission": true,
+          "message": "需要在系统页面允许“安装未知应用”，已打开授权设置；授权完成返回后会自动继续安装"
+        },
+        "permissionCalls": 1,
+        "installRequestPayloadSubmitted": 0,
+        "hasResumeInstallRecovery": false
+      }
+    }
+  ]
+}

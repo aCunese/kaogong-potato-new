@@ -140,6 +140,15 @@ footer.push('');
 writeBoth(block(footer));
 await new Promise<void>(resolve => logStream.end(() => resolve()));
 
+let finalExitCode = exit.code === null ? 1 : exit.code;
+if (finalExitCode === 0) {
+  if (!dataDiff.unchanged) {
+    finalExitCode = 3;
+  } else if (sourceChanged) {
+    finalExitCode = 4;
+  }
+}
+
 console.log(`\nEVIDENCE_LOG: ${LOG_PATH}`);
-console.log(`EXIT_CODE: ${exit.code ?? `signal=${exit.signal}`}`);
-process.exit(exit.code === null ? 1 : exit.code);
+console.log(`EXIT_CODE: ${finalExitCode}`);
+process.exit(finalExitCode);

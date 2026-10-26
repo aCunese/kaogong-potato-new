@@ -103,32 +103,85 @@ export async function getFreePort(): Promise<number> {
 }
 
 /**
+ * Resolves a path to its real canonical path (following symlinks).
+ * If the path or a subpath does not exist yet, resolves the deepest existing
+ * ancestor and appends the non-existent tail.
+ */
+export function resolveRealPath(targetPath: string): string {
+  const resolved = path.resolve(targetPath);
+  if (fs.existsSync(resolved)) {
+    return fs.realpathSync(resolved);
+  }
+  let curr = resolved;
+  const tailParts: string[] = [];
+  while (!fs.existsSync(curr)) {
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    tailParts.unshift(path.basename(curr));
+    curr = parent;
+  }
+  if (fs.existsSync(curr)) {
+    return path.join(fs.realpathSync(curr), ...tailParts);
+  }
+  return resolved;
+}
+
+/**
  * Fails fast unless `dataDir` is an explicit absolute path that is NOT the
  * repository `data/` directory and NOT anywhere inside the repository.
  * This is the guard that keeps the harness from silently using `./data`.
+ * Both the unresolved path and canonical realpath (following all symlinks)
+ * are verified.
  */
 export function assertIsolatedDataDir(dataDir: string | undefined, repoRoot: string): string {
   if (!dataDir || !dataDir.trim()) {
     throw new Error('[isolation] DATA_DIR must be provided explicitly; refusing to fall back to <repo>/data');
   }
   const resolved = path.resolve(dataDir);
-  const repoData = path.join(path.resolve(repoRoot), 'data');
+  const realDataDir = resolveRealPath(resolved);
+
   const repoRootResolved = path.resolve(repoRoot);
-  if (resolved === repoData) throw new Error(`[isolation] DATA_DIR must not be the real repo data dir: ${resolved}`);
+  const realRepoRoot = resolveRealPath(repoRootResolved);
+
+  const repoData = path.join(repoRootResolved, 'data');
+  const realRepoData = path.join(realRepoRoot, 'data');
+
+  // Lexical path checks
+  if (resolved === repoData) {
+    throw new Error(`[isolation] DATA_DIR must not be the real repo data dir: ${resolved}`);
+  }
   if (resolved === repoRootResolved || resolved.startsWith(repoRootResolved + path.sep)) {
     throw new Error(`[isolation] DATA_DIR must live outside the repository: ${resolved}`);
   }
-  if (resolved === path.parse(resolved).root || resolved === path.resolve(os.homedir())) {
+
+  // Realpath / symlink resolution checks
+  if (realDataDir === realRepoData || (fs.existsSync(repoData) && realDataDir === fs.realpathSync(repoData))) {
+    throw new Error(`[isolation] DATA_DIR must not point to the real repo data dir (symlink target detected): ${realDataDir}`);
+  }
+  if (realDataDir === realRepoRoot || realDataDir.startsWith(realRepoRoot + path.sep)) {
+    throw new Error(`[isolation] DATA_DIR must live outside the repository (symlink points inside repo): ${realDataDir}`);
+  }
+
+  const rootParsed = path.parse(resolved).root;
+  const homeResolved = path.resolve(os.homedir());
+  const realHome = resolveRealPath(homeResolved);
+
+  if (
+    resolved === rootParsed ||
+    resolved === homeResolved ||
+    realDataDir === path.parse(realDataDir).root ||
+    realDataDir === realHome
+  ) {
     throw new Error(`[isolation] DATA_DIR is too broad to be a disposable temp dir: ${resolved}`);
   }
-  return resolved;
+  return realDataDir;
 }
 
 // ---------------------------------------------------------------------------
 // Web build (dist/)
 // ---------------------------------------------------------------------------
 
-export type BuildStrategy = 'npm-run-build' | 'vite-build-only-fallback' | 'reused-existing-dist';
+export type BuildStrategy = 'npm-run-build' | 'reused-existing-dist';
 
 export interface WebBuildInfo {
   strategy: BuildStrategy;
@@ -143,10 +196,9 @@ export interface WebBuildInfo {
 
 /**
  * Builds the frontend that the isolated server will statically serve from
- * `<repoRoot>/dist`. Tries the project's real `npm run build` first (typecheck +
- * vite). If typecheck is transiently broken because source files are being
- * edited by other agents, falls back to a Vite-only production build so the
- * visual harness can still run; that fallback is reported in the evidence.
+ * `<repoRoot>/dist`. Runs the project's real `npm run build` (typecheck +
+ * vite). If `npm run build` fails (or typecheck fails), throws immediately.
+ * No silent Vite-only fallback is allowed.
  */
 export async function ensureWebBuild(repoRoot: string, opts: { rebuild: boolean } = { rebuild: true }): Promise<WebBuildInfo> {
   const distIndexPath = path.join(repoRoot, 'dist', 'index.html');
@@ -167,17 +219,7 @@ export async function ensureWebBuild(repoRoot: string, opts: { rebuild: boolean 
   }
 
   const npmTail = tailOf(`${npm.stdout}\n${npm.stderr}`).join('\n');
-  const viteBin = path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js');
-  if (!fs.existsSync(viteBin)) {
-    throw new Error(`[build] npm run build failed and node_modules/vite/bin/vite.js is missing.\nnpm build tail:\n${npmTail}`);
-  }
-  const vite = runCommand(process.execPath, [viteBin, 'build'], { cwd: repoRoot, timeoutMs: 300_000 });
-  if (vite.exitCode !== 0 || !fs.existsSync(distIndexPath)) {
-    const viteTail = tailOf(`${vite.stdout}\n${vite.stderr}`).join('\n');
-    throw new Error(`[build] Vite-only fallback build also failed.\nnpm build tail:\n${npmTail}\nvite build tail:\n${viteTail}`);
-  }
-  return readBuildInfo('vite-build-only-fallback', false, npm.exitCode, vite.exitCode,
-    `npm run build (typecheck) failed; evidence-only Vite fallback used. npm tail: ${npmTail.split('\n').slice(0, 6).join(' | ')}`);
+  throw new Error(`[build] npm run build failed (exitCode=${npm.exitCode}). Refusing to fall back to un-typechecked build.\nnpm build tail:\n${npmTail}`);
 }
 
 // ---------------------------------------------------------------------------

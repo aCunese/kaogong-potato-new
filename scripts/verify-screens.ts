@@ -812,6 +812,15 @@ console.log(`ARTIFACTS: results.json -> ${path.join(OUTPUT_DIR, 'results.json')}
 console.log(`SCREENSHOTS: ${OUTPUT_DIR}`);
 
 const failures = count('failed');
-const exitCode = prepError ? 2 : failures > 0 ? 1 : 0;
-console.log(`EXIT_CODE: ${exitCode}${prepError ? ' (prep failure)' : failures > 0 ? ` (${failures} failed checks)` : ''}`);
+let exitCode = 0;
+if (prepError) {
+  exitCode = 2;
+} else if (!realDataDiff.unchanged) {
+  exitCode = 3;
+} else if (sourceChangedDuringRun) {
+  exitCode = 4;
+} else if (failures > 0) {
+  exitCode = 1;
+}
+console.log(`EXIT_CODE: ${exitCode}${prepError ? ' (prep failure)' : !realDataDiff.unchanged ? ' (real data changed)' : sourceChangedDuringRun ? ' (source changed during run)' : failures > 0 ? ` (${failures} failed checks)` : ''}`);
 process.exit(exitCode);
