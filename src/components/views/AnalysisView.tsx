@@ -1,0 +1,409 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { PotatoSprite } from '../common/PotatoSprite';
+import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
+import { SUBJECTS, Subject, AnalysisSubTab } from '../../types';
+import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
+
+const SUBJECT_COLORS: Record<Subject, string> = {
+  '资料分析': '#61794F',
+  '判断推理': '#E6B957',
+  '言语理解': '#7A9163',
+  '数量关系': '#C97D45',
+  '政治理论': '#8DA074',
+  '常识判断': '#607B8B',
+  '申论': '#B46A55',
+  '面试': '#937D96',
+};
+
+interface AnalysisViewProps {
+  initialSubTab?: AnalysisSubTab;
+  onOpenMonthPicker: () => void;
+  onOpenLegendDetail: () => void;
+}
+
+export const AnalysisView: React.FC<AnalysisViewProps> = ({
+  initialSubTab = 'overall',
+  onOpenMonthPicker,
+  onOpenLegendDetail,
+}) => {
+  const { state } = useApp();
+  const [subTab, setSubTab] = useState<AnalysisSubTab>(initialSubTab);
+  const [range, setRange] = useState<'30' | '90' | 'all'>('30');
+  const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
+
+  // Filter records by range for overall
+  const getOverallRecords = () => {
+    if (range === 'all') return state.records;
+    const now = new Date('2026-10-25T23:59:59');
+    const days = parseInt(range);
+    const startDate = new Date(now.getTime() - (days - 1) * 24 * 3600 * 1000);
+    return state.records.filter(r => new Date(r.date + 'T00:00:00') >= startDate);
+  };
+
+  const overallRecords = getOverallRecords();
+  const overallTotalMinutes = overallRecords.reduce((sum, r) => sum + r.minutes, 0);
+
+  // Calculate subject minutes for overall
+  const subjectTimeDistribution = SUBJECTS.map(s => {
+    const mins = overallRecords.filter(r => r.subject === s).reduce((sum, r) => sum + r.minutes, 0);
+    const pct = overallTotalMinutes > 0 ? (mins / overallTotalMinutes) * 100 : 0;
+    return {
+      subject: s,
+      minutes: mins,
+      percent: pct,
+      color: SUBJECT_COLORS[s],
+    };
+  });
+
+  // Unique dates in records with questions for line chart
+  const dateMap: Record<string, Record<Subject, { q: number; e: number }>> = {};
+  overallRecords.filter(r => r.questions > 0).forEach(r => {
+    if (!dateMap[r.date]) {
+      dateMap[r.date] = {} as any;
+    }
+    if (!dateMap[r.date][r.subject]) {
+      dateMap[r.date][r.subject] = { q: 0, e: 0 };
+    }
+    dateMap[r.date][r.subject].q += r.questions;
+    dateMap[r.date][r.subject].e += r.errors;
+  });
+
+  const sortedDates = Object.keys(dateMap).sort();
+
+  // Monthly statistics
+  const monthlyRecords = state.records.filter(r => r.date.startsWith(selectedMonth));
+  const monthMinutes = monthlyRecords.reduce((sum, r) => sum + r.minutes, 0);
+  const monthQuestions = monthlyRecords.reduce((sum, r) => sum + r.questions, 0);
+  const monthErrors = monthlyRecords.reduce((sum, r) => sum + r.errors, 0);
+  const monthAccuracy = monthQuestions > 0 ? Math.round(((monthQuestions - monthErrors) / monthQuestions) * 100) : 0;
+
+  const monthlySubjectStats = SUBJECTS.map(s => {
+    const sRecords = monthlyRecords.filter(r => r.subject === s);
+    const q = sRecords.reduce((sum, r) => sum + r.questions, 0);
+    const e = sRecords.reduce((sum, r) => sum + r.errors, 0);
+    const m = sRecords.reduce((sum, r) => sum + r.minutes, 0);
+    const acc = q > 0 ? Math.round(((q - e) / q) * 100) : null;
+    return {
+      subject: s,
+      questions: q,
+      errors: e,
+      minutes: m,
+      accuracy: acc,
+      color: SUBJECT_COLORS[s],
+    };
+  });
+
+  // Conic gradient string for pie chart
+  let cumulative = 0;
+  const gradientStops = subjectTimeDistribution.map(item => {
+    const start = cumulative;
+    cumulative += item.percent;
+    return `${item.color} ${start.toFixed(2)}% ${cumulative.toFixed(2)}%`;
+  }).join(', ');
+
+  return (
+    <div className="space-y-4 pb-24">
+      {/* 头部与吉祥物 */}
+      <div className="flex items-center justify-between pt-1">
+        <div>
+          <h1 className="text-2xl font-bold text-ink-main">学情分析复盘</h1>
+          <p className="text-xs text-ink-muted mt-1">
+            只统计真实完成登记的数据，科学回溯备考投入
+          </p>
+        </div>
+        <PotatoSprite pose={subTab === 'overall' ? 4 : 5} size={64} />
+      </div>
+
+      {/* 分段控制 */}
+      <Segment
+        options={[
+          { label: '总体趋势', value: 'overall' },
+          { label: '每月分析', value: 'monthly' },
+        ]}
+        value={subTab}
+        onChange={val => setSubTab(val as AnalysisSubTab)}
+      />
+
+      {/* 1. 总体分析 */}
+      {subTab === 'overall' && (
+        <div className="space-y-4">
+          {/* 时间跨度切换 */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-ink-muted">统计范围</span>
+            <div className="flex bg-[#ECE8DF] p-0.5 rounded-lg text-xs">
+              <button
+                onClick={() => setRange('30')}
+                className={`px-3 py-1 rounded-md ${range === '30' ? 'bg-paper text-ink-main font-bold shadow-sm' : 'text-ink-muted'}`}
+              >
+                近30天
+              </button>
+              <button
+                onClick={() => setRange('90')}
+                className={`px-3 py-1 rounded-md ${range === '90' ? 'bg-paper text-ink-main font-bold shadow-sm' : 'text-ink-muted'}`}
+              >
+                近90天
+              </button>
+              <button
+                onClick={() => setRange('all')}
+                className={`px-3 py-1 rounded-md ${range === 'all' ? 'bg-paper text-ink-main font-bold shadow-sm' : 'text-ink-muted'}`}
+              >
+                全部记录
+              </button>
+            </div>
+          </div>
+
+          {/* 八科时间分布饼图卡片 */}
+          <Card className="p-4 bg-paper border-line">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-bold text-ink-main flex items-center gap-1.5">
+                <PieChart size={16} className="text-sage" />
+                八科时间投入分布
+              </div>
+              <button
+                onClick={onOpenLegendDetail}
+                className="text-xs text-sage flex items-center gap-0.5 hover:underline"
+              >
+                <span>图例与明细</span>
+                <ChevronRight size={13} />
+              </button>
+            </div>
+
+            {overallTotalMinutes === 0 ? (
+              <div className="py-8 text-center text-xs text-ink-muted">
+                暂无登记用时数据，完成日程登记后将生成分布图
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center gap-5 my-2">
+                {/* 扇形环形图 */}
+                <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
+                  <div
+                    className="w-full h-full rounded-full shadow-inner"
+                    style={{ background: `conic-gradient(${gradientStops})` }}
+                  />
+                  <div className="absolute inset-4 rounded-full bg-paper flex flex-col items-center justify-center text-center shadow-soft">
+                    <span className="text-[10px] text-ink-muted">总投入</span>
+                    <span className="text-sm font-bold text-ink-main font-mono leading-tight">
+                      {overallTotalMinutes}
+                    </span>
+                    <span className="text-[10px] text-ink-muted">分钟</span>
+                  </div>
+                </div>
+
+                {/* 八科明细图例简表 */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 w-full text-xs">
+                  {subjectTimeDistribution.map(item => (
+                    <div key={item.subject} className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
+                        <span className="text-ink-muted truncate">{item.subject}</span>
+                      </div>
+                      <span className="font-mono font-medium text-ink-main shrink-0 ml-1">
+                        {item.minutes}m
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* 各科每日正确率曲线 */}
+          <Card className="p-4 bg-paper border-line">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-bold text-ink-main flex items-center gap-1.5">
+                <TrendingUp size={16} className="text-sage" />
+                各科目每日正确率走势
+              </div>
+            </div>
+
+            {sortedDates.length === 0 ? (
+              <div className="py-8 text-center text-xs text-ink-muted">
+                完成题本刷题登记并记录题量、错题后，将在此绘制趋势折线
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* SVG 折线图 */}
+                <div className="w-full overflow-x-auto">
+                  <svg viewBox="0 0 400 180" className="w-full h-44 select-none">
+                    {/* Y 轴刻度线 */}
+                    {[0, 25, 50, 75, 100].map(val => {
+                      const y = 150 - (val / 100) * 120;
+                      return (
+                        <g key={val}>
+                          <line x1="35" y1={y} x2="385" y2={y} stroke="#E4E6D9" strokeDasharray="3 3" />
+                          <text x="28" y={y + 3} textAnchor="end" fontSize="9" fill="#8E9685" fontFamily="monospace">
+                            {val}%
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* X 轴日期点与折线 */}
+                    {SUBJECTS.map(subj => {
+                      const color = SUBJECT_COLORS[subj];
+                      const points: { x: number; y: number; acc: number }[] = [];
+
+                      sortedDates.forEach((date, i) => {
+                        const rec = dateMap[date]?.[subj];
+                        if (rec && rec.q > 0) {
+                          const acc = Math.round(((rec.q - rec.e) / rec.q) * 100);
+                          const x = sortedDates.length === 1 ? 210 : 45 + (i / (sortedDates.length - 1)) * 330;
+                          const y = 150 - (acc / 100) * 120;
+                          points.push({ x, y, acc });
+                        }
+                      });
+
+                      if (points.length === 0) return null;
+
+                      const polylinePoints = points.map(p => `${p.x},${p.y}`).join(' ');
+
+                      return (
+                        <g key={subj}>
+                          {points.length > 1 && (
+                            <polyline
+                              points={polylinePoints}
+                              fill="none"
+                              stroke={color}
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          )}
+                          {points.map((p, pIdx) => (
+                            <circle
+                              key={pIdx}
+                              cx={p.x}
+                              cy={p.y}
+                              r="3.5"
+                              fill="#FFFDF8"
+                              stroke={color}
+                              strokeWidth="2"
+                            />
+                          ))}
+                        </g>
+                      );
+                    })}
+
+                    {/* X 轴日期标注 */}
+                    {sortedDates.map((date, i) => {
+                      const x = sortedDates.length === 1 ? 210 : 45 + (i / (sortedDates.length - 1)) * 330;
+                      return (
+                        <text
+                          key={date}
+                          x={x}
+                          y="168"
+                          textAnchor="middle"
+                          fontSize="9"
+                          fill="#8E9685"
+                          fontFamily="monospace"
+                        >
+                          {date.slice(5)}
+                        </text>
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                {/* 走势说明 */}
+                <div className="flex flex-wrap gap-2 text-[11px] text-ink-muted pt-1 border-t border-line/60">
+                  {SUBJECTS.filter(s => sortedDates.some(d => dateMap[d]?.[s]?.q > 0)).map(s => (
+                    <div key={s} className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SUBJECT_COLORS[s] }} />
+                      <span>{s}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* 2. 每月分析 */}
+      {subTab === 'monthly' && (
+        <div className="space-y-4">
+          {/* 月份选择卡片 */}
+          <Card className="p-3 bg-paper border-line flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar size={16} className="text-sage" />
+              <span className="text-sm font-bold text-ink-main">{selectedMonth} 月度报表</span>
+            </div>
+            <Button variant="secondary" size="sm" onClick={onOpenMonthPicker}>
+              切换月份
+            </Button>
+          </Card>
+
+          {/* 四大核心指标网格 */}
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="p-3.5 bg-paper border-line">
+              <span className="text-xs text-ink-muted">总学习时长</span>
+              <div className="text-xl font-bold text-ink-main font-mono mt-1">
+                {monthMinutes} <span className="text-xs font-normal text-ink-muted">分钟</span>
+              </div>
+              <span className="text-[10px] text-ink-muted/80">
+                约 {(monthMinutes / 60).toFixed(1)} 小时投入
+              </span>
+            </Card>
+
+            <Card className="p-3.5 bg-paper border-line">
+              <span className="text-xs text-ink-muted">整体正确率 (加权)</span>
+              <div className="text-xl font-bold text-sage font-mono mt-1">
+                {monthQuestions > 0 ? `${monthAccuracy}%` : '—'}
+              </div>
+              <span className="text-[10px] text-ink-muted/80">按实际总做题量加权</span>
+            </Card>
+
+            <Card className="p-3.5 bg-paper border-line">
+              <span className="text-xs text-ink-muted">总刷题量</span>
+              <div className="text-xl font-bold text-ink-main font-mono mt-1">
+                {monthQuestions} <span className="text-xs font-normal text-ink-muted">题</span>
+              </div>
+              <span className="text-[10px] text-ink-muted/80">仅统计已完成刷题登记</span>
+            </Card>
+
+            <Card className="p-3.5 bg-paper border-line">
+              <span className="text-xs text-ink-muted">总错误数</span>
+              <div className="text-xl font-bold text-alarm font-mono mt-1">
+                {monthErrors} <span className="text-xs font-normal text-ink-muted">题</span>
+              </div>
+              <span className="text-[10px] text-ink-muted/80">数值错题数 (非照片张数)</span>
+            </Card>
+          </div>
+
+          {/* 八大模块正确率与用时明细 */}
+          <Card className="p-4 bg-paper border-line space-y-3">
+            <div className="flex items-center justify-between border-b border-line pb-2">
+              <h3 className="text-sm font-bold text-ink-main">八科正确率与用时分布</h3>
+              <span className="text-xs text-ink-muted font-mono">{selectedMonth}</span>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              {monthlySubjectStats.map(s => (
+                <div key={s.subject} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-ink-main flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                      {s.subject}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-ink-muted">{s.minutes} 分钟</span>
+                      <span className="font-mono font-bold text-ink-main min-w-[36px] text-right">
+                        {s.accuracy !== null ? `${s.accuracy}%` : <span className="text-ink-muted/60 text-[10px]">无题量</span>}
+                      </span>
+                    </div>
+                  </div>
+                  <ProgressBar value={s.accuracy ?? 0} />
+                </div>
+              ))}
+            </div>
+
+            <div className="p-2.5 bg-cream/50 rounded-lg text-[11px] text-ink-muted leading-relaxed">
+              网课和自定义事项的学习时间已计入对应科目总分钟，因不产出题量，其正确率如实显示为“无题量记录”。
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};

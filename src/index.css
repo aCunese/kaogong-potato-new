@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #F4F3EB;
+  --paper-bg: #FFFDF8;
+  --sage-main: #61794F;
+  --sage-light: #E7EDDF;
+  --potato-yellow: #E6B957;
+  --ink-main: #343C2F;
+  --ink-muted: #697160;
+  --line-color: #E4E6D9;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #ECEAE1;
+  color: var(--ink-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* Custom scrollbar for mobile feels */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #D8DCCE;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Potato sprite sheet styling */
+.potato-pose {
+  background-image: url('/assets/potato-poses.png');
+  background-repeat: no-repeat;
+  background-size: 400% 200%;
+  display: inline-block;
+  image-rendering: auto;
+}
+
+/* 4 columns x 2 rows positions */
+.pose-0 { background-position: 0% 0%; }
+.pose-1 { background-position: 33.333% 0%; }
+.pose-2 { background-position: 66.666% 0%; }
+.pose-3 { background-position: 100% 0%; }
+.pose-4 { background-position: 0% 100%; }
+.pose-5 { background-position: 33.333% 100%; }
+.pose-6 { background-position: 66.666% 100%; }
+.pose-7 { background-position: 100% 100%; }

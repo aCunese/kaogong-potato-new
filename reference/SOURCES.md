@@ -16,7 +16,7 @@
 ## 50 画板节点与截图核对说明
 原始资料共有 50 个独立节点定义（详见 `potato-android/figma/section-handoff.json`）。
 其中 `screens/` 包含前 28 个画板的高保真设计截图 (`01-today.png` 至 `28-delete-confirm.png`)。
-其余 22 个补充画面/状态（如多任务计时、空态集、同步态集、表单状态、8 类危险确认弹窗等）在 `potato-android/extra-pages.js` 中有完整实现逻辑，后续阶段将通过专用渲染工具补齐视觉快照。
+其余 22 个补充画面/状态已通过 Headless Chrome 基于 `potato-android/extra-pages.js` 高保真设计引擎完成无头渲染补齐，存放于 `reference/supplementary-screens/` 目录中，与前 28 张原截图合并形成完整的 50 屏设计视觉验收参照基准。
 
 ## 复制文件清单与 SHA-256 校验和
 
@@ -224,3 +224,30 @@
 | `potato-android/figma/section-handoff.json` | 5704 | `3dc8fae71328073dabae6c409ab12c88bed132be0980464649bc3ef9c9f53711` |
 | `potato-android/figma/state.json` | 12952 | `f2217c44f8cfffa79b1cc1048a10647043d1fd65a9639d1e10a94cfbff290421` |
 | `potato-android/assets/potato-poses.png` | 1033917 | `5601594061c5df1d3f9ea50fa5c38fa2957dbc9dbb68c9dc9d895a38d1583dde` |
+
+### 补充补齐的 22 张设计画面参照截图 (supplementary-screens)
+
+| 文件相对路径 | 大小 (Bytes) | SHA-256 校验和 |
+|---|---|---|
+| `supplementary-screens/29-book-add.png` | 8196 | `88bdef85d392ff4e1f7edbd08472b11131581eed7f57c51656995541c3934b17` |
+| `supplementary-screens/30-course-add.png` | 50471 | `8d2db4713685d2adaf268953e12c0838462364fea7c6293b025cf0638daad03e` |
+| `supplementary-screens/31-today-multi.png` | 81502 | `4a4807407454f6754265ce71be30f624b05093962715ed8aeabbcd7467a71889` |
+| `supplementary-screens/32-focus-paused.png` | 61901 | `89144b3ad2f1e606041f2216e53e827b02c1bfe132e22b9cf6a163db9e0c6577` |
+| `supplementary-screens/33-complete-course-success.png` | 55540 | `8ef51df77c68232d173337ec76043b7d9e659c3777831171591d03e4c4a29748` |
+| `supplementary-screens/34-complete-custom-success.png` | 60171 | `b9831bc2f2aa4afa8ad51d42e8dc43aacaf8cb6622345810433026b99d93f867` |
+| `supplementary-screens/35-states-empty.png` | 65741 | `11c5bd26b457e97b5977494fbdfa7af778c4d8085417ff5c82dc8095df169ff5` |
+| `supplementary-screens/36-states-sync.png` | 71055 | `b16e1bc50c29cef73f0b7e6431a3672da3ecd94a63bc46588261a6b19fd9f815` |
+| `supplementary-screens/37-states-form.png` | 52277 | `df86c6d4eeeafa3288741903a23bebdf2e684d83c6f9c508b4963606db2c3133` |
+| `supplementary-screens/38-confirm-book.png` | 38517 | `946c95af7238237aa538830b06c2cb10361cec6122697d8ae2cb98c8dc53eabf` |
+| `supplementary-screens/39-confirm-course.png` | 37288 | `512fc4bde684c06747079d20c1368d13e310b111b90e1370d53283636686d557` |
+| `supplementary-screens/40-confirm-photo.png` | 41333 | `109d648dff1da7d0096b18e1717cf19cf9c89d78d024ded366208bccae77bc46` |
+| `supplementary-screens/41-confirm-reset.png` | 53310 | `6ffbfeee7ca0dfb7fee6052ed6ee07f0a2037d051d23cdf3567fc0cd5b323449` |
+| `supplementary-screens/42-confirm-import.png` | 47677 | `221382dd14db366ff3ade0cbff4166753b5b92fcda83fe572f1002e50974dd0b` |
+| `supplementary-screens/43-confirm-upload.png` | 44865 | `5b00cdab055027be46c0da51796ede44cea2693fa410f014d8c1eb6dea7f6e8b` |
+| `supplementary-screens/44-confirm-pull.png` | 47606 | `132dc8eb2b8420deb98cdb77930a3d6ff08c108baf7efa28d12b2adf056ae7b1` |
+| `supplementary-screens/45-confirm-logout.png` | 37839 | `7b5e515ed0566079d3d56bd27a504460c5825d8803b0dc0bb94d23e5d7e5738f` |
+| `supplementary-screens/46-download-apk.png` | 69062 | `f24c8e5a60da549b9cc5e0f3a651cee2530deed14d8a6059acd8bc045cdd8216` |
+| `supplementary-screens/47-month-picker.png` | 8490 | `ff80bcb45ddc4af08108a57cfcfd2abb40e668f0d2f6fdef9f4b26db372a023f` |
+| `supplementary-screens/48-overall-legend.png` | 2964 | `7c2f05d5557b43705090561cf4ad1bf9292759bd3cdb79de14a0a43c18818cdf` |
+| `supplementary-screens/49-focus-course.png` | 57735 | `1a7e8711dc662277bf2f3516214737c13104ed0a899ec7bfae78e2ea34a363e8` |
+| `supplementary-screens/50-focus-custom.png` | 57897 | `d4c818eb3ec51f54d76a8bef548b3fe59e07b367580a82958377dda65bb236ed` |
