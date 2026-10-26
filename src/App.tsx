@@ -62,6 +62,9 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     deleteCourse,
     deleteCustomItem,
     deleteWrongRecord,
+    currentUser,
+    logout,
+    triggerSync,
   } = useApp();
 
   // Navigation state
@@ -712,8 +715,15 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                   impactText: '退出后转为单机离线模式，本地数据不会丢失，随时可重新登录接续。',
                   danger: true,
                   onConfirm: () => {
-                    showToast('当前为离线模式，未连接云端账号');
-                    setConfirmConfig(prev => ({ ...prev, open: false }));
+                    if (currentUser) {
+                      logout().then(() => {
+                        showToast('已退出账号，转入单机离线模式');
+                        setConfirmConfig(prev => ({ ...prev, open: false }));
+                      });
+                    } else {
+                      showToast('当前为离线模式，未连接云端账号');
+                      setConfirmConfig(prev => ({ ...prev, open: false }));
+                    }
                   },
                 });
               }}
@@ -876,8 +886,15 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               impactText: '上传后云端旧数据将被本机记录完全覆盖。',
               danger: false,
               onConfirm: () => {
-                showToast('云端服务尚未接入，无法上传');
-                setConfirmConfig(prev => ({ ...prev, open: false }));
+                if (currentUser) {
+                  triggerSync().then(r => {
+                    showToast(r.ok ? '云端已更新至本机状态' : r.message || '上传同步失败');
+                    setConfirmConfig(prev => ({ ...prev, open: false }));
+                  });
+                } else {
+                  showToast('当前未登录云端账号，数据已保存在本机');
+                  setConfirmConfig(prev => ({ ...prev, open: false }));
+                }
               },
             });
           }}
@@ -889,8 +906,15 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               impactText: '拉取后本机未同步的改动将被云端记录覆盖。',
               danger: true,
               onConfirm: () => {
-                showToast('云端服务尚未接入，无法拉取');
-                setConfirmConfig(prev => ({ ...prev, open: false }));
+                if (currentUser) {
+                  triggerSync().then(r => {
+                    showToast(r.ok ? '已从云端拉取最新数据覆盖本机' : r.message || '拉取失败');
+                    setConfirmConfig(prev => ({ ...prev, open: false }));
+                  });
+                } else {
+                  showToast('当前未登录云端账号，无法拉取');
+                  setConfirmConfig(prev => ({ ...prev, open: false }));
+                }
               },
             });
           }}

@@ -31,7 +31,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onToast,
   forcedGuestMode = false,
 }) => {
-  const { state, exportBackup, importBackup, selfCheck, storageError, clearStorageError } = useApp();
+  const {
+    state,
+    currentUser,
+    syncStatus,
+    exportBackup,
+    importBackup,
+    selfCheck,
+    storageError,
+    clearStorageError,
+  } = useApp();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string; details: string[] } | null>(null);
   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -41,7 +50,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Check login status (supports forcedGuestMode for A07 guest matrix inspection)
-  const isGuest = true;
+  const isGuest = forcedGuestMode || !currentUser;
 
   const handleExport = async () => {
     if (exporting) return;

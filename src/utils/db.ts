@@ -1,13 +1,29 @@
-import { AppState, MutationResult, MediaRecord, SnapshotRecord, DamagedCacheRecord } from '../types';
+import { AppState, MutationResult, MediaRecord, SnapshotRecord, DamagedCacheRecord, OutboxRecord } from '../types';
 import { BLANK_STATE } from '../constants/initialData';
 import { validateAndMigrateBackup } from './backupValidator';
 
 export const DB_NAME = 'kaogong_potato_v3';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const LEGACY_STORAGE_KEY = 'potato_study_v2';
 
 let dbInstance: IDBDatabase | null = null;
 let dbInitPromise: Promise<IDBDatabase> | null = null;
+
+// User Partitioning: activeUserId isolates IndexedDB snapshots and outbox queues
+let activeUserId: string | null = null;
+
+export function setActiveUserPartition(userId: string | null): void {
+  activeUserId = userId;
+}
+
+export function getActiveUserPartition(): string | null {
+  return activeUserId;
+}
+
+export function getSnapshotKey(userId?: string | null): string {
+  const targetId = userId !== undefined ? userId : activeUserId;
+  return targetId ? `snapshot_${targetId}` : 'latest';
+}
 
 // Serial transaction queue (mutex) to prevent race conditions
 let mutationQueue: Promise<any> = Promise.resolve();
@@ -23,6 +39,7 @@ const memoryStore = {
   snapshots: new Map<string, SnapshotRecord>(),
   media: new Map<string, MediaRecord>(),
   damaged_cache: new Map<string, DamagedCacheRecord>(),
+  outbox: new Map<string, OutboxRecord>(),
 };
 
 /**
@@ -32,13 +49,15 @@ export function _resetInMemoryStore(): void {
   memoryStore.snapshots.clear();
   memoryStore.media.clear();
   memoryStore.damaged_cache.clear();
+  memoryStore.outbox.clear();
   dbInstance = null;
   dbInitPromise = null;
+  activeUserId = null;
 }
 
 /**
  * Initializes and opens the IndexedDB database 'kaogong_potato_v3'.
- * Creates 'snapshots', 'media', and 'damaged_cache' object stores if needed.
+ * Creates 'snapshots', 'media', 'damaged_cache', and 'outbox' object stores if needed.
  */
 export async function initDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined') {
@@ -46,7 +65,7 @@ export async function initDatabase(): Promise<IDBDatabase> {
     return {
       name: DB_NAME,
       version: DB_VERSION,
-      objectStoreNames: ['snapshots', 'media', 'damaged_cache'] as any,
+      objectStoreNames: ['snapshots', 'media', 'damaged_cache', 'outbox'] as any,
       close: () => {},
     } as unknown as IDBDatabase;
   }
@@ -67,6 +86,9 @@ export async function initDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('damaged_cache')) {
         db.createObjectStore('damaged_cache', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('outbox')) {
+        db.createObjectStore('outbox', { keyPath: 'id' });
       }
     };
 
@@ -97,9 +119,10 @@ export async function initDatabase(): Promise<IDBDatabase> {
 // Low-level DB helpers with in-memory fallback support
 // ----------------------------------------------------------------------
 
-async function getSnapshotFromDB(): Promise<SnapshotRecord | null> {
+async function getSnapshotFromDB(userId?: string | null): Promise<SnapshotRecord | null> {
+  const key = getSnapshotKey(userId);
   if (typeof indexedDB === 'undefined') {
-    const item = memoryStore.snapshots.get('latest');
+    const item = memoryStore.snapshots.get(key) || (key !== 'latest' ? null : memoryStore.snapshots.get('latest'));
     return item ? JSON.parse(JSON.stringify(item)) : null;
   }
 
@@ -107,7 +130,7 @@ async function getSnapshotFromDB(): Promise<SnapshotRecord | null> {
   return new Promise<SnapshotRecord | null>((resolve, reject) => {
     const tx = db.transaction('snapshots', 'readonly');
     const store = tx.objectStore('snapshots');
-    const request = store.get('latest');
+    const request = store.get(key);
 
     request.onsuccess = () => {
       resolve(request.result || null);
@@ -132,22 +155,26 @@ async function writeMutationToDB(
   snapshot: SnapshotRecord,
   newMedia?: MediaRecord[],
   deletedMediaIds?: string[],
-  expectedRevision: number = snapshot.revision - 1
+  expectedRevision: number = snapshot.revision - 1,
+  outboxItem?: OutboxRecord
 ): Promise<void> {
+  const key = snapshot.key;
   if (typeof indexedDB === 'undefined') {
-    if ((memoryStore.snapshots.get('latest')?.revision ?? 0) !== expectedRevision) {
+    if ((memoryStore.snapshots.get(key)?.revision ?? 0) !== expectedRevision) {
       throw new RevisionConflictError();
     }
     const mediaCopies = newMedia?.map(m => structuredClone(m));
-    memoryStore.snapshots.set('latest', structuredClone(snapshot));
+    memoryStore.snapshots.set(key, structuredClone(snapshot));
     for (const m of mediaCopies ?? []) memoryStore.media.set(m.id, m);
     for (const id of deletedMediaIds ?? []) memoryStore.media.delete(id);
+    if (outboxItem) memoryStore.outbox.set(outboxItem.id, structuredClone(outboxItem));
     return;
   }
 
   const db = await initDatabase();
   const storeNames = ['snapshots'];
   if (newMedia?.length || deletedMediaIds?.length) storeNames.push('media');
+  if (outboxItem) storeNames.push('outbox');
 
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(storeNames, 'readwrite');
@@ -157,7 +184,7 @@ async function writeMutationToDB(
     tx.onabort = () => reject(failure || tx.error || new Error('写入事务已中止'));
 
     const snapshotsStore = tx.objectStore('snapshots');
-    const request = snapshotsStore.get('latest');
+    const request = snapshotsStore.get(key);
     request.onsuccess = () => {
       // Compare and write under the same IndexedDB lock, shared by all tabs.
       if ((request.result?.revision ?? 0) !== expectedRevision) {
@@ -171,6 +198,10 @@ async function writeMutationToDB(
           const mediaStore = tx.objectStore('media');
           for (const m of newMedia ?? []) mediaStore.put(m);
           for (const id of deletedMediaIds ?? []) mediaStore.delete(id);
+        }
+        if (outboxItem && storeNames.includes('outbox')) {
+          const outboxStore = tx.objectStore('outbox');
+          outboxStore.put(outboxItem);
         }
       } catch (err) {
         failure = err instanceof Error ? err : new Error(String(err));
@@ -192,18 +223,18 @@ export interface LoadStateResult {
 }
 
 /**
- * Loads the latest state:
- * - Checks 'snapshots' in IndexedDB.
- * - If not found, checks localStorage for 'potato_study_v2'.
+ * Loads the latest state for the active or specified user partition:
+ * - Checks 'snapshots' in IndexedDB using partitioned key.
+ * - If user partition is guest and not found, checks localStorage for 'potato_study_v2'.
  *   - If valid v2, migrates to v3, writes to IndexedDB with migratedFromV2: true, keeps localStorage untouched.
  *   - If corrupted/invalid, saves raw string into damaged_cache, returns BLANK_STATE with corruptedRaw set.
  *     DOES NOT overwrite with demo data!
- * - If no localStorage, returns BLANK_STATE with isFresh: true.
+ * - If no localStorage or partition is empty, returns BLANK_STATE with isFresh: true.
  */
-export async function loadLatestState(): Promise<LoadStateResult> {
+export async function loadLatestState(userId?: string | null): Promise<LoadStateResult> {
   return enqueue(async () => {
-    // 1. Check IndexedDB snapshot
-    const existingSnapshot = await getSnapshotFromDB();
+    // 1. Check IndexedDB snapshot for target partition
+    const existingSnapshot = await getSnapshotFromDB(userId);
     if (existingSnapshot && existingSnapshot.state) {
       return {
         state: existingSnapshot.state,
@@ -212,7 +243,17 @@ export async function loadLatestState(): Promise<LoadStateResult> {
       };
     }
 
-    // 2. Check legacy localStorage
+    const key = getSnapshotKey(userId);
+    // If partitioned for a specific logged-in user, start with clean BLANK_STATE
+    if (key !== 'latest') {
+      return {
+        state: BLANK_STATE,
+        revision: 0,
+        isFresh: true,
+      };
+    }
+
+    // 2. Check legacy localStorage for guest
     let legacyRaw: string | null = null;
     try {
       if (typeof localStorage !== 'undefined') {
@@ -265,19 +306,31 @@ export async function loadLatestState(): Promise<LoadStateResult> {
   });
 }
 
+export interface CommitOptions {
+  userId?: string | null;
+  targetRevision?: number;
+  outboxBuilder?: (nextState: AppState, nextRevision: number) => OutboxRecord | undefined;
+}
+
 /**
  * Commits a state mutation via a serial transaction queue (mutex) to prevent race conditions.
- * Updates revision and stores the new snapshot atomically.
+ * Updates revision and stores the new snapshot atomically with optional outbox record.
  */
 export async function commitMutation<T>(
-  mutator: (state: AppState) => Promise<
+  mutator: (state: AppState) =>
+    | Promise<
+        | { nextState: AppState; value: T; newMedia?: MediaRecord[]; deletedMediaIds?: string[] }
+        | { error: { code: string; message: string; field?: string } }
+      >
     | { nextState: AppState; value: T; newMedia?: MediaRecord[]; deletedMediaIds?: string[] }
-    | { error: { code: string; message: string; field?: string } }
-  >
+    | { error: { code: string; message: string; field?: string } },
+  options?: CommitOptions
 ): Promise<MutationResult<T>> {
   return enqueue(async () => {
     try {
-      const currentSnapshot = await getSnapshotFromDB();
+      const targetUserId = options?.userId !== undefined ? options.userId : activeUserId;
+      const targetKey = getSnapshotKey(targetUserId);
+      const currentSnapshot = await getSnapshotFromDB(targetUserId);
       const currentState = currentSnapshot ? currentSnapshot.state : BLANK_STATE;
       const currentRevision = currentSnapshot ? currentSnapshot.revision : 0;
 
@@ -296,9 +349,13 @@ export async function commitMutation<T>(
       }
 
       if ('nextState' in mutationResult) {
-        const nextRevision = currentRevision + 1;
+        const nextRevision = options?.targetRevision ?? (currentRevision + 1);
+        const outboxItem = options?.outboxBuilder
+          ? options.outboxBuilder(mutationResult.nextState, nextRevision)
+          : undefined;
+
         const newSnapshot: SnapshotRecord = {
-          key: 'latest',
+          key: targetKey,
           state: mutationResult.nextState,
           version: 3,
           revision: nextRevision,
@@ -306,7 +363,13 @@ export async function commitMutation<T>(
           updatedAt: new Date().toISOString(),
         };
 
-        await writeMutationToDB(newSnapshot, mutationResult.newMedia, mutationResult.deletedMediaIds);
+        await writeMutationToDB(
+          newSnapshot,
+          mutationResult.newMedia,
+          mutationResult.deletedMediaIds,
+          currentRevision,
+          outboxItem
+        );
 
         return {
           ok: true,
@@ -326,6 +389,72 @@ export async function commitMutation<T>(
         message: err instanceof Error ? err.message : String(err),
       };
     }
+  });
+}
+
+/**
+ * Retrieves all pending outbox records for a user
+ */
+export async function getPendingOutbox(userId: string): Promise<OutboxRecord[]> {
+  if (typeof indexedDB === 'undefined') {
+    return Array.from(memoryStore.outbox.values()).filter(item => item.userId === userId && item.status !== 'in_flight');
+  }
+  const db = await initDatabase();
+  return new Promise<OutboxRecord[]>((resolve, reject) => {
+    const tx = db.transaction('outbox', 'readonly');
+    const store = tx.objectStore('outbox');
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const all = (req.result || []) as OutboxRecord[];
+      resolve(all.filter(item => item.userId === userId));
+    };
+    req.onerror = () => reject(req.error || new Error('读取待同步队列失败'));
+  });
+}
+
+/**
+ * Deletes an outbox task after successful synchronization confirmation
+ */
+export async function deleteOutboxItem(id: string): Promise<void> {
+  if (typeof indexedDB === 'undefined') {
+    memoryStore.outbox.delete(id);
+    return;
+  }
+  const db = await initDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('outbox', 'readwrite');
+    const store = tx.objectStore('outbox');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+    store.delete(id);
+  });
+}
+
+/**
+ * Clears all outbox tasks for a specific user partition
+ */
+export async function clearOutbox(userId: string): Promise<void> {
+  if (typeof indexedDB === 'undefined') {
+    for (const [id, item] of memoryStore.outbox.entries()) {
+      if (item.userId === userId) memoryStore.outbox.delete(id);
+    }
+    return;
+  }
+  const db = await initDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('outbox', 'readwrite');
+    const store = tx.objectStore('outbox');
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const all = (req.result || []) as OutboxRecord[];
+      for (const item of all) {
+        if (item.userId === userId) store.delete(item.id);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
@@ -440,12 +569,14 @@ export async function deleteMedia(id: string): Promise<boolean> {
  * Resets the database: writes BLANK_STATE with migratedFromV2: true
  * so old localStorage data is never re-migrated.
  */
-export async function resetDatabase(): Promise<boolean> {
+export async function resetDatabase(userId?: string | null): Promise<boolean> {
   return enqueue(async () => {
-    const current = await getSnapshotFromDB();
+    const targetUserId = userId !== undefined ? userId : activeUserId;
+    const targetKey = getSnapshotKey(targetUserId);
+    const current = await getSnapshotFromDB(targetUserId);
     const nextRevision = (current?.revision ?? 0) + 1;
     const resetSnapshot: SnapshotRecord = {
-      key: 'latest',
+      key: targetKey,
       state: BLANK_STATE,
       version: 3,
       revision: nextRevision,

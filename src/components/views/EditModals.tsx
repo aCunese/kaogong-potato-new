@@ -717,11 +717,15 @@ export const AuthModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, mode, onClose, onToast }) => {
+  const { login, register } = useApp();
   const [username, setUsername] = useState('potato_01');
   const [password, setPassword] = useState('1234');
+  const [nickname, setNickname] = useState('备考土豆');
+  const [inviteCode, setInviteCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     const cleanUser = username.trim().toLowerCase();
@@ -734,8 +738,31 @@ export const AuthModal: React.FC<{
       setErrorMsg('密码至少需要 4 个字符');
       return;
     }
+    if (mode === 'register' && !inviteCode.trim()) {
+      setErrorMsg('本系统为邀请制，请输入有效的注册邀请码');
+      return;
+    }
 
-    setErrorMsg('当前为本地离线版本，尚未接入账号服务，无法登录或注册。');
+    setIsSubmitting(true);
+    if (mode === 'login') {
+      const res = await login(cleanUser, password);
+      setIsSubmitting(false);
+      if (!res.ok) {
+        setErrorMsg(res.message);
+        return;
+      }
+      onToast('登录成功，已载入学员专属空间！');
+      onClose();
+    } else {
+      const res = await register(cleanUser, password, nickname.trim() || cleanUser, inviteCode.trim());
+      setIsSubmitting(false);
+      if (!res.ok) {
+        setErrorMsg(res.message);
+        return;
+      }
+      onToast('注册成功，欢迎加入备考工作台！');
+      onClose();
+    }
   };
 
   return (
@@ -758,6 +785,18 @@ export const AuthModal: React.FC<{
           />
         </div>
 
+        {mode === 'register' && (
+          <div>
+            <label className="block text-xs text-ink-muted font-medium mb-1">学员昵称</label>
+            <input
+              type="text"
+              value={nickname}
+              onChange={e => setNickname(e.target.value)}
+              className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
+            />
+          </div>
+        )}
+
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">密码 (至少4位)</label>
           <input
@@ -768,12 +807,27 @@ export const AuthModal: React.FC<{
           />
         </div>
 
+        {mode === 'register' && (
+          <div>
+            <label className="block text-xs text-ink-muted font-medium mb-1">邀请码 (一次性)</label>
+            <input
+              type="text"
+              value={inviteCode}
+              placeholder="请输入管理员生成的邀请码"
+              onChange={e => setInviteCode(e.target.value)}
+              className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage font-mono"
+            />
+          </div>
+        )}
+
         <p className="text-[11px] text-ink-muted leading-relaxed">
-          账号服务尚未接入，当前学习数据仅保存在本机。
+          {mode === 'login'
+            ? '登录后本地修改将自动与 Linux 云端服务双向同步。'
+            : '本软件为朋友邀请制，注册成功后将分配独立云端工作空间。'}
         </p>
 
-        <Button variant="primary" size="md" fullWidth type="submit">
-          {mode === 'login' ? '立即登录' : '创建账号'}
+        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting}>
+          {isSubmitting ? '正在处理...' : mode === 'login' ? '立即登录' : '创建账号'}
         </Button>
       </form>
     </Modal>

@@ -11,6 +11,8 @@ import {
   Profile,
   MutationResult,
   CompletionInput,
+  User,
+  SyncState,
 } from '../types';
 import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup } from '../utils/backupValidator';
@@ -19,7 +21,10 @@ import {
   commitMutation,
   resetDatabase,
   createPortableBackupState,
+  setActiveUserPartition,
+  clearOutbox,
 } from '../utils/db';
+import { syncOutboxWithServer, pullLatestFromServer, SyncResult } from '../utils/syncClient';
 import {
   applyStartTimer,
   applyPauseTimer,
@@ -98,6 +103,18 @@ export interface AppContextType {
   exportBackup: () => Promise<MutationResult<void>>;
   importBackup: (jsonContent: string) => Promise<MutationResult<{ summary: string }>>;
   selfCheck: () => { ok: boolean; message: string; details: string[] };
+
+  // Auth & Cloud Sync
+  currentUser: User | null;
+  csrfToken: string | null;
+  syncStatus: SyncState;
+  syncMessage: string | null;
+  conflictData: { serverRevision: number; serverState: AppState | null } | null;
+  login: (username: string, password: string) => Promise<MutationResult<User>>;
+  register: (username: string, password: string, nickname: string, inviteCode: string) => Promise<MutationResult<User>>;
+  logout: () => Promise<void>;
+  triggerSync: () => Promise<SyncResult>;
+  resolveConflict: (choice: 'keep_local' | 'keep_remote') => Promise<MutationResult<void>>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -124,6 +141,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const [corruptedRaw, setCorruptedRaw] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  // Auth & Cloud Sync States
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncState>('idle');
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [conflictData, setConflictData] = useState<{ serverRevision: number; serverState: AppState | null } | null>(null);
+
   // Local Date Management: Initialize with getLocalDateString()
   const [activeDate, setActiveDate] = useState<string>(() => preview ? '2026-10-25' : getLocalDateString());
 
@@ -135,11 +159,34 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     setCorruptedRaw(null);
   }, []);
 
-  // 1. Initial State Load from IndexedDB (loadLatestState)
+  // Forward declaration of triggerSync for background calls
+  const triggerSyncRef = useRef<() => Promise<SyncResult>>(async () => ({ ok: false, status: 'offline' }));
+
+  // 1. Initial State Load: check current authenticated session and load partitioned IndexedDB
   useEffect(() => {
     if (preview) return;
     let mounted = true;
-    loadLatestState()
+
+    fetch('/api/auth/me')
+      .then(async r => {
+        if (r.ok) {
+          const authData = await r.json();
+          if (authData.ok && authData.user) {
+            if (mounted) {
+              setCurrentUser(authData.user);
+              setCsrfToken(authData.csrfToken);
+            }
+            setActiveUserPartition(authData.user.id);
+            return loadLatestState(authData.user.id);
+          }
+        }
+        setActiveUserPartition(null);
+        return loadLatestState();
+      })
+      .catch(() => {
+        setActiveUserPartition(null);
+        return loadLatestState();
+      })
       .then(res => {
         if (!mounted) return;
         readyRef.current = true;
@@ -162,9 +209,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [preview]);
 
-  // 2. Cross-day and Midnight Rollover Listener
+  // 2. Cross-day, Midnight Rollover, and Network Sync Listeners
   useEffect(() => {
     if (preview) return;
     const checkMidnightRollover = () => {
@@ -177,21 +224,65 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       });
     };
 
-    window.addEventListener('focus', checkMidnightRollover);
+    const handleWindowFocus = () => {
+      checkMidnightRollover();
+      triggerSyncRef.current().catch(() => {});
+    };
+
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         checkMidnightRollover();
+        triggerSyncRef.current().catch(() => {});
       }
     };
+
+    const handleOnline = () => {
+      triggerSyncRef.current().catch(() => {});
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     const interval = setInterval(checkMidnightRollover, 30000);
 
     return () => {
-      window.removeEventListener('focus', checkMidnightRollover);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(interval);
     };
-  }, []);
+  }, [preview]);
+
+  // 3. Trigger Sync implementation
+  const triggerSync = useCallback(async (): Promise<SyncResult> => {
+    if (preview || !currentUser) {
+      return { ok: false, status: 'offline', message: '未登录云端账号' };
+    }
+    setSyncStatus('syncing');
+    setSyncMessage('正在同步最新学情...');
+    const result = await syncOutboxWithServer(currentUser.id, csrfToken || '');
+    if (result.status === 'conflict') {
+      setSyncStatus('conflict');
+      setConflictData({
+        serverRevision: result.serverRevision || 0,
+        serverState: result.serverState || null,
+      });
+      setSyncMessage(result.message || '检测到版本冲突');
+    } else if (result.status === 'synced') {
+      setSyncStatus('synced');
+      setSyncMessage('已完成云端同步');
+      setConflictData(null);
+    } else if (result.status === 'offline') {
+      setSyncStatus('idle');
+      setSyncMessage('已离线保存');
+    } else {
+      setSyncStatus('failed');
+      setSyncMessage(result.message || '同步失败');
+    }
+    return result;
+  }, [preview, currentUser, csrfToken]);
+
+  triggerSyncRef.current = triggerSync;
 
   // Serial transaction executor via commitMutation (db.ts)
   const executeMutation = useCallback(
@@ -223,19 +314,34 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
           appliedNextState = res.nextState;
         }
         return res;
+      }, {
+        userId: currentUser?.id ?? null,
+        outboxBuilder: currentUser ? (nextState, nextRevision) => ({
+          id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          userId: currentUser.id,
+          requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          state: nextState,
+          expectedRevision: nextRevision - 1,
+          generationId: '',
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        }) : undefined,
       });
 
       if (result.ok && appliedNextState) {
         setState(appliedNextState);
+        if (currentUser && navigator.onLine) {
+          triggerSync().catch(() => {});
+        }
       } else if (!result.ok && (result.code === 'COMMIT_FAILED' || result.code === 'REVISION_CONFLICT')) {
         setStorageError(result.message);
         if (result.code === 'REVISION_CONFLICT') {
-          try { setState((await loadLatestState()).state); } catch { readyRef.current = false; }
+          try { setState((await loadLatestState(currentUser?.id ?? null)).state); } catch { readyRef.current = false; }
         }
       }
       return result;
     },
-    [preview]
+    [preview, currentUser, triggerSync]
   );
 
   // ----------------------------------------------------------------------
@@ -533,6 +639,142 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     };
   }, [state]);
 
+  const login = useCallback(async (username: string, password: string): Promise<MutationResult<User>> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        return { ok: false, code: data.code || 'LOGIN_FAILED', message: data.message || '登录失败' };
+      }
+      setCurrentUser(data.user);
+      setCsrfToken(data.csrfToken);
+      setActiveUserPartition(data.user.id);
+
+      const userState = await loadLatestState(data.user.id);
+      if (userState.isFresh) {
+        const pullRes = await pullLatestFromServer(data.user.id);
+        if (pullRes.ok && pullRes.serverState) {
+          setState(pullRes.serverState);
+        } else {
+          setState(userState.state);
+        }
+      } else {
+        setState(userState.state);
+      }
+      triggerSync().catch(() => {});
+      return { ok: true, value: data.user };
+    } catch (err) {
+      return { ok: false, code: 'NETWORK_ERROR', message: '无法连接登录服务，请检查网络' };
+    }
+  }, [triggerSync]);
+
+  const register = useCallback(async (
+    username: string,
+    password: string,
+    nickname: string,
+    inviteCode: string
+  ): Promise<MutationResult<User>> => {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, nickname, inviteCode }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        return { ok: false, code: data.code || 'REGISTER_FAILED', message: data.message || '注册失败' };
+      }
+      setCurrentUser(data.user);
+      setCsrfToken(data.csrfToken);
+      setActiveUserPartition(data.user.id);
+
+      await commitMutation<void>(draft => ({ nextState: draft, value: undefined }), {
+        userId: data.user.id,
+        targetRevision: 1,
+        outboxBuilder: (nextState) => ({
+          id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          userId: data.user.id,
+          requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          state: nextState,
+          expectedRevision: 0,
+          generationId: '',
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+          reason: 'initial_register',
+        }),
+      });
+
+      triggerSync().catch(() => {});
+      return { ok: true, value: data.user };
+    } catch (err) {
+      return { ok: false, code: 'NETWORK_ERROR', message: '无法连接注册服务，请检查网络' };
+    }
+  }, [triggerSync]);
+
+  const logout = useCallback(async (): Promise<void> => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: csrfToken ? { 'x-csrf-token': csrfToken } : undefined,
+      });
+    } catch {}
+    setCurrentUser(null);
+    setCsrfToken(null);
+    setActiveUserPartition(null);
+    const guestState = await loadLatestState(null);
+    setState(guestState.state);
+    setSyncStatus('idle');
+    setSyncMessage(null);
+    setConflictData(null);
+  }, [csrfToken]);
+
+  const resolveConflict = useCallback(async (choice: 'keep_local' | 'keep_remote'): Promise<MutationResult<void>> => {
+    if (!currentUser || !conflictData) return { ok: false, code: 'NO_CONFLICT', message: '当前没有待解决的冲突' };
+
+    if (choice === 'keep_remote') {
+      if (!conflictData.serverState) return { ok: false, code: 'NO_SERVER_STATE', message: '云端无有效状态' };
+      await commitMutation<void>(() => ({
+        nextState: conflictData.serverState!,
+        value: undefined,
+      }), {
+        userId: currentUser.id,
+        targetRevision: conflictData.serverRevision,
+      });
+      await clearOutbox(currentUser.id);
+      setState(conflictData.serverState);
+      setConflictData(null);
+      setSyncStatus('synced');
+      setSyncMessage('已采用云端最新数据覆盖本地');
+      return { ok: true, value: undefined };
+    } else {
+      await commitMutation<void>(draft => ({
+        nextState: draft,
+        value: undefined,
+      }), {
+        userId: currentUser.id,
+        targetRevision: conflictData.serverRevision + 1,
+        outboxBuilder: (nextState) => ({
+          id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          userId: currentUser.id,
+          requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          state: nextState,
+          expectedRevision: conflictData.serverRevision,
+          generationId: '',
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+          reason: 'conflict_force_local',
+        }),
+      });
+      setConflictData(null);
+      await triggerSync();
+      return { ok: true, value: undefined };
+    }
+  }, [currentUser, conflictData, triggerSync]);
+
   return (
     <AppContext.Provider
       value={{
@@ -570,6 +812,16 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         exportBackup,
         importBackup,
         selfCheck,
+        currentUser,
+        csrfToken,
+        syncStatus,
+        syncMessage,
+        conflictData,
+        login,
+        register,
+        logout,
+        triggerSync,
+        resolveConflict,
       }}
     >
       {children}

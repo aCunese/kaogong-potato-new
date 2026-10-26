@@ -124,13 +124,34 @@ export interface MediaRecord {
 }
 
 export interface SnapshotRecord {
-  key: 'latest';
+  key: string;
   state: AppState;
   version: 3;
   revision: number;
   migratedFromV2: boolean;
   updatedAt: string;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  nickname: string;
+  role: string;
+}
+
+export interface OutboxRecord {
+  id: string;
+  userId: string;
+  requestId: string;
+  state: AppState;
+  expectedRevision: number;
+  generationId: string;
+  createdAt: string;
+  status: 'pending' | 'in_flight' | 'failed';
+  reason?: string;
+}
+
+export type SyncState = 'idle' | 'syncing' | 'synced' | 'failed' | 'conflict';
 
 export interface DamagedCacheRecord {
   id: string;
