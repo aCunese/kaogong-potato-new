@@ -1,7 +1,7 @@
 {
   "name": "考公工作台 · 土豆陪伴版",
   "short_name": "考公土豆",
-  "description": "专为公考考生打造的个人离线优先陪伴学习工作台",
+  "description": "专为公考考生打造的个人专属陪伴学习工作台",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F4F3EB",
@@ -9,9 +9,28 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/assets/potato-poses.png",
-      "sizes": "192x192 512x512",
-      "type": "image/png"
+      "src": "/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

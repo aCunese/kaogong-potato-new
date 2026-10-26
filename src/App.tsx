@@ -12,6 +12,8 @@ import { SyncModal } from './components/views/SyncModal';
 import { ConflictModal } from './components/views/ConflictModal';
 import { BackupModal } from './components/views/BackupModal';
 import { ProfileEditModal } from './components/views/ProfileEditModal';
+import { AuthView } from './components/views/AuthView';
+import { EmptyLibraryChoiceModal, GuestMigrationModal } from './components/views/MigrationModals';
 import {
   AddPlanModal,
   BookEditModal,
@@ -58,6 +60,14 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     clearCorruptedRaw,
     resetState,
     isLoading,
+    authPhase,
+    authError,
+    retryAuthLoad,
+    sessionExpired,
+    needsInitChoice,
+    guestMigration,
+    dismissGuestMigration,
+    pendingSyncCount,
     deletePlan,
     deleteBook,
     deleteCourse,
@@ -508,6 +518,65 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     activeTab,
   ]);
 
+  if (!preview && authPhase === 'error') {
+    return (
+      <div className="w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-6 selection:bg-sage-light">
+        <div className="w-full max-w-sm bg-paper border border-line rounded-3xl p-6 text-center shadow-soft">
+          <div className="w-16 h-16 rounded-2xl bg-alarm/10 border border-alarm/20 flex items-center justify-center mx-auto mb-3">
+            <AlertCircle size={28} className="text-alarm" />
+          </div>
+          <h1 className="text-base font-bold text-ink-main">云端工作区加载失败</h1>
+          <p className="text-xs text-ink-muted mt-2 leading-relaxed">
+            {authError || '暂时无法加载你的学习资料库。为避免覆盖服务器数据，已暂停进入编辑界面。'}
+          </p>
+          <button
+            onClick={() => { retryAuthLoad().catch(() => {}); }}
+            className="mt-4 w-full py-2.5 bg-sage text-white font-bold rounded-xl text-sm hover:bg-sage-dark transition-colors"
+          >
+            重新加载云端工作区
+          </button>
+          <button
+            onClick={() => { logout().catch(() => {}); }}
+            className="mt-2 w-full py-2 text-xs text-ink-muted"
+          >
+            退出当前账号
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!preview && (isLoading || authPhase === 'checking')) {
+    return (
+      <div className="w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-4 selection:bg-sage-light">
+        <div className="flex flex-col items-center text-center animate-pulse">
+          <div className="w-20 h-20 rounded-2xl bg-cream border-2 border-line/80 flex items-center justify-center p-2 shadow-soft mb-3">
+            <img
+              src="/branding/logo-transparent.png"
+              alt="考公工作台"
+              className="w-full h-full object-contain"
+            />
+          </div>
+          <h1 className="text-base font-bold text-ink-main">考公工作台</h1>
+          <p className="text-xs text-ink-muted mt-1">
+            {pendingSyncCount > 0 ? '正在载入学员空间并同步待处理学情…' : '正在载入学员空间并同步学情…'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!preview && (authPhase === 'unauthenticated' || !currentUser)) {
+    return (
+      <AuthView
+        initialMode="login"
+        sessionNotice={sessionExpired ? '登录状态已失效，请重新登录。未同步的学情与照片仍安全保留在本机。' : null}
+        onToast={showToast}
+        onLoginSuccess={() => setActiveTab('today')}
+      />
+    );
+  }
+
   return (
     <div className={`w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-0 ${screenSize === 'full' ? '' : 'lg:py-6'} text-ink-main selection:bg-sage-light overflow-x-hidden`}>
       {/* 桌面端外围工具条（当 screenSize !== 'full' 时在桌面端呈现） */}
@@ -592,7 +661,14 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                     showToast('当前有正在运行的计时器，请先暂停计时再更新');
                     return;
                   }
-                  applyUpdate();
+                  applyUpdate().then(ok => {
+                    if (ok) {
+                      showToast('新版本已激活，正在刷新页面…');
+                      setTimeout(() => window.location.reload(), 400);
+                    } else {
+                      showToast('更新暂未完成，请检查计时器或版本冲突后重试');
+                    }
+                  }).catch(() => showToast('更新暂未完成，请稍后重试'));
                 }}
                 className="px-2.5 py-1 bg-potato text-ink-main font-bold rounded-lg text-xs hover:bg-potato-dark hover:text-white transition-all shadow-sm"
               >
@@ -735,18 +811,13 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : (
             <SettingsView
-              onOpenLogin={() => setAuthModal({ open: true, mode: 'login' })}
-              onOpenRegister={() => setAuthModal({ open: true, mode: 'register' })}
-              onOpenSync={() => setSyncModalOpen(true)}
-              onOpenBackup={() => setBackupModalOpen(true)}
               onOpenProfile={() => setProfileModalOpen(true)}
-              onOpenDownloadApk={() => setDownloadApkOpen(true)}
               onOpenResetConfirm={() => {
                 setConfirmConfig({
                   open: true,
                   title: '恢复初始数据危险确认',
                   message: '确定清空当前工作台并恢复空白状态吗？',
-                  impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
+                  impactText: '题本、网课、日程、学习记录与错题将被清空，系统将自动先持久化紧急恢复快照。',
                   danger: true,
                   onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
                 });
@@ -755,24 +826,18 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                 setConfirmConfig({
                   open: true,
                   title: '退出账号登录确认',
-                  message: '确定退出当前学员账号吗？',
-                  impactText: '退出后转为单机离线模式，本地数据不会丢失，随时可重新登录接续。',
+                  message: '确定退出当前账号登录吗？',
+                  impactText: '退出后未同步至云端的数据仍将安全保留在当前设备，重新登录后可继续使用。',
                   danger: true,
                   onConfirm: () => {
-                    if (currentUser) {
-                      logout().then(() => {
-                        showToast('已退出账号，转入单机离线模式');
-                        setConfirmConfig(prev => ({ ...prev, open: false }));
-                      });
-                    } else {
-                      showToast('当前为离线模式，未连接云端账号');
+                    logout().then(() => {
+                      showToast('已安全退出登录');
                       setConfirmConfig(prev => ({ ...prev, open: false }));
-                    }
+                    });
                   },
                 });
               }}
               onToast={showToast}
-              forcedGuestMode={forcedGuestMode}
             />
           )}
         </div>
@@ -982,22 +1047,18 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               showToast(r.ok ? '已采用云端最新数据覆盖本机' : r.message || '同步失败');
             });
           }}
-          onExportLocal={() => {
-            exportBackup().then(r => {
-              showToast(r.ok ? '本机数据备份已下载' : r.message || '导出失败');
-            });
-          }}
-          onExportServer={() => {
-            if (!conflictData?.serverState) return;
-            const blob = new Blob([JSON.stringify(conflictData.serverState, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `kaogong_server_backup_rev${conflictData.serverRevision}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-            showToast('云端冲突数据备份已下载');
-          }}
+        />
+
+        <EmptyLibraryChoiceModal
+          isOpen={!preview && needsInitChoice}
+          onClose={() => {}}
+          onToast={showToast}
+        />
+
+        <GuestMigrationModal
+          isOpen={!preview && Boolean(guestMigration?.available)}
+          onClose={dismissGuestMigration}
+          onToast={showToast}
         />
 
         <BackupModal
@@ -1008,7 +1069,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               open: true,
               title: '恢复初始数据危险确认',
               message: '确定清空当前工作台并恢复空白状态吗？',
-              impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
+              impactText: '学习记录、错题照片与进度将被清空（保留题本/网课资料）。执行前会自动保存恢复点，可在“账号与数据设置”中还原。',
               danger: true,
               onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
             });

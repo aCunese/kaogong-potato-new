@@ -33,3 +33,12 @@ data/
 # Android Release Keystore & Secrets
 *.keystore
 release/*.keystore
+
+# Local outputs & audit scratch
+output/
+
+# Android build/verification output (unsigned artifacts must never be distributed)
+android/build/
+
+# Local tool scratch
+.playwright-mcp/

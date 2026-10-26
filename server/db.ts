@@ -123,6 +123,8 @@ export function getDb(): DatabaseType {
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_media_user ON media_records(user_id);
     CREATE INDEX IF NOT EXISTS idx_history_user_rev ON workspace_history(user_id, revision);
+    CREATE INDEX IF NOT EXISTS idx_history_user_created ON workspace_history(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_idempotency_user_created ON sync_idempotency(user_id, created_at);
   `);
 
   // Migration: ensure seed_version column exists on existing workspaces table
@@ -131,6 +133,17 @@ export function getDb(): DatabaseType {
   } catch {
     // Column already exists
   }
+
+  // Migration: persisted one-time empty-library initialization choice (R10)
+  // NULL = 尚未选择；'default' = 已载入官方默认资料库；'blank' = 用户明确保留空白
+  try {
+    db.exec('ALTER TABLE workspaces ADD COLUMN init_choice TEXT');
+  } catch {
+    // Column already exists
+  }
+
+  // 媒体秒传/幂等检索索引：按 (user_id, sha256) 去重（非唯一索引，避免历史重复数据导致启动失败）
+  db.exec('CREATE INDEX IF NOT EXISTS idx_media_user_sha ON media_records(user_id, sha256)');
 
   // Ensure global sync generation ID exists
   const getGen = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('generation_id') as { value: string } | undefined;

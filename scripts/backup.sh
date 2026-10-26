@@ -32,7 +32,8 @@ fi
 echo "--> 2. 验证备份数据库完整性..."
 node -e "
 const Database = require('better-sqlite3');
-const db = new Database('${TARGET_BACKUP_DIR}/potato.db', { readonly: true });
+const target = process.argv[1];
+const db = new Database(target + '/potato.db', { readonly: true });
 const check = db.pragma('integrity_check');
 if (!check || check[0].integrity_check !== 'ok') {
   console.error('❌ SQLite 完整性检查失败:', check);
@@ -40,7 +41,7 @@ if (!check || check[0].integrity_check !== 'ok') {
 }
 console.log('✅ SQLite PRAGMA integrity_check 通过');
 db.close();
-"
+" "${TARGET_BACKUP_DIR}"
 
 # 3. 归档压缩当前备份
 echo "--> 3. 正在生成独立归档压缩包..."
@@ -53,7 +54,7 @@ echo "--> 4. 执行本地保留策略检查与清理 (24小时全量 / 30天每�
 node -e "
 const fs = require('fs');
 const path = require('path');
-const baseDir = '${BACKUP_BASE_DIR}';
+const baseDir = process.argv[1];
 
 if (!fs.existsSync(baseDir)) process.exit(0);
 
@@ -85,8 +86,12 @@ for (const file of files) {
   }
 
   const d = new Date(file.mtime);
-  const dayKey = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-  const weekKey = d.getFullYear() + '-W' + Math.ceil(d.getDate() / 7);
+  const dayKey = d.toISOString().slice(0, 10);
+  // 计算周起始日（周一），避免日跨月归为同一周的缺陷 (Defect F11)
+  const dayOfWeek = d.getUTCDay();
+  const diffToMonday = (dayOfWeek + 6) % 7;
+  const monday = new Date(d.getTime() - diffToMonday * 86400000);
+  const weekKey = 'W-' + monday.toISOString().slice(0, 10);
 
   // 2. 30 天内保留每日首个备份
   if (age <= 30 * ONE_DAY) {
@@ -128,7 +133,7 @@ for (const dir of dirs) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }
-"
+" "${BACKUP_BASE_DIR}"
 
 # 5. 若配置了 Restic，自动推送至外部持久化快照存储
 if command -v restic &>/dev/null && [ -n "${RESTIC_REPOSITORY:-}" ]; then
@@ -138,12 +143,12 @@ if command -v restic &>/dev/null && [ -n "${RESTIC_REPOSITORY:-}" ]; then
         echo "   初始化 Restic 仓库: ${RESTIC_REPOSITORY}"
         restic init
     fi
-    # 修复动态路径导致 restic forget 无法按路径聚合的问题：
-    # 维护固定 latest 镜像路径，并使用统一标签 --group-by tags,host
+    # 维护固定 latest 镜像路径，便于外部查看与引用
     LATEST_LINK="${BACKUP_BASE_DIR}/latest"
     ln -sfn "${TARGET_BACKUP_DIR}" "${LATEST_LINK}"
 
-    restic backup "${LATEST_LINK}" \
+    # 关键修复 (Defect F10)：Restic 必须备份真实目标目录，不能只备份符号链接，否则只会备份 0 字节的 symlink
+    restic backup "${TARGET_BACKUP_DIR}" \
         --tag "kaogong" \
         --tag "automated" \
         --tag "v1.0.1" \

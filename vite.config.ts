@@ -26,7 +26,8 @@ function swPrecachePlugin() {
       precacheSet.add('/');
       precacheSet.add('/index.html');
       precacheSet.add('/manifest.json');
-      precacheSet.add('/version.json');
+      // 关键 (R16)：version.json 绝不能被预缓存。更新检查必须能证明响应来自本次网络，
+      // 由 SW 以 network-only 方式处理 /version.json 与 /api/version。
 
       if (fs.existsSync(distAssets)) {
         const assetFiles = fs.readdirSync(distAssets);
@@ -38,15 +39,16 @@ function swPrecachePlugin() {
       }
 
       const precacheList = Array.from(precacheSet).sort();
-
-      // 3. Write precache manifest
+      // 3. Write precache manifest (single release identity source: release.json)
+      const releaseInfo = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'release.json'), 'utf-8'));
+      const buildId = releaseInfo.webBuild;
       const manifestPath = path.join(distDir, 'precache-manifest.json');
       fs.writeFileSync(
         manifestPath,
         JSON.stringify(
           {
-            version: '1.0.1',
-            build: '20261026.02',
+            version: releaseInfo.webVersion,
+            build: buildId,
             generatedAt: new Date().toISOString(),
             assetsCount: precacheList.length,
             resources: precacheList,
@@ -65,6 +67,12 @@ function swPrecachePlugin() {
         swContent = swContent.replace(
           /const PRECACHE_RESOURCES = \[[^\]]*\];/s,
           `const PRECACHE_RESOURCES = ${listJson};`
+        );
+        // Cache name carries the release identity so a new build always invalidates
+        // stale precached shell assets (single source: release.json).
+        swContent = swContent.replace(
+          /const CACHE_NAME = '[^']*';/,
+          `const CACHE_NAME = 'kaogong-shell-v${releaseInfo.schemaVersion}-${releaseInfo.webVersion}-${releaseInfo.webBuild}';`
         );
         fs.writeFileSync(distSwPath, swContent, 'utf-8');
         console.log(`[Build] Injected ${precacheList.length} assets into dist/sw.js and dist/precache-manifest.json`);
@@ -92,6 +100,10 @@ export default defineConfig({
   preview: {
     port: 4174,
     host: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:3000',
+      '/version.json': 'http://127.0.0.1:3000',
+    },
   },
 });
 

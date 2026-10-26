@@ -31,11 +31,11 @@ export const SyncModal: React.FC<SyncModalProps> = ({
           </div>
           <h3 className="text-base font-bold text-ink-main">本机数据已受保护</h3>
           <p className="text-xs text-ink-muted mt-1 leading-relaxed max-w-[260px]">
-            当前处于单机离线模式（云端服务未接入）。所有刷题记录、做题统计均完整保存在本地存储中。
+            联网时自动双向同步；离线时修改会可靠暂存本机并保留待同步队列，恢复连接后自动补传。
           </p>
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 bg-paper rounded-full text-[11px] text-ink-muted font-medium border border-line">
             <CheckCircle2 size={12} className="text-sage" />
-            <span>单机离线模式（云端服务未接入）</span>
+            <span>自动同步已启用 · 离线可靠暂存</span>
           </div>
         </div>
 

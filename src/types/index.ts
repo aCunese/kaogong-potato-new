@@ -106,7 +106,7 @@ export interface AppState {
 }
 
 export type MutationResult<T> =
-  | { ok: true; value: T }
+  | { ok: true; value: T; revision?: number }
   | { ok: false; code: string; message: string; field?: string };
 
 export type CompletionInput =
@@ -127,9 +127,44 @@ export interface SnapshotRecord {
   key: string;
   state: AppState;
   version: 3;
+  /**
+   * Local mutation version. Monotonic counter of local writes to this partition.
+   * NEVER send this value as the cloud `expectedRevision`.
+   * Kept as `revision` for backward compatibility with existing snapshots/UI.
+   */
   revision: number;
+  /** Cloud revision this snapshot's content was last confirmed at (CAS base for pushes). */
+  confirmedRevision?: number;
+  /** Server generation this snapshot's content belongs to. */
+  generationId?: string;
+  /** Content hash (sha256 hex of JSON.stringify(state)) confirmed by the server. */
+  confirmedContentHash?: string;
+  /** Content hash (sha256 hex) of the CURRENT state stored in this snapshot. */
+  contentHash?: string;
   migratedFromV2: boolean;
   updatedAt: string;
+}
+
+/** Server sync baseline for one account partition. Stored separately from the snapshot. */
+export interface SyncBaseline {
+  userId: string;
+  confirmedRevision: number;
+  generationId: string;
+  contentHash: string;
+  updatedAt: string;
+}
+
+/** Persisted conflict state so a conflict survives queue filtering / reload / focus. */
+export interface SyncConflictRecord {
+  userId: string;
+  code: string;
+  message: string;
+  serverRevision: number;
+  serverGenerationId: string;
+  serverContentHash: string;
+  serverState: AppState | null;
+  localRevision?: number;
+  detectedAt: string;
 }
 
 export interface User {
@@ -142,13 +177,25 @@ export interface User {
 export interface OutboxRecord {
   id: string;
   userId: string;
+  /** Stable idempotency key. Must never be regenerated for retries of the same task. */
   requestId: string;
   state: AppState;
+  /** Cloud revision this task was built against (CAS base). NOT a local edit counter. */
   expectedRevision: number;
   generationId: string;
   createdAt: string;
-  status: 'pending' | 'in_flight' | 'failed';
+  status: 'pending' | 'in_flight' | 'failed' | 'quarantined' | 'conflict';
   reason?: string;
+  quarantineReason?: string;
+  /** Number of failed push attempts (bounded exponential backoff). */
+  attempts?: number;
+  /** ISO timestamp before which this task must not be retried. */
+  nextAttemptAt?: string;
+  /** Cross-tab lease owner + expiry for in_flight tasks. */
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  /** Content hash of the payload when it was successfully confirmed. */
+  confirmedContentHash?: string;
 }
 
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'failed' | 'conflict';

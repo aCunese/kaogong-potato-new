@@ -137,14 +137,22 @@ async function run() {
       const attachmentsManifest: Array<{ filename: string; sha256: string; byteSize: number }> = [];
 
       for (const rec of records) {
-        const srcFilePath = path.join(srcAttDir, rec.filename);
-        if (!fs.existsSync(srcFilePath)) {
-          console.error(`❌ 热备中止: 数据库引用的媒体文件在磁盘上缺失: ${rec.filename} (ID: ${rec.id})`);
+        // 安全防御：严格防止路径穿越与宿主机任意文件读取逃逸 (Root Cron Privilege Escalation)
+        const safeFilename = path.basename(rec.filename);
+        if (safeFilename !== rec.filename || rec.filename.includes('..') || path.isAbsolute(rec.filename)) {
+          console.error(`🚨 [SECURITY ALERT] 检测到恶意附件路径伪造: ${rec.filename}`);
           fs.rmSync(targetDir, { recursive: true, force: true });
-          throw new Error(`CRITICAL_ATTACHMENT_MISSING: ${rec.filename}`);
+          throw new Error(`SECURITY_PATH_TRAVERSAL_DETECTED: ${rec.filename}`);
         }
 
-        const destFilePath = path.join(destAttDir, rec.filename);
+        const srcFilePath = path.join(srcAttDir, safeFilename);
+        if (!fs.existsSync(srcFilePath)) {
+          console.error(`❌ 热备中止: 数据库引用的媒体文件在磁盘上缺失: ${safeFilename} (ID: ${rec.id})`);
+          fs.rmSync(targetDir, { recursive: true, force: true });
+          throw new Error(`CRITICAL_ATTACHMENT_MISSING: ${safeFilename}`);
+        }
+
+        const destFilePath = path.join(destAttDir, safeFilename);
         fs.copyFileSync(srcFilePath, destFilePath);
         const content = fs.readFileSync(destFilePath);
         const actualHash = crypto.createHash('sha256').update(content).digest('hex');
@@ -167,10 +175,14 @@ async function run() {
       const dbHash = crypto.createHash('sha256').update(dbBuffer).digest('hex');
       const genId = getCurrentGenerationId();
 
+      let releaseConfig: any = {};
+      try {
+        releaseConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'release.json'), 'utf-8'));
+      } catch {}
       const manifest = {
-        version: '1.0.1',
-        build: '20261026.02',
-        schemaVersion: 3,
+        version: String(releaseConfig.webVersion || 'unknown'),
+        build: String(releaseConfig.webBuild || 'unknown'),
+        schemaVersion: Number(releaseConfig.schemaVersion) || 3,
         createdAt: new Date().toISOString(),
         generationId: genId,
         database: {

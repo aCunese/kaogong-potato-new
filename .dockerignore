@@ -1,0 +1,29 @@
+# ==============================================================================
+# 考公工作台 · Docker 构建排除规则 (生产安全隔离)
+# ==============================================================================
+
+# 1. 严禁任何 Android 签名密钥库与证书打入镜像
+release/*.keystore
+release/*.jks
+*.keystore
+*.jks
+
+# 2. 严禁宿主机真实数据库、附件与历史热备份打入镜像
+data/
+data/potato.db*
+data/backups/
+data/attachments/
+
+# 3. 排除含有明文构建凭据的发布脚本与源码仓库历史
+scripts/build-apk.sh
+.git/
+.gitignore
+.DS_Store
+*.log
+.playwright-mcp/
+output/
+verification-screens*/
+
+# 4. 排除本地 node_modules 与开发构建输出（由容器内全新安装与构建）
+node_modules/
+dist/

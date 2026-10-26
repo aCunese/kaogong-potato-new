@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { getDb, rotateGenerationId, getCurrentGenerationId } from './db';
 import { hashPassword, revokeAllUserSessions, UserRow } from './auth';
+import { pruneWorkspaceHistory } from './retention';
 import { AppState } from '../src/types';
 import { validateAndMigrateBackup } from '../src/utils/backupValidator';
 
@@ -148,6 +149,9 @@ export function restoreUserWorkspace(
         schema_version = excluded.schema_version,
         updated_at = excluded.updated_at
     `).run(userId, nextRev, currentGen, stateJson, 3, nowIso);
+
+    // R18: 新写入历史后执行有界保留策略（仅裁剪超过 7 天窗口的旧快照）
+    pruneWorkspaceHistory(userId, new Date(nowIso), db);
 
     return nextRev;
   });

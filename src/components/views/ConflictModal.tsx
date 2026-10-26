@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Button, Card } from '../common/UIComponents';
-import { AlertTriangle, Download, ArrowUpRight, ArrowDownLeft, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ArrowDownLeft, ShieldCheck } from 'lucide-react';
 import { AppState } from '../../types';
 
 interface ConflictModalProps {
@@ -12,8 +12,6 @@ interface ConflictModalProps {
   serverRevision: number;
   onKeepLocal: () => void;
   onKeepRemote: () => void;
-  onExportLocal: () => void;
-  onExportServer: () => void;
 }
 
 export const ConflictModal: React.FC<ConflictModalProps> = ({
@@ -25,33 +23,31 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
   serverRevision,
   onKeepLocal,
   onKeepRemote,
-  onExportLocal,
-  onExportServer,
 }) => {
-  const localPlansCount = localState.plans.length;
-  const localRecordsCount = localState.records.length;
-  const serverPlansCount = serverState?.plans.length ?? 0;
-  const serverRecordsCount = serverState?.records.length ?? 0;
+  const localPlansCount = localState?.plans?.length ?? 0;
+  const localRecordsCount = localState?.records?.length ?? 0;
+  const serverPlansCount = serverState?.plans?.length ?? 0;
+  const serverRecordsCount = serverState?.records?.length ?? 0;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="检测到数据版本冲突">
       <div className="space-y-4">
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-ink-main">
           <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-xs leading-relaxed">
-            <div className="font-bold text-amber-800">云端与本机记录存在不一致</div>
-            <div className="text-ink-muted text-[11px] mt-0.5">
-              其他设备已向云端提交了新记录，或者服务器执行了维护。为防止意外覆盖，请核对后选择保留方案。
+          <div className="text-xs space-y-1">
+            <div className="font-bold">云端版本与本机记录存在分叉差异</div>
+            <div className="text-ink-muted leading-relaxed">
+              可能其他设备提交了新进度，或经历了灾备恢复。系统已为您自动在本地保存恢复快照，请选择以哪方记录为准：
             </div>
           </div>
         </div>
 
-        {/* 版本对照卡片 */}
-        <div className="grid grid-cols-2 gap-3">
+        {/* 双方版本对比卡片 */}
+        <div className="grid grid-cols-2 gap-2.5">
           <Card className="p-3 bg-paper border-line text-xs space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-ink-main">本机当前版本</span>
-              <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono">
+              <span className="font-bold text-ink-main">当前本机记录</span>
+              <span className="text-[10px] bg-potato/20 text-ink-main px-1.5 py-0.5 rounded font-mono">
                 Rev {localRevision}
               </span>
             </div>
@@ -61,15 +57,6 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             <div className="text-[11px] text-ink-muted">
               累计记录: <span className="font-mono font-bold text-ink-main">{localRecordsCount}</span> 条
             </div>
-            <Button
-              variant="light"
-              size="sm"
-              className="w-full mt-2 text-[11px] py-1"
-              onClick={onExportLocal}
-            >
-              <Download size={12} className="mr-1" />
-              导出本机备份
-            </Button>
           </Card>
 
           <Card className="p-3 bg-paper border-line text-xs space-y-1.5">
@@ -85,20 +72,10 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             <div className="text-[11px] text-ink-muted">
               累计记录: <span className="font-mono font-bold text-ink-main">{serverRecordsCount}</span> 条
             </div>
-            <Button
-              variant="light"
-              size="sm"
-              className="w-full mt-2 text-[11px] py-1"
-              onClick={onExportServer}
-              disabled={!serverState}
-            >
-              <Download size={12} className="mr-1" />
-              导出云端备份
-            </Button>
           </Card>
         </div>
 
-        {/* 操作决策 */}
+        {/* 冲突解决操作决策 */}
         <div className="space-y-2 pt-1">
           <Button
             variant="secondary"

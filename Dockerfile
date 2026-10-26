@@ -42,11 +42,12 @@ COPY server/ ./server
 COPY src/ ./src
 COPY tsconfig.json ./
 COPY tsconfig.server.json ./
-COPY release/ ./release
-COPY scripts/ ./scripts
+RUN mkdir -p /app/release/apk /app/scripts
+COPY release/apk/ ./release/apk/
+COPY scripts/backup.sh scripts/restore.sh ./scripts/
 
 # Setup data directory permissions for non-root node user
-RUN mkdir -p /app/data/attachments /app/data/backups /app/release/apk && \
+RUN mkdir -p /app/data/attachments /app/data/backups && \
     chown -R node:node /app
 
 USER node

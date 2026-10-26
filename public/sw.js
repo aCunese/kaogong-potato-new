@@ -1,22 +1,35 @@
 // ==============================================================================
 // 考公工作台 · Offline Service Worker (PWA & Offline Shell)
+//
+// R16 修复（只读审查项）：
+//   - /version.json 与 /api/version 是“版本核验”接口，必须【网络直通、永不缓存、绝不回退缓存】；
+//     网络失败时返回 503 JSON（response.ok=false），页面因此进入 failed/offline 状态，
+//     绝不会把旧缓存里的 version.json 当成“当前最新版本”。
+//   - 从 PRECACHE_RESOURCES 中移除 version.json；CACHE_NAME 升级 v2 以清理历史缓存中可能残留的 version.json。
+//   - 页面侧仍通过 /version.json?nonce=<一次性随机值> 服务端回显 nonce 做网络新鲜度证明（双保险）。
 // ==============================================================================
 
-const CACHE_NAME = 'kaogong-shell-v1.0.1-20261026.02';
+const CACHE_NAME = 'kaogong-shell-v3-1.0.3-20261027.01';
 
+// 注意：这里绝对不能包含 /version.json（R16：版本响应不允许被缓存）
 const PRECACHE_RESOURCES = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/version.json',
   '/assets/potato-poses.png',
 ];
+
+// 防御性过滤：构建期脚本（vite swPrecachePlugin）会重写上面的数组，即使它误把
+// /version.json 或 /api/version 注入预缓存列表，这里也会在 install 前剔除（R16 双保险）。
+const SAFE_PRECACHE_RESOURCES = PRECACHE_RESOURCES.filter(
+  (resource) => !/^\/api\/version(\?|$)/.test(resource) && !/^\/version\.json(\?|$)/.test(resource)
+);
 
 // 1. Install & Pre-cache
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_RESOURCES).catch((err) => {
+      return cache.addAll(SAFE_PRECACHE_RESOURCES).catch((err) => {
         console.warn('[SW] Pre-caching non-fatal warning:', err);
       });
     }).then(() => self.skipWaiting())
@@ -32,17 +45,54 @@ self.addEventListener('activate', (event) => {
           if (key !== CACHE_NAME) {
             return caches.delete(key);
           }
+          return undefined;
         })
       );
     }).then(() => self.clients.claim())
   );
 });
 
+// 2b. Message Listener for immediate Skip-Waiting on update
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+function offlineVersionResponse() {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      offline: true,
+      code: 'VERSION_UNAVAILABLE',
+      message: '版本接口当前不可达；为避免误报“已是最新”，本次核验按失败处理。',
+    }),
+    {
+      status: 503,
+      statusText: 'Service Unavailable (Offline)',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    }
+  );
+}
+
 // 3. Fetch Dispatcher with Strict Route Isolation
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // A. API Requests: STRICT Network-Only or Network-First.
+  // A. 版本核验接口：STRICT Network-Only（R16）
+  //    - 绝不读缓存、绝不做 cache-fallback、绝不把旧 version.json 返回给页面；
+  //    - 网络失败返回 503 JSON（response.ok=false，页面判定 failed/offline）。
+  if (url.pathname === '/version.json' || url.pathname === '/api/version') {
+    event.respondWith(
+      fetch(event.request).catch(() => offlineVersionResponse())
+    );
+    return;
+  }
+
+  // B. API Requests: STRICT Network-Only or Network-First.
   // CRITICAL RULE: NEVER fallback to index.html for API requests!
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
@@ -65,22 +115,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // B. Version check endpoint: Network-First with cache fallback
-  if (url.pathname === '/version.json') {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((c) => c.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match('/version.json'))
-    );
-    return;
-  }
-
   // C. Navigation requests (Page reloads, deep links): Network-First, fallback to cached /index.html
   if (event.request.mode === 'navigate') {
     event.respondWith(
@@ -88,7 +122,7 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response.ok) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((c) => c.put('/index.html', clone));
+            caches.open(CACHE_NAME).then((c) => c.put('/index.html', clone)).catch(() => {});
           }
           return response;
         })
@@ -137,7 +171,7 @@ self.addEventListener('fetch', (event) => {
               event.request.destination === 'font'
             ) {
               const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
             }
           }
           return response;

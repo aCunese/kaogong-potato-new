@@ -1,8 +1,15 @@
 {
-  "version": "1.0.1",
-  "build": "20261026.02",
+  "version": "1.0.3",
+  "build": "20261027.01",
   "schemaVersion": 3,
-  "apkVersion": "1.0.1",
-  "deployedAt": "2026-10-26T17:30:00Z",
-  "summary": "生产正式版：多账号邀请制、种子工厂、双向防冲突与离线完整可用"
+  "apkVersion": "1.0.3",
+  "apkVersionCode": 4,
+  "apkDownloadUrl": "/api/download/apk",
+  "apkSha256": "",
+  "apkSizeBytes": 0,
+  "apkPackageName": "com.ruyne.kaogong",
+  "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
+  "apkReleased": false,
+  "deployedAt": "2026-10-27T00:00:00Z",
+  "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复"
 }

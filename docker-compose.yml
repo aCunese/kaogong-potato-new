@@ -20,10 +20,15 @@ services:
     volumes:
       # 持久化存储目录：挂载 SQLite 数据库及附件存储
       - ./data:/app/data
-      # 挂载客户端安装包发布目录
-      - ./release:/app/release:ro
+      # 挂载客户端安装包发布产物目录 (隔离 keystore 密钥库)
+      - ./release/apk:/app/release/apk:ro
       # 挂载运维备份脚本目录
       - ./scripts:/app/scripts:ro
+    # 安全加固：彻底丢弃特权与 capabilities，防止容器逃逸提权
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:

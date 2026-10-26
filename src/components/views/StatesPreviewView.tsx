@@ -115,7 +115,7 @@ export const StatesPreviewView: React.FC<StatesPreviewProps> = ({ onBack, initia
               <span className="w-2.5 h-2.5 rounded-full bg-potato" />
               <div>
                 <div className="text-xs font-bold text-ink-main">多端同步版本冲突</div>
-                <div className="text-[10px] text-ink-muted">云端修改时间晚于本机，建议先导出备份</div>
+                <div className="text-[10px] text-ink-muted">云端修改时间晚于本机，请核对后选择保留版本</div>
               </div>
             </div>
             <Tag variant="potato">需确认</Tag>

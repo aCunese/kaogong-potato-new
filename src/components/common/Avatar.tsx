@@ -29,8 +29,8 @@ export const Avatar: React.FC<AvatarProps> = ({
     return (num >= 0 && num <= 7 ? num : 0) as PotatoPose;
   };
 
-  // If no avatar or image failed to load, render default potato sprite
-  if (!avatar || avatar.trim() === '' || hasError) {
+  // Defend against non-string input (Fixes Defect F12)
+  if (!avatar || typeof avatar !== 'string' || avatar.trim() === '' || hasError) {
     return <PotatoSprite pose={0} size={size} className={className} alt={alt} />;
   }
 
@@ -40,16 +40,19 @@ export const Avatar: React.FC<AvatarProps> = ({
     return <PotatoSprite pose={pose} size={size} className={className} alt={alt} />;
   }
 
-  // Real image data URL, HTTP URL, or Blob URL
+  // Real image data URL, HTTP URL, Blob URL, or confirmed server media reference.
+  const mediaRef = avatar.startsWith('media:') ? `/api/media/${avatar.slice('media:'.length)}` : avatar;
   if (
     avatar.startsWith('data:') ||
     avatar.startsWith('http://') ||
     avatar.startsWith('https://') ||
-    avatar.startsWith('blob:')
+    avatar.startsWith('blob:') ||
+    avatar.startsWith('/api/media/') ||
+    avatar.startsWith('media:')
   ) {
     return (
       <img
-        src={avatar}
+        src={mediaRef}
         alt={alt}
         className={`rounded-2xl object-cover shrink-0 ${className}`}
         style={{

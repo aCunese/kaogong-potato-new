@@ -533,6 +533,17 @@ export const PhotoImportModal: React.FC<{
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
 
+  // 关键修复 (Defect F07)：弹窗打开或题本数据加载完成时，自动校正有效 bookId，防止出现默认首项可见却提示“请先创建题本”
+  useEffect(() => {
+    if (isOpen) {
+      if (!bookId || !state.books.some(b => b.id === bookId)) {
+        if (state.books.length > 0) {
+          setBookId(state.books[0].id);
+        }
+      }
+    }
+  }, [isOpen, state.books, bookId]);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -554,9 +565,33 @@ export const PhotoImportModal: React.FC<{
   };
 
   const handleAddSample = () => {
-    // Generate a clean mock canvas SVG to avoid empty states
-    const svgData = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300' viewBox='0 0 400 300'%3E%3Crect width='100%25' height='100%25' fill='%23F4F3EB'/%3E%3Crect x='20' y='20' width='360' height='260' rx='12' fill='%23FFFDF8' stroke='%23E4E6D9'/%3E%3Ctext x='40' y='60' font-family='sans-serif' font-size='16' font-weight='bold' fill='%23343C2F'%3E错题手稿复盘模拟%3C/text%3E%3Ctext x='40' y='100' font-family='sans-serif' font-size='13' fill='%23C95D53'%3E✘ 错误选项：C（计算时忽略分母首位估算）%3C/text%3E%3Ctext x='40' y='130' font-family='sans-serif' font-size='13' fill='%2361794F'%3E✔ 正确思路：截位直除，先看差距判断保留位%3C/text%3E%3C/svg%3E";
-    setPreviewImages(prev => [...prev, svgData]);
+    // Generate a raster PNG sample (SVG data URLs are not accepted by the server media
+    // pipeline, so a canvas PNG keeps the demo photo syncable across devices).
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 300;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.fillStyle = '#F4F3EB';
+      ctx.fillRect(0, 0, 400, 300);
+      ctx.fillStyle = '#FFFDF8';
+      ctx.fillRect(20, 20, 360, 260);
+      ctx.strokeStyle = '#E4E6D9';
+      ctx.strokeRect(20, 20, 360, 260);
+      ctx.fillStyle = '#343C2F';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('错题手稿复盘模拟', 40, 60);
+      ctx.fillStyle = '#C95D53';
+      ctx.font = '13px sans-serif';
+      ctx.fillText('✘ 错误选项：C（计算时忽略分母首位估算）', 40, 100);
+      ctx.fillStyle = '#61794F';
+      ctx.fillText('✔ 正确思路：截位直除，先看差距判断保留位', 40, 130);
+      const pngData = canvas.toDataURL('image/png');
+      setPreviewImages(prev => [...prev, pngData]);
+    } catch {
+      // Canvas unavailable: do not inject an unsyncable SVG placeholder.
+    }
   };
 
   const handleSubmit = async () => {
@@ -718,9 +753,9 @@ export const AuthModal: React.FC<{
   onToast: (msg: string) => void;
 }> = ({ isOpen, mode, onClose, onToast }) => {
   const { login, register } = useApp();
-  const [username, setUsername] = useState('potato_01');
-  const [password, setPassword] = useState('1234');
-  const [nickname, setNickname] = useState('备考土豆');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [nickname, setNickname] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -735,8 +770,8 @@ export const AuthModal: React.FC<{
       setErrorMsg('用户名至少需要 2 个字符');
       return;
     }
-    if (password.length < 4) {
-      setErrorMsg('密码至少需要 4 个字符');
+    if (password.length < 8) {
+      setErrorMsg('密码至少需要 8 个字符');
       return;
     }
     if (mode === 'register' && !inviteCode.trim()) {
@@ -799,7 +834,7 @@ export const AuthModal: React.FC<{
         )}
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">密码 (至少4位)</label>
+          <label className="block text-xs text-ink-muted font-medium mb-1">密码 (至少8位)</label>
           <div className="relative flex items-center">
             <input
               type={showPassword ? 'text' : 'password'}

@@ -55,7 +55,7 @@ const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
-const backupDir = '${RESTORE_SOURCE_DIR}';
+const backupDir = process.argv[1];
 const manifestPath = path.join(backupDir, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
@@ -101,7 +101,7 @@ for (const item of requiredMedia) {
   }
 }
 console.log('✅ 数据库引用的所有 ' + requiredMedia.length + ' 个媒体附件在备份中完整存在且校验通过');
-"
+" "${RESTORE_SOURCE_DIR}"
 
 # 3. 如果当前存在生产数据，先做一份安全快照以防意外
 if [ "${SKIP_PRE}" != "--skip-pre-backup" ] && [ -f "${DATA_DIR}/potato.db" ]; then
