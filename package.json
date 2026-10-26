@@ -13,7 +13,13 @@
     "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts tests/defects-f01-f12-regression.test.ts tests/sync-core-regressions.test.ts --timeout 60000",
     "test:server": "node --import tsx --test tests/server.test.ts",
     "test:dr": "node --import tsx --test tests/disaster-recovery.test.ts",
-    "test": "npm run test:unit && npm run test:server && npm run test:dr"
+    "test": "npm run test:unit && npm run test:server && npm run test:dr",
+    "verify:isolated": "bun scripts/run-isolated-audit.ts",
+    "verify:business": "bun scripts/business-e2e-audit.ts",
+    "verify:auth": "bun scripts/auth-epoch-audit.ts",
+    "verify:backup": "bun scripts/backup-restore-audit.ts",
+    "verify:apk": "./scripts/build-apk.sh --unsigned-verify",
+    "verify:apk-old": "./scripts/build-apk.sh --verify-apk release/apk/kaogong-potato-v1.0.2.apk"
   },
   "dependencies": {
     "argon2": "^0.45.1",

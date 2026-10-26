@@ -1,0 +1,117 @@
+{
+  "runId": "run-20261026-142824-e47870",
+  "checkedAt": "2026-10-26T14:28:41.813Z",
+  "baseUrl": "http://127.0.0.1:50042",
+  "dataDir": "/tmp/run-20261026-142824-e47870-e0P7fd/data",
+  "webBuild": {
+    "version": "1.0.3",
+    "build": "20261027.01",
+    "schemaVersion": 3,
+    "apkVersion": "1.0.3",
+    "apkVersionCode": 4,
+    "apkDownloadUrl": "/api/download/apk",
+    "apkSha256": "",
+    "apkSizeBytes": 0,
+    "apkPackageName": "com.ruyne.kaogong",
+    "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
+    "apkReleased": false,
+    "deployedAt": "2026-10-27T00:00:00Z",
+    "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
+    "servedAt": "2026-10-26T14:28:41.814Z",
+    "nonce": "run-20261026-142824-e47870"
+  },
+  "gitHead": "91b07e5fa8c90023713b5bf041bf7016333d7749",
+  "total": 14,
+  "passed": 14,
+  "failed": 0,
+  "results": [
+    {
+      "name": "R09: workspace load failure shows accurate error screen instead of editable seed library",
+      "passed": true,
+      "detail": {
+        "body": "云端工作区加载失败\n\n服务暂不可用\n\n重新加载云端工作区退出当前账号"
+      }
+    },
+    {
+      "name": "R09: error state blocks business navigation and does not fabricate a seed library",
+      "passed": true,
+      "detail": {
+        "navCount": 0,
+        "seedCards": 0
+      }
+    },
+    {
+      "name": "R09: retry after load failure loads the real server workspace",
+      "passed": true
+    },
+    {
+      "name": "R04: explicit logout returns to login screen",
+      "passed": true
+    },
+    {
+      "name": "R04: late response from logged-out account does not re-enter or pollute the UI",
+      "passed": true,
+      "detail": {
+        "navAfterLateResponse": 0,
+        "loginStillVisible": true,
+        "body": "考公工作台\n\n你的专属备考陪伴与学情统计空间\n\n登录账号\n注册新学员\n用户名(支持英文字母与数字)\n学员昵称(用于个性化学习空间称呼)\n账号密码\n至少 8 位字符\n注册邀请码(专属通道凭证)\n注册并进入工作台\n学情记录本地可靠暂存 · 联网"
+      }
+    },
+    {
+      "name": "R11: explicit logout persists a logged-out marker even when the logout request fails",
+      "passed": true
+    },
+    {
+      "name": "R11: reload with a still-valid cookie does NOT auto re-enter after explicit logout",
+      "passed": true,
+      "detail": {
+        "stillLoginAfterReload": true,
+        "navAfterReload": 0
+      }
+    },
+    {
+      "name": "R11: explicit re-login after logout enters the account again",
+      "passed": true
+    },
+    {
+      "name": "R11: explicit re-login clears the logged-out marker",
+      "passed": true
+    },
+    {
+      "name": "R10: legacy guest data offers reachable explicit migration with scope preview",
+      "passed": true,
+      "detail": {
+        "modalText": "旧版本地数据迁移确认\n检测到本机存在旧版本地学情数据\n这些数据属于旧版本本机游客分区，仅会迁移到您当前登录的账号，不会跨账号自动搬运。\n迁移范围预览\n新增题本：1 本（复用已有 0 本）\n新增网课：0 门（复用已有 0 门）\n新增事项：1 项\n日程：0 条（跳过失效 1 条）\n学习记录：1 条\n错题：1 条（含照片 1 张）\n倒计时补充：0 项\n1 条旧日程因来源题本/课程不存在被跳过，其余数据已"
+      }
+    },
+    {
+      "name": "R10: books/courses/library/plans/records/wrong merged with ID remapping",
+      "passed": true,
+      "detail": {
+        "books": 15,
+        "plans": 0,
+        "records": 1,
+        "wrong": 1
+      }
+    },
+    {
+      "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
+      "passed": true,
+      "detail": {
+        "image": "/api/media/media_1793024920210_5e7195746489"
+      }
+    },
+    {
+      "name": "R10: legacy copy preserved and migration marked one-time",
+      "passed": true,
+      "detail": {
+        "legacyStillKept": true,
+        "migratedMarker": true
+      }
+    },
+    {
+      "name": "R10: migration is one-time and not re-offered after completion",
+      "passed": true
+    }
+  ]
+}
