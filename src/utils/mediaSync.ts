@@ -142,7 +142,7 @@ interface UploadSuccess {
 
 type UploadOutcome = { ok: true; data: UploadSuccess } | { ok: false; failure: MediaFlushFailure };
 
-async function uploadOneMedia(csrfToken: string, ref: string): Promise<UploadOutcome> {
+async function uploadOneMedia(csrfToken: string, ref: string, userId?: string): Promise<UploadOutcome> {
   let parts: { mime: string; bytes: Uint8Array; filename: string } | null = null;
   let localBlobDataUrl: string | null = null;
 
@@ -172,9 +172,13 @@ async function uploadOneMedia(csrfToken: string, ref: string): Promise<UploadOut
 
   let response: Response;
   try {
+    const headers: Record<string, string> = { 'x-csrf-token': csrfToken };
+    if (userId) {
+      headers['x-workspace-user'] = userId;
+    }
     response = await fetch('/api/media/upload', {
       method: 'POST',
-      headers: { 'x-csrf-token': csrfToken },
+      headers,
       body: form,
     });
   } catch (err) {
@@ -189,6 +193,13 @@ async function uploadOneMedia(csrfToken: string, ref: string): Promise<UploadOut
     };
   }
 
+  if (response.status === 409) {
+    const body = await response.json().catch(() => ({}));
+    return {
+      ok: false,
+      failure: { ok: false, code: body.code || 'SESSION_ACCOUNT_MISMATCH', message: body.message || '账号会话不匹配', retryable: false },
+    };
+  }
   if (response.status === 401) {
     return {
       ok: false,
@@ -296,7 +307,7 @@ export async function flushLegacyMedia(
       continue;
     }
 
-    const outcome = await uploadOneMedia(csrfToken, legacyRef.ref);
+    const outcome = await uploadOneMedia(csrfToken, legacyRef.ref, userId);
     if (!outcome.ok) {
       return outcome.failure;
     }

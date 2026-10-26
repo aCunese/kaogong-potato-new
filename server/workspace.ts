@@ -1088,3 +1088,20 @@ export function restoreUserFromHistory(userId: string, historyId: string) {
     state: parsedState,
   };
 }
+
+export function verifyWorkspaceUserMatch(req: any, authenticatedUserId: string): { ok: boolean; status?: number; error?: any } {
+  const headerWorkspaceUser = typeof req?.header === 'function' ? req.header('x-workspace-user') : (req?.headers && req.headers['x-workspace-user']);
+  if (headerWorkspaceUser && typeof headerWorkspaceUser === 'string' && headerWorkspaceUser !== authenticatedUserId) {
+    return {
+      ok: false,
+      status: 409,
+      error: {
+        ok: false,
+        code: 'SESSION_ACCOUNT_MISMATCH',
+        message: 'Requested workspace user does not match active session',
+      },
+    };
+  }
+  return { ok: true };
+}
+

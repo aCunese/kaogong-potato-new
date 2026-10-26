@@ -7,7 +7,11 @@ import {
   OutboxRecord,
   SyncBaseline,
   SyncConflictRecord,
+  LockScope,
+  OperationScope,
 } from '../types';
+
+export type { LockScope, OperationScope };
 import { BLANK_STATE } from '../constants/initialData';
 import { validateAndMigrateBackup } from './backupValidator';
 
@@ -55,37 +59,291 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 
 // ----------------------------------------------------------------------
-// Cross-tab lock (Web Locks API). Falls back to the intra-tab queue when the
-// environment has no Web Locks support (unit tests / non-browser runtimes).
-// All sync flush / conflict resolution / cache / recovery operations must run
-// inside this lock so two tabs of the same account cannot interleave.
+// Storage Availability & Fail-Fast Guard
 // ----------------------------------------------------------------------
-const heldLocks = new Set<string>();
-// Separate queue for the lock fallback: MUST NOT share `mutationQueue`, otherwise
-// a lock holding a task that calls enqueue()-protected db helpers would deadlock.
-let lockQueue: Promise<any> = Promise.resolve();
-
-function enqueueLock<T>(task: () => Promise<T>): Promise<T> {
-  const result = lockQueue.then(task, task);
-  lockQueue = result.catch(() => {});
-  return result;
+export function checkStorageAvailable(): void {
+  if (typeof window !== 'undefined') {
+    if (typeof indexedDB === 'undefined' || indexedDB === null) {
+      const err: any = new Error('IndexedDB is unavailable in this browser environment');
+      err.code = 'STORAGE_UNAVAILABLE';
+      throw err;
+    }
+  }
 }
 
-export async function withUserLock<T>(userId: string | null | undefined, task: () => Promise<T>): Promise<T> {
-  const key = `kaogong_sync_lock_${userId ?? 'guest'}`;
-  const hasIndexedDb = typeof indexedDB !== 'undefined';
-  const locks = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
-  if (!hasIndexedDb || !locks || typeof locks.request !== 'function') {
-    return enqueueLock(task);
-  }
-  if (heldLocks.has(key)) {
-    return task();
-  }
-  heldLocks.add(key);
+// ----------------------------------------------------------------------
+// Lock & Lease Coordination (Web Locks + IDB sync_state lease fallback)
+// ----------------------------------------------------------------------
+interface LockRecord {
+  userId: string; // keyPath is 'userId', stored as 'lock:<userId>'
+  ownerId: string;
+  fence: number;
+  expiresAt: number;
+}
+
+function notifyLockRelease(userId: string): void {
   try {
-    return await locks.request(key, { mode: 'exclusive' }, async () => task());
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel(`kaogong_lock_${userId}`);
+      bc.postMessage({ type: 'released', userId });
+      bc.close();
+    }
+  } catch {}
+}
+
+async function tryAcquireLeaseRecord(normalizedUserId: string, ownerId: string): Promise<{ fence: number; expiresAt: number } | null> {
+  const lockKey = `lock:${normalizedUserId}`;
+  if (!hasNativeIdb()) {
+    const current = memoryStore.syncState.get(lockKey) as unknown as LockRecord | undefined;
+    const now = Date.now();
+    if (current && current.expiresAt > now && current.ownerId !== ownerId) {
+      return null;
+    }
+    const fence = (current?.fence ?? 0) + 1;
+    const expiresAt = now + 30000;
+    const record: LockRecord = { userId: lockKey, ownerId, fence, expiresAt };
+    memoryStore.syncState.set(lockKey, record as any);
+    return { fence, expiresAt };
+  }
+
+  const db = await initDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SYNC_STATE_STORE, 'readwrite');
+    const store = tx.objectStore(SYNC_STATE_STORE);
+    const req = store.get(lockKey);
+    let result: { fence: number; expiresAt: number } | null = null;
+
+    req.onsuccess = () => {
+      const current = req.result as LockRecord | undefined;
+      const now = Date.now();
+      if (current && current.expiresAt > now && current.ownerId !== ownerId) {
+        result = null;
+        return;
+      }
+      const fence = (current?.fence ?? 0) + 1;
+      const expiresAt = now + 30000;
+      const record: LockRecord = { userId: lockKey, ownerId, fence, expiresAt };
+      store.put(record);
+      result = { fence, expiresAt };
+    };
+
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function renewLeaseRecord(normalizedUserId: string, ownerId: string, fence: number): Promise<{ expiresAt: number } | null> {
+  const lockKey = `lock:${normalizedUserId}`;
+  if (!hasNativeIdb()) {
+    const current = memoryStore.syncState.get(lockKey) as unknown as LockRecord | undefined;
+    if (!current || current.ownerId !== ownerId || current.fence !== fence) {
+      return null;
+    }
+    const expiresAt = Date.now() + 30000;
+    current.expiresAt = expiresAt;
+    memoryStore.syncState.set(lockKey, current as any);
+    return { expiresAt };
+  }
+
+  const db = await initDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SYNC_STATE_STORE, 'readwrite');
+    const store = tx.objectStore(SYNC_STATE_STORE);
+    const req = store.get(lockKey);
+    let result: { expiresAt: number } | null = null;
+
+    req.onsuccess = () => {
+      const current = req.result as LockRecord | undefined;
+      if (!current || current.ownerId !== ownerId || current.fence !== fence) {
+        result = null;
+        return;
+      }
+      const expiresAt = Date.now() + 30000;
+      current.expiresAt = expiresAt;
+      store.put(current);
+      result = { expiresAt };
+    };
+
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+async function releaseLeaseRecord(normalizedUserId: string, ownerId: string, fence: number): Promise<void> {
+  const lockKey = `lock:${normalizedUserId}`;
+  if (!hasNativeIdb()) {
+    const current = memoryStore.syncState.get(lockKey) as unknown as LockRecord | undefined;
+    if (current && current.ownerId === ownerId && current.fence === fence) {
+      current.expiresAt = 0; // PRESERVE fence! Never reset to 0
+      memoryStore.syncState.set(lockKey, current as any);
+    }
+    notifyLockRelease(normalizedUserId);
+    return;
+  }
+
+  const db = await initDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(SYNC_STATE_STORE, 'readwrite');
+    const store = tx.objectStore(SYNC_STATE_STORE);
+    const req = store.get(lockKey);
+
+    req.onsuccess = () => {
+      const current = req.result as LockRecord | undefined;
+      if (current && current.ownerId === ownerId && current.fence === fence) {
+        current.expiresAt = 0; // PRESERVE fence! Never reset to 0
+        store.put(current);
+      }
+    };
+
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => {
+      notifyLockRelease(normalizedUserId);
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export async function withUserLock<T>(
+  userId: string | null | undefined,
+  task: (scope: LockScope) => Promise<T>,
+  existingScope?: LockScope
+): Promise<T> {
+  checkStorageAvailable();
+
+  const normalizedUserId = userId ?? 'guest';
+
+  // If existingScope is passed, verify and reuse without re-acquiring:
+  if (existingScope) {
+    if (existingScope.userId === normalizedUserId && !existingScope.isExpired()) {
+      return await task(existingScope);
+    }
+  }
+
+  const hasLocks = typeof navigator !== 'undefined' && (navigator as any).locks && typeof (navigator as any).locks.request === 'function';
+  const ownerId = `owner_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  if (hasLocks) {
+    const lockName = `kaogong_sync_lock_${normalizedUserId}`;
+    return await (navigator as any).locks.request(lockName, { mode: 'exclusive' }, async () => {
+      let isRevoked = false;
+      const lease = await tryAcquireLeaseRecord(normalizedUserId, ownerId);
+      const fence = lease?.fence ?? 1;
+      let currentExpiresAt = lease?.expiresAt ?? (Date.now() + 30000);
+
+      const scope: LockScope = {
+        ownerId,
+        userId: normalizedUserId,
+        fence,
+        get expiresAt() {
+          return currentExpiresAt;
+        },
+        isExpired: () => isRevoked || Date.now() > currentExpiresAt,
+      };
+
+      const renewTimer = setInterval(async () => {
+        try {
+          const res = await renewLeaseRecord(normalizedUserId, ownerId, fence);
+          if (res) {
+            currentExpiresAt = res.expiresAt;
+          } else {
+            isRevoked = true;
+            clearInterval(renewTimer);
+          }
+        } catch {
+          isRevoked = true;
+          clearInterval(renewTimer);
+        }
+      }, 5000);
+
+      try {
+        return await task(scope);
+      } finally {
+        clearInterval(renewTimer);
+        await releaseLeaseRecord(normalizedUserId, ownerId, fence).catch(() => {});
+      }
+    });
+  }
+
+  // Fallback without Web Locks: coordinate via sync_state lease
+  const maxWaitMs = 35000;
+  const startWait = Date.now();
+  let lease: { fence: number; expiresAt: number } | null = null;
+
+  while (Date.now() - startWait < maxWaitMs) {
+    lease = await tryAcquireLeaseRecord(normalizedUserId, ownerId);
+    if (lease) break;
+
+    await new Promise<void>(resolve => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let bc: BroadcastChannel | null = null;
+
+      const done = () => {
+        if (timer) clearTimeout(timer);
+        if (bc) {
+          try { bc.close(); } catch {}
+        }
+        resolve();
+      };
+
+      timer = setTimeout(done, 25);
+
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          bc = new BroadcastChannel(`kaogong_lock_${normalizedUserId}`);
+          bc.onmessage = (e) => {
+            if (e.data?.type === 'released') {
+              done();
+            }
+          };
+        }
+      } catch {}
+    });
+  }
+
+  if (!lease) {
+    throw new Error(`Failed to acquire user lock for ${normalizedUserId} (lease wait timeout)`);
+  }
+
+  const fence = lease.fence;
+  let currentExpiresAt = lease.expiresAt;
+  let isRevoked = false;
+
+  const scope: LockScope = {
+    ownerId,
+    userId: normalizedUserId,
+    fence,
+    get expiresAt() {
+      return currentExpiresAt;
+    },
+    isExpired: () => isRevoked || Date.now() > currentExpiresAt,
+  };
+
+  const renewTimer = setInterval(async () => {
+    try {
+      const res = await renewLeaseRecord(normalizedUserId, ownerId, fence);
+      if (res) {
+        currentExpiresAt = res.expiresAt;
+      } else {
+        isRevoked = true;
+        clearInterval(renewTimer);
+      }
+    } catch {
+      isRevoked = true;
+      clearInterval(renewTimer);
+    }
+  }, 5000);
+
+  try {
+    return await task(scope);
   } finally {
-    heldLocks.delete(key);
+    clearInterval(renewTimer);
+    await releaseLeaseRecord(normalizedUserId, ownerId, fence).catch(() => {});
   }
 }
 
@@ -114,10 +372,9 @@ export function _resetInMemoryStore(): void {
   dbInstance = null;
   dbInitPromise = null;
   activeUserId = null;
-  heldLocks.clear();
 }
 
-const hasNativeIdb = (): boolean => typeof indexedDB !== 'undefined';
+const hasNativeIdb = (): boolean => typeof indexedDB !== 'undefined' && indexedDB !== null;
 
 /**
  * Initializes and opens the IndexedDB database 'kaogong_potato_v3'.
@@ -125,7 +382,14 @@ const hasNativeIdb = (): boolean => typeof indexedDB !== 'undefined';
  * Incremental upgrade only: existing stores and records are preserved.
  */
 export async function initDatabase(): Promise<IDBDatabase> {
-  if (!hasNativeIdb()) {
+  const isBrowser = typeof window !== 'undefined';
+  const hasIdb = typeof indexedDB !== 'undefined' && indexedDB !== null;
+  if (isBrowser && !hasIdb) {
+    const err: any = new Error('IndexedDB is unavailable in this browser environment');
+    err.code = 'STORAGE_UNAVAILABLE';
+    throw err;
+  }
+  if (!hasIdb) {
     // Return mock IDBDatabase for headless/test environments
     return {
       name: DB_NAME,
@@ -139,7 +403,14 @@ export async function initDatabase(): Promise<IDBDatabase> {
   if (dbInitPromise) return dbInitPromise;
 
   dbInitPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch (e: any) {
+      dbInitPromise = null;
+      if (isBrowser) e.code = 'STORAGE_UNAVAILABLE';
+      return reject(e);
+    }
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -176,7 +447,11 @@ export async function initDatabase(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       dbInitPromise = null;
-      reject(request.error || new Error('打开 IndexedDB 数据库失败'));
+      const err: any = request.error || new Error('打开 IndexedDB 数据库失败');
+      if (isBrowser) {
+        err.code = 'STORAGE_UNAVAILABLE';
+      }
+      reject(err);
     };
   });
 
@@ -221,6 +496,7 @@ export async function hashState(state: AppState): Promise<string> {
 // ----------------------------------------------------------------------
 
 async function getSnapshotFromDB(userId?: string | null): Promise<SnapshotRecord | null> {
+  checkStorageAvailable();
   const key = getSnapshotKey(userId);
   if (!hasNativeIdb()) {
     const item = memoryStore.snapshots.get(key) || (key !== 'latest' ? null : memoryStore.snapshots.get('latest'));
@@ -267,6 +543,7 @@ async function writeMutationToDB(
   expectedRevision: number = (snapshot.revision ?? 0) - 1,
   outboxItem?: OutboxRecord
 ): Promise<void> {
+  checkStorageAvailable();
   const key = snapshot.key;
   if (!hasNativeIdb()) {
     if ((memoryStore.snapshots.get(key)?.revision ?? 0) !== expectedRevision) {
@@ -1349,9 +1626,19 @@ export async function installConfirmedServerState(
   userId: string,
   serverState: AppState,
   meta: { revision: number; generationId: string; contentHash: string; snapshotGenerationId?: string },
-  options: { force?: boolean; saveRecovery?: boolean; localMutationVersion?: number } = {}
+  options: { force?: boolean; saveRecovery?: boolean; localMutationVersion?: number; guard?: () => boolean; scope?: OperationScope } = {}
 ): Promise<{ ok: boolean; code?: string; message?: string }> {
   return enqueue(async () => {
+    const checkGuard = (): boolean => {
+      if (options.guard && !options.guard()) return false;
+      if (options.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+      return true;
+    };
+
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+    }
+
     const contentHash = meta.contentHash || await hashState(serverState);
     const baseline: SyncBaseline = {
       userId,
@@ -1408,6 +1695,11 @@ export async function installConfirmedServerState(
 
       const outReq = outStore.getAll();
       outReq.onsuccess = () => {
+        if (!checkGuard()) {
+          result = { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+          tx.abort();
+          return;
+        }
         const items = ((outReq.result || []) as OutboxRecord[]).filter(i => i.userId === userId);
         if (!options.force && items.length > 0) {
           result = { ok: false, code: 'LOCAL_UNRESOLVED', message: '本机存在未同步修改，不能直接覆盖' };
@@ -1416,6 +1708,11 @@ export async function installConfirmedServerState(
         }
         const snapReq = snapStore.get(snapKey);
         snapReq.onsuccess = () => {
+          if (!checkGuard()) {
+            result = { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+            tx.abort();
+            return;
+          }
           const current = snapReq.result as SnapshotRecord | undefined;
           if (options.saveRecovery !== false && current?.state) {
             snapStore.put({

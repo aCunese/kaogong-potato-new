@@ -210,3 +210,19 @@ export interface DamagedCacheRecord {
 export type MainTab = 'today' | 'learning' | 'wrong' | 'analysis' | 'settings';
 export type LearningSubTab = 'books' | 'courses' | 'library';
 export type AnalysisSubTab = 'overall' | 'monthly';
+
+export interface LockScope {
+  ownerId: string;
+  userId: string;
+  fence: number;
+  expiresAt: number;
+  isExpired: () => boolean;
+}
+
+export interface OperationScope {
+  userId: string | null;
+  epoch: number;
+  operationId: string;
+  signal?: AbortSignal;
+}
+

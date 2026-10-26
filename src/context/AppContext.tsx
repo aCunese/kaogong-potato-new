@@ -13,6 +13,7 @@ import {
   CompletionInput,
   User,
   SyncState,
+  OperationScope,
 } from '../types';
 import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup } from '../utils/backupValidator';
@@ -275,6 +276,30 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const retryAttemptRef = useRef(0);
   const lastFocusSyncAtRef = useRef(0);
   const bootRanRef = useRef(false);
+  const authQueueRef = useRef<Promise<any>>(Promise.resolve());
+
+  const serializeAuth = useCallback(<T,>(action: () => Promise<T>): Promise<T> => {
+    const next = authQueueRef.current.then(action, action);
+    authQueueRef.current = next.catch(() => {});
+    return next;
+  }, []);
+
+  const createOperationScope = useCallback((userId?: string | null): OperationScope => {
+    const uid = userId !== undefined ? userId : (currentUserRef.current?.id ?? null);
+    return {
+      userId: uid,
+      epoch: authEpochRef.current,
+      operationId: `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    };
+  }, []);
+
+  const isOperationScopeValid = useCallback((scope: OperationScope): boolean => {
+    return (
+      mountedRef.current &&
+      authEpochRef.current === scope.epoch &&
+      (currentUserRef.current?.id ?? null) === scope.userId
+    );
+  }, []);
 
   const isCurrent = useCallback((userId: string, epoch: number): boolean => {
     return mountedRef.current && Boolean(currentUserRef.current) && currentUserRef.current!.id === userId && authEpochRef.current === epoch;
@@ -320,20 +345,39 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     }
   }, []);
 
-  const refreshSession = useCallback(async (): Promise<{ ok: boolean; unauthorized: boolean }> => {
+  const refreshSession = useCallback(async (scopeToUse?: OperationScope): Promise<{ ok: boolean; unauthorized: boolean }> => {
     const user = currentUserRef.current;
+    const scope = scopeToUse ?? createOperationScope(user?.id ?? null);
+    if (!user || !scope.userId) {
+      return { ok: false, unauthorized: false };
+    }
     try {
-      const res = await fetchWithTimeout('/api/auth/me', { cache: 'no-store' }, 8000);
-      if (res.status === 401 || res.status === 403) return { ok: false, unauthorized: true };
+      const res = await fetchWithTimeout('/api/auth/me', {
+        cache: 'no-store',
+        headers: { 'x-workspace-user': user.id },
+      }, 8000);
+
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, unauthorized: false };
+      }
+
+      if (res.status === 401 || res.status === 403 || res.status === 409) return { ok: false, unauthorized: true };
       if (!res.ok) return { ok: false, unauthorized: false };
       const ct = res.headers.get('content-type') || '';
       if (!ct.includes('application/json')) return { ok: false, unauthorized: false };
-      const data = await res.json();
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, unauthorized: false };
+      }
+
       if (!data?.ok || !data.user) return { ok: false, unauthorized: false };
-      if (user && data.user.id !== user.id) return { ok: false, unauthorized: true };
+      if (data.user.id !== user.id) return { ok: false, unauthorized: true };
+
       currentUserRef.current = data.user;
       csrfTokenRef.current = typeof data.csrfToken === 'string' ? data.csrfToken : null;
-      if (mountedRef.current) {
+      if (mountedRef.current && isOperationScopeValid(scope)) {
         setCurrentUser(data.user);
         setCsrfToken(csrfTokenRef.current);
       }
@@ -342,7 +386,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       // Network failure / offline: NOT a session expiry.
       return { ok: false, unauthorized: false };
     }
-  }, []);
+  }, [createOperationScope, isOperationScopeValid]);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -352,6 +396,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   }, []);
 
   const handleSessionExpired = useCallback(() => {
+    authEpochRef.current += 1;
     clearRetryTimer();
     syncInFlightRef.current = null;
     currentUserRef.current = null;
@@ -653,9 +698,37 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      authEpochRef.current += 1;
       clearRetryTimer();
     };
   }, [clearRetryTimer]);
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('kaogong_auth');
+      bc.onmessage = (event) => {
+        const data = event.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type === 'logout') {
+          if (currentUserRef.current) {
+            handleSessionExpired();
+          }
+        } else if (data.type === 'login' && data.userId) {
+          if (!currentUserRef.current || currentUserRef.current.id !== data.userId) {
+            authEpochRef.current += 1;
+            refreshSession().catch(() => {});
+          }
+        }
+      };
+    } catch {}
+    return () => {
+      if (bc) {
+        try { bc.close(); } catch {}
+      }
+    };
+  }, [handleSessionExpired, refreshSession]);
 
   useEffect(() => {
     if (preview) return;
@@ -1104,8 +1177,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const chooseEmptyLibrary = useCallback(async (choice: 'default' | 'blank'): Promise<MutationResult<void>> => {
     const user = currentUserRef.current;
     if (!user) return { ok: false, code: 'NOT_LOGGED_IN', message: '请先登录' };
+    const scope = createOperationScope(user.id);
+
     if (!csrfTokenRef.current) {
-      const refreshed = await refreshSession();
+      const refreshed = await refreshSession(scope);
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变' };
+      }
       if (!refreshed.ok) {
         return { ok: false, code: refreshed.unauthorized ? 'SESSION_EXPIRED' : 'NETWORK', message: refreshed.unauthorized ? '会话已失效，请重新登录' : '网络不可用，请稍后重试' };
       }
@@ -1114,10 +1192,23 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     try {
       const res = await fetchWithTimeout('/api/workspace/init-choice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrf,
+          'x-workspace-user': user.id,
+        },
         body: JSON.stringify({ choice }),
       }, 20000);
+
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变' };
+      }
+
       const data = await res.json().catch(() => ({}));
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变' };
+      }
+
       if (res.status === 401) {
         handleSessionExpired();
         return { ok: false, code: 'SESSION_EXPIRED', message: '会话已失效，请重新登录' };
@@ -1126,27 +1217,37 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         return { ok: false, code: data.code || 'INIT_CHOICE_FAILED', message: data.message || '保存选择失败，请重试' };
       }
       if (data.state) {
+        if (!isOperationScopeValid(scope)) {
+          return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变' };
+        }
         const installed = await installConfirmedServerState(user.id, data.state, {
           revision: typeof data.revision === 'number' ? data.revision : 0,
           generationId: typeof data.generationId === 'string' ? data.generationId : '',
           contentHash: typeof data.contentHash === 'string' ? data.contentHash : '',
-        }, { force: true, saveRecovery: true });
+        }, { force: true, saveRecovery: true, guard: () => isOperationScopeValid(scope) });
         if (!installed.ok) {
           return { ok: false, code: installed.code || 'INSTALL_FAILED', message: installed.message || '保存选择后载入数据失败' };
         }
+        if (!isOperationScopeValid(scope)) {
+          return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变' };
+        }
         const latest = await loadLatestState(user.id);
-        if (mountedRef.current) applyLocalState(latest.state, latest.revision);
+        if (mountedRef.current && isOperationScopeValid(scope)) {
+          applyLocalState(latest.state, latest.revision);
+        }
         if (typeof data.generationId === 'string') saveActiveGenerationId(user.id, data.generationId);
       }
-      setNeedsInitChoice(false);
-      setInitChoice(choice);
-      setSyncStatus('synced');
-      setSyncMessage(choice === 'default' ? '已载入系统默认学习资料库' : '已保留空白工作台，可自行创建资料');
+      if (isOperationScopeValid(scope)) {
+        setNeedsInitChoice(false);
+        setInitChoice(choice);
+        setSyncStatus('synced');
+        setSyncMessage(choice === 'default' ? '已载入系统默认学习资料库' : '已保留空白工作台，可自行创建资料');
+      }
       return { ok: true, value: undefined };
     } catch {
       return { ok: false, code: 'NETWORK', message: '网络连接中断，请联网后重试' };
     }
-  }, [applyLocalState, handleSessionExpired, refreshSession]);
+  }, [applyLocalState, createOperationScope, handleSessionExpired, isOperationScopeValid, refreshSession]);
 
   const resetState = useCallback(async (): Promise<MutationResult<void>> => {
     if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法重置。' };
@@ -1320,56 +1421,78 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   // Auth: login / register / logout
   // ----------------------------------------------------------------------
   const login = useCallback(async (username: string, password: string): Promise<MutationResult<User>> => {
-    authEpochRef.current += 1;
-    const currentEpoch = authEpochRef.current;
-    setIsLoading(true);
-    try {
-      const res = await fetchWithTimeout('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        setIsLoading(false);
-        return { ok: false, code: data.code || 'LOGIN_FAILED', message: data.message || '登录失败' };
-      }
-      if (authEpochRef.current !== currentEpoch) {
-        return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
-      }
-
-      setExplicitLogoutMarker(false);
-      const user = data.user as User;
-      const csrf = typeof data.csrfToken === 'string' ? data.csrfToken : '';
-      currentUserRef.current = user;
-      csrfTokenRef.current = csrf;
-      setCurrentUser(user);
-      setCsrfToken(csrf);
-      saveLastActiveUser(user);
-      setActiveUserPartition(user.id);
-
-      const hydrate = await initialHydrate(user.id, csrf, { guard: () => isCurrent(user.id, currentEpoch) });
-      if (!hydrate.ok) {
-        if (hydrate.needsRelogin) {
-          handleSessionExpired();
+    return serializeAuth(async () => {
+      authEpochRef.current += 1;
+      const currentEpoch = authEpochRef.current;
+      setIsLoading(true);
+      try {
+        const res = await fetchWithTimeout('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
           setIsLoading(false);
-          return { ok: false, code: 'SESSION_EXPIRED', message: '登录状态校验失败，请重新登录' };
+          return { ok: false, code: data.code || 'LOGIN_FAILED', message: data.message || '登录失败' };
         }
-        setAuthPhase('error');
-        setAuthError(hydrate.message || '登录成功但云端工作区加载失败');
-        setSyncStatus('failed');
-        setSyncMessage(hydrate.message || '云端工作区加载失败');
-        setIsLoading(false);
-        return { ok: false, code: hydrate.code || 'WORKSPACE_LOAD_FAILED', message: hydrate.message || '云端工作区加载失败，请重试' };
-      }
+        if (authEpochRef.current !== currentEpoch) {
+          setIsLoading(false);
+          return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+        }
 
-      await applyHydrateResult(user, csrf, hydrate, currentEpoch);
-      return { ok: true, value: user };
-    } catch (err) {
-      setIsLoading(false);
-      return { ok: false, code: 'NETWORK_ERROR', message: '无法连接登录服务，请检查网络' };
-    }
-  }, [applyHydrateResult, handleSessionExpired, isCurrent]);
+        setExplicitLogoutMarker(false);
+        const user = data.user as User;
+        const csrf = typeof data.csrfToken === 'string' ? data.csrfToken : '';
+        currentUserRef.current = user;
+        csrfTokenRef.current = csrf;
+        setCurrentUser(user);
+        setCsrfToken(csrf);
+        saveLastActiveUser(user);
+        setActiveUserPartition(user.id);
+
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('kaogong_auth');
+            bc.postMessage({ type: 'login', userId: user.id });
+            bc.close();
+          }
+        } catch {}
+
+        const hydrateScope: OperationScope = {
+          userId: user.id,
+          epoch: currentEpoch,
+          operationId: `op_hydrate_${Date.now()}`,
+        };
+
+        const hydrate = await initialHydrate(user.id, csrf, { guard: () => isOperationScopeValid(hydrateScope) });
+        if (!isOperationScopeValid(hydrateScope)) {
+          setIsLoading(false);
+          return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+        }
+
+        if (!hydrate.ok) {
+          if (hydrate.needsRelogin) {
+            handleSessionExpired();
+            setIsLoading(false);
+            return { ok: false, code: 'SESSION_EXPIRED', message: '登录状态校验失败，请重新登录' };
+          }
+          setAuthPhase('error');
+          setAuthError(hydrate.message || '登录成功但云端工作区加载失败');
+          setSyncStatus('failed');
+          setSyncMessage(hydrate.message || '云端工作区加载失败');
+          setIsLoading(false);
+          return { ok: false, code: hydrate.code || 'WORKSPACE_LOAD_FAILED', message: hydrate.message || '云端工作区加载失败，请重试' };
+        }
+
+        await applyHydrateResult(user, csrf, hydrate, currentEpoch);
+        return { ok: true, value: user };
+      } catch (err) {
+        setIsLoading(false);
+        return { ok: false, code: 'NETWORK_ERROR', message: '无法连接登录服务，请检查网络' };
+      }
+    });
+  }, [applyHydrateResult, handleSessionExpired, isOperationScopeValid, serializeAuth]);
 
   const register = useCallback(async (
     username: string,
@@ -1377,93 +1500,130 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     nickname: string,
     inviteCode: string
   ): Promise<MutationResult<User>> => {
-    authEpochRef.current += 1;
-    const currentEpoch = authEpochRef.current;
-    setIsLoading(true);
-    try {
-      const res = await fetchWithTimeout('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, nickname, inviteCode }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        setIsLoading(false);
-        return { ok: false, code: data.code || 'REGISTER_FAILED', message: data.message || '注册失败' };
-      }
-      if (authEpochRef.current !== currentEpoch) {
-        return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
-      }
-
-      setExplicitLogoutMarker(false);
-      const user = data.user as User;
-      const csrf = typeof data.csrfToken === 'string' ? data.csrfToken : '';
-      currentUserRef.current = user;
-      csrfTokenRef.current = csrf;
-      setCurrentUser(user);
-      setCsrfToken(csrf);
-      saveLastActiveUser(user);
-      setActiveUserPartition(user.id);
-
-      // The server registration transaction already seeded 14/7/22; hydrate it.
-      const hydrate = await initialHydrate(user.id, csrf, { guard: () => isCurrent(user.id, currentEpoch) });
-      if (!hydrate.ok) {
-        if (hydrate.needsRelogin) {
-          handleSessionExpired();
+    return serializeAuth(async () => {
+      authEpochRef.current += 1;
+      const currentEpoch = authEpochRef.current;
+      setIsLoading(true);
+      try {
+        const res = await fetchWithTimeout('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, nickname, inviteCode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
           setIsLoading(false);
-          return { ok: false, code: 'SESSION_EXPIRED', message: '注册成功后会话校验失败，请重新登录' };
+          return { ok: false, code: data.code || 'REGISTER_FAILED', message: data.message || '注册失败' };
         }
-        setAuthPhase('error');
-        setAuthError(hydrate.message || '注册成功但云端工作区加载失败');
-        setSyncStatus('failed');
-        setSyncMessage(hydrate.message || '云端工作区加载失败');
-        setIsLoading(false);
-        return { ok: false, code: hydrate.code || 'WORKSPACE_LOAD_FAILED', message: hydrate.message || '云端工作区加载失败，请重试' };
-      }
+        if (authEpochRef.current !== currentEpoch) {
+          setIsLoading(false);
+          return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+        }
 
-      await applyHydrateResult(user, csrf, hydrate, currentEpoch);
-      setNeedsInitChoice(false);
-      setInitChoice('default');
-      return { ok: true, value: user };
-    } catch (err) {
-      setIsLoading(false);
-      return { ok: false, code: 'NETWORK_ERROR', message: '无法连接注册服务，请检查网络' };
-    }
-  }, [applyHydrateResult, handleSessionExpired, isCurrent]);
+        setExplicitLogoutMarker(false);
+        const user = data.user as User;
+        const csrf = typeof data.csrfToken === 'string' ? data.csrfToken : '';
+        currentUserRef.current = user;
+        csrfTokenRef.current = csrf;
+        setCurrentUser(user);
+        setCsrfToken(csrf);
+        saveLastActiveUser(user);
+        setActiveUserPartition(user.id);
+
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('kaogong_auth');
+            bc.postMessage({ type: 'login', userId: user.id });
+            bc.close();
+          }
+        } catch {}
+
+        const hydrateScope: OperationScope = {
+          userId: user.id,
+          epoch: currentEpoch,
+          operationId: `op_reg_hydrate_${Date.now()}`,
+        };
+
+        const hydrate = await initialHydrate(user.id, csrf, { guard: () => isOperationScopeValid(hydrateScope) });
+        if (!isOperationScopeValid(hydrateScope)) {
+          setIsLoading(false);
+          return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+        }
+
+        if (!hydrate.ok) {
+          if (hydrate.needsRelogin) {
+            handleSessionExpired();
+            setIsLoading(false);
+            return { ok: false, code: 'SESSION_EXPIRED', message: '注册成功后会话校验失败，请重新登录' };
+          }
+          setAuthPhase('error');
+          setAuthError(hydrate.message || '注册成功但云端工作区加载失败');
+          setSyncStatus('failed');
+          setSyncMessage(hydrate.message || '云端工作区加载失败');
+          setIsLoading(false);
+          return { ok: false, code: hydrate.code || 'WORKSPACE_LOAD_FAILED', message: hydrate.message || '云端工作区加载失败，请重试' };
+        }
+
+        await applyHydrateResult(user, csrf, hydrate, currentEpoch);
+        setNeedsInitChoice(false);
+        setInitChoice('default');
+        return { ok: true, value: user };
+      } catch (err) {
+        setIsLoading(false);
+        return { ok: false, code: 'NETWORK_ERROR', message: '无法连接注册服务，请检查网络' };
+      }
+    });
+  }, [applyHydrateResult, handleSessionExpired, isOperationScopeValid, serializeAuth]);
 
   const logout = useCallback(async (): Promise<void> => {
-    authEpochRef.current += 1;
-    clearRetryTimer();
-    syncInFlightRef.current = null;
-    // R11: persistent explicit-logout marker so a still-valid cookie cannot auto re-enter.
-    setExplicitLogoutMarker(true);
-    try {
-      await fetchWithTimeout('/api/auth/logout', {
-        method: 'POST',
-        headers: csrfTokenRef.current ? { 'x-csrf-token': csrfTokenRef.current } : undefined,
-      }, 8000);
-    } catch {
-      // Offline / failed logout: the marker already prevents silent re-entry.
-    }
-    currentUserRef.current = null;
-    csrfTokenRef.current = null;
-    setCurrentUser(null);
-    setCsrfToken(null);
-    setActiveUserPartition(null);
-    setSyncStatus('idle');
-    setSyncMessage(null);
-    setConflictData(null);
-    setNeedsInitChoice(false);
-    setInitChoice(null);
-    setGuestMigration(null);
-    setSessionExpired(false);
-    setAuthPhase('unauthenticated');
-    const guestState = await loadLatestState(null);
-    if (mountedRef.current) {
-      readyRef.current = true;
-      applyLocalState(guestState.state, guestState.revision || 1);
-    }
-  }, [applyLocalState, clearRetryTimer]);
+    return serializeAuth(async () => {
+      authEpochRef.current += 1;
+      clearRetryTimer();
+      syncInFlightRef.current = null;
+      setExplicitLogoutMarker(true);
+
+      const user = currentUserRef.current;
+      const csrf = csrfTokenRef.current;
+
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('kaogong_auth');
+          bc.postMessage({ type: 'logout' });
+          bc.close();
+        }
+      } catch {}
+
+      try {
+        await fetchWithTimeout('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            ...(csrf ? { 'x-csrf-token': csrf } : {}),
+            ...(user ? { 'x-workspace-user': user.id } : {}),
+          },
+        }, 8000);
+      } catch {
+        // Offline / failed logout: the marker already prevents silent re-entry.
+      }
+      currentUserRef.current = null;
+      csrfTokenRef.current = null;
+      setCurrentUser(null);
+      setCsrfToken(null);
+      setActiveUserPartition(null);
+      setSyncStatus('idle');
+      setSyncMessage(null);
+      setConflictData(null);
+      setNeedsInitChoice(false);
+      setInitChoice(null);
+      setGuestMigration(null);
+      setSessionExpired(false);
+      setAuthPhase('unauthenticated');
+      const guestState = await loadLatestState(null);
+      if (mountedRef.current && !currentUserRef.current) {
+        readyRef.current = true;
+        applyLocalState(guestState.state, guestState.revision || 1);
+      }
+    });
+  }, [applyLocalState, clearRetryTimer, serializeAuth]);
 
   // ----------------------------------------------------------------------
   // Conflict resolution (R05/R12: real content, review-time re-verification)

@@ -275,6 +275,17 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     return;
   }
 
+  // Check X-Workspace-User header: must match authenticated user if provided
+  const headerWorkspaceUser = typeof req.header === 'function' ? req.header('x-workspace-user') : (req.headers && req.headers['x-workspace-user']);
+  if (headerWorkspaceUser && typeof headerWorkspaceUser === 'string' && headerWorkspaceUser !== user.id) {
+    res.status(409).json({
+      ok: false,
+      code: 'SESSION_ACCOUNT_MISMATCH',
+      message: 'Requested workspace user does not match active session',
+    });
+    return;
+  }
+
   // CSRF validation on mutating methods using timingSafeEqual
   const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
   if (mutatingMethods.includes(req.method.toUpperCase())) {
@@ -301,3 +312,20 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   req.csrfToken = session.csrf_token;
   next();
 }
+
+export function verifyWorkspaceUserMatch(req: any, authenticatedUserId: string): { ok: boolean; status?: number; error?: any } {
+  const headerWorkspaceUser = typeof req?.header === 'function' ? req.header('x-workspace-user') : (req?.headers && req.headers['x-workspace-user']);
+  if (headerWorkspaceUser && typeof headerWorkspaceUser === 'string' && headerWorkspaceUser !== authenticatedUserId) {
+    return {
+      ok: false,
+      status: 409,
+      error: {
+        ok: false,
+        code: 'SESSION_ACCOUNT_MISMATCH',
+        message: 'Requested workspace user does not match active session',
+      },
+    };
+  }
+  return { ok: true };
+}
+
