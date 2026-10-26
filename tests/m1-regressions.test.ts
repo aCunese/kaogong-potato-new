@@ -15,7 +15,9 @@ import {
 } from '../src/utils/db';
 import { pullLatestFromServer, forcePullRemote, forceUploadLocal } from '../src/utils/syncClient';
 import { BLANK_STATE } from '../src/constants/initialData';
-import { SnapshotRecord, OutboxRecord } from '../src/types';
+import { SnapshotRecord, OutboxRecord, OperationScope, AppState } from '../src/types';
+import { buildGuestMigration, executeGuestMigration } from '../src/utils/guestMigration';
+import { isGuestMigrationDone } from '../src/utils/db';
 
 describe('M1: Formal Seed Factory & Lifecycle Invariants', () => {
   test('generates exact 14 books, 7 courses, 22 library items with 0 learning progress', () => {
@@ -224,5 +226,168 @@ describe('M1: Offline Identity, Atomic Conflict Resolution & Sync Direction', ()
     const stateAfter = await loadLatestState(userId);
     expect(stateAfter.isFresh).toBe(true);
     expect(stateAfter.revision).toBe(0);
+  });
+
+  describe('Phase 4: Guest Migration References & Execution (V09)', () => {
+    test('exact planIdMap and StudyRecord remapping across book, course, and custom items', () => {
+      const account = structuredClone(BLANK_STATE);
+      account.plans = [{ id: 'plan-existing', date: '2026-10-26', libraryId: 'lib-1', name: 'Existing', type: 'book', sourceId: 'book-1', subject: '常识判断', plannedMinutes: 30, actualMinutes: 0, done: false, timerStart: 0 }];
+
+      const guest = structuredClone(BLANK_STATE);
+      guest.books = [
+        { id: 'g-book-1', name: '游客特有题本', subject: '言语理解', total: 100, pages: 20, done: 10, errors: 2, minutes: 25 },
+      ];
+      guest.courses = [
+        { id: 'g-course-1', name: '游客特有课程', subject: '判断推理', teacher: '老师', totalLessons: 20, completedLessons: 5, minutes: 50, url: '' },
+      ];
+      guest.library = [
+        { id: 'g-lib-book', type: 'book', sourceId: 'g-book-1', name: '游客特有题本', subject: '言语理解', defaultMinutes: 30 },
+        { id: 'g-lib-course', type: 'course', sourceId: 'g-course-1', name: '游客特有课程', subject: '判断推理', defaultMinutes: 45 },
+        { id: 'g-lib-custom', type: 'custom', sourceId: 'custom-1', name: '游客自定义任务', subject: '申论', defaultMinutes: 20 },
+      ];
+      // Plan with conflicting ID 'plan-existing' to verify exact planIdMap remapping
+      guest.plans = [
+        { id: 'plan-existing', date: '2026-10-26', libraryId: 'g-lib-book', name: '游客特有题本', type: 'book', sourceId: 'g-book-1', subject: '言语理解', plannedMinutes: 30, actualMinutes: 25, done: true, timerStart: 0, recordId: 'rec-1' },
+        { id: 'plan-course-1', date: '2026-10-26', libraryId: 'g-lib-course', name: '游客特有课程', type: 'course', sourceId: 'g-course-1', subject: '判断推理', plannedMinutes: 45, actualMinutes: 50, done: true, timerStart: 0, recordId: 'rec-2' },
+      ];
+      guest.records = [
+        { id: 'rec-1', planId: 'plan-existing', date: '2026-10-26', type: 'book', sourceId: 'g-book-1', subject: '言语理解', minutes: 25, questions: 10, errors: 2 },
+        { id: 'rec-2', planId: 'plan-course-1', date: '2026-10-26', type: 'course', sourceId: 'g-course-1', subject: '判断推理', minutes: 50, questions: 0, errors: 0, lessons: 5 },
+        { id: 'rec-custom', planId: 'non-existent-plan', date: '2026-10-26', type: 'custom', sourceId: 'custom-src', subject: '申论', minutes: 20, questions: 0, errors: 0 },
+      ];
+
+      const { mergedState, preview } = buildGuestMigration(account, guest);
+
+      // Verify book was added with new ID
+      const addedBook = mergedState.books.find(b => b.name === '游客特有题本');
+      expect(addedBook).toBeDefined();
+      expect(addedBook!.id).not.toBe('g-book-1');
+
+      // Verify course was added with new ID
+      const addedCourse = mergedState.courses.find(c => c.name === '游客特有课程');
+      expect(addedCourse).toBeDefined();
+      expect(addedCourse!.id).not.toBe('g-course-1');
+
+      // Verify plans
+      const migratedBookPlan = mergedState.plans.find(p => p.name === '游客特有题本');
+      expect(migratedBookPlan).toBeDefined();
+      // ID conflict with 'plan-existing' resolved with gp prefix
+      expect(migratedBookPlan!.id).not.toBe('plan-existing');
+      expect(migratedBookPlan!.id.startsWith('gp_')).toBe(true);
+      expect(migratedBookPlan!.sourceId).toBe(addedBook!.id);
+
+      const migratedCoursePlan = mergedState.plans.find(p => p.name === '游客特有课程');
+      expect(migratedCoursePlan).toBeDefined();
+      expect(migratedCoursePlan!.id).toBe('plan-course-1');
+      expect(migratedCoursePlan!.sourceId).toBe(addedCourse!.id);
+
+      // Verify records
+      const record1 = mergedState.records.find(r => r.subject === '言语理解');
+      expect(record1).toBeDefined();
+      expect(record1!.sourceId).toBe(addedBook!.id);
+      expect(record1!.planId).toBe(migratedBookPlan!.id);
+
+      const record2 = mergedState.records.find(r => r.subject === '判断推理');
+      expect(record2).toBeDefined();
+      expect(record2!.sourceId).toBe(addedCourse!.id);
+      expect(record2!.planId).toBe(migratedCoursePlan!.id);
+
+      // Verify bidirectional consistency: plan.recordId matches record.id
+      expect(migratedBookPlan!.recordId).toBe(record1!.id);
+      expect(migratedCoursePlan!.recordId).toBe(record2!.id);
+
+      // Verify orphan record (rec-custom had non-existent-plan) is preserved without throwing
+      const customRecord = mergedState.records.find(r => r.id === 'rec-custom');
+      expect(customRecord).toBeDefined();
+      expect(customRecord!.planId).toBe('non-existent-plan');
+      expect(customRecord!.sourceId).toBe('custom-src');
+      expect(preview.notes.some(n => n.includes('旧学习记录包含未匹配的计划或实体引用'))).toBe(true);
+    });
+
+    test('executeGuestMigration aborts if operation scope epoch is invalid before snapshots', async () => {
+      const account = structuredClone(BLANK_STATE);
+      const guest = structuredClone(BLANK_STATE);
+      let snapshotsSaved = false;
+
+      const scope: OperationScope = { userId: 'user-a', epoch: 1, operationId: 'op-1' };
+      const isScopeValid = () => false; // Simulated invalid/expired epoch
+
+      const result = await executeGuestMigration({
+        userId: 'user-a',
+        scope,
+        isScopeValid,
+        accountState: account,
+        guestState: guest,
+        saveNamedRecoverySnapshotFn: async () => {
+          snapshotsSaved = true;
+        },
+        commitMergedState: async () => ({ ok: true, value: undefined }),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe('AUTH_EPOCH_CHANGED');
+      expect(snapshotsSaved).toBe(false);
+      expect(isGuestMigrationDone('user-a')).toBe(false);
+    });
+
+    test('executeGuestMigration aborts before state commit if scope becomes invalid mid-flight', async () => {
+      const account = structuredClone(BLANK_STATE);
+      const guest = structuredClone(BLANK_STATE);
+      let valid = true;
+      let snapshotsSaved = false;
+      let stateCommitted = false;
+
+      const scope: OperationScope = { userId: 'user-b', epoch: 1, operationId: 'op-2' };
+      const isScopeValid = () => valid;
+
+      const result = await executeGuestMigration({
+        userId: 'user-b',
+        scope,
+        isScopeValid,
+        accountState: account,
+        guestState: guest,
+        saveNamedRecoverySnapshotFn: async () => {
+          snapshotsSaved = true;
+          valid = false; // Simulate epoch change (logout/switch) during recovery save
+        },
+        commitMergedState: async () => {
+          stateCommitted = true;
+          return { ok: true, value: undefined };
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe('AUTH_EPOCH_CHANGED');
+      expect(snapshotsSaved).toBe(true);
+      expect(stateCommitted).toBe(false);
+      expect(isGuestMigrationDone('user-b')).toBe(false);
+    });
+
+    test('executeGuestMigration successfully commits and marks done when scope remains valid', async () => {
+      const account = structuredClone(BLANK_STATE);
+      const guest = structuredClone(BLANK_STATE);
+      guest.books = [{ id: 'gb-1', name: '成功迁移题本', subject: '常识判断', total: 50, pages: 10, done: 0, errors: 0, minutes: 0 }];
+      guest.library = [{ id: 'gl-1', type: 'book', sourceId: 'gb-1', name: '成功迁移题本', subject: '常识判断', defaultMinutes: 20 }];
+
+      let committedState: AppState | null = null;
+      const scope: OperationScope = { userId: 'user-c', epoch: 2, operationId: 'op-3' };
+
+      const result = await executeGuestMigration({
+        userId: 'user-c',
+        scope,
+        isScopeValid: () => true,
+        accountState: account,
+        guestState: guest,
+        commitMergedState: async (merged) => {
+          committedState = merged;
+          return { ok: true, value: undefined };
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(committedState).not.toBeNull();
+      expect(committedState!.books.some(b => b.name === '成功迁移题本')).toBe(true);
+      expect(isGuestMigrationDone('user-c')).toBe(true);
+    });
   });
 });

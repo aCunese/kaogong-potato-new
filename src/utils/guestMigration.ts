@@ -1,4 +1,21 @@
-import { AppState, Book, Course, LibraryItem, Plan, StudyRecord, WrongRecord } from '../types';
+import {
+  AppState,
+  Book,
+  Course,
+  LibraryItem,
+  MutationResult,
+  OperationScope,
+  Plan,
+  SnapshotRecord,
+  StudyRecord,
+  WrongRecord,
+} from '../types';
+import {
+  commitMutation,
+  loadSnapshot,
+  markGuestMigrationDone,
+  saveNamedRecoverySnapshot,
+} from './db';
 
 /**
  * One-time legacy guest (v2 localStorage) -> account migration (R10).
@@ -161,6 +178,9 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
 
   // 4. Plans — remap libraryId/sourceId; skip only when the source was invalid.
   const planIds = new Set(merged.plans.map(p => p.id));
+  const planIdMap = new Map<string, string>();
+  const migratedPlans: Plan[] = [];
+
   for (const guestPlan of guest.plans ?? []) {
     const mappedLibraryId = libraryIdMap.get(guestPlan.libraryId) || guestPlan.libraryId;
     const libraryItem = merged.library.find(l => l.id === mappedLibraryId);
@@ -173,9 +193,13 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
       : libraryItem.type === 'course'
         ? (courseIdMap.get(guestPlan.sourceId) || guestPlan.sourceId)
         : guestPlan.sourceId;
+
+    const newPlanId = planIds.has(guestPlan.id) ? uniqueId('gp', planIds) : guestPlan.id;
+    planIdMap.set(guestPlan.id, newPlanId);
+
     const plan: Plan = {
       ...guestPlan,
-      id: planIds.has(guestPlan.id) ? uniqueId('gp', planIds) : guestPlan.id,
+      id: newPlanId,
       libraryId: mappedLibraryId,
       sourceId: mappedSourceId,
       // A timer that was running in the old guest session must not keep running.
@@ -183,35 +207,85 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
       done: Boolean(guestPlan.done),
     };
     merged.plans.push(plan);
+    migratedPlans.push(plan);
     planIds.add(plan.id);
     preview.plansToMigrate += 1;
   }
 
   // 5. Study records — remap plan/source references, keep actual values.
   const recordIds = new Set(merged.records.map(r => r.id));
-  const planIdMap = new Map<string, string>();
-  for (let i = 0; i < (guest.plans ?? []).length; i++) {
-    const guestPlan = guest.plans![i];
-    const migrated = merged.plans.find(p => p.libraryId === (libraryIdMap.get(guestPlan.libraryId) || guestPlan.libraryId)
-      && p.date === guestPlan.date
-      && p.name === guestPlan.name);
-    if (migrated) planIdMap.set(guestPlan.id, migrated.id);
-  }
+  const recordIdMap = new Map<string, string>();
+
   for (const guestRecord of guest.records ?? []) {
-    const mappedLibraryItem = merged.library.find(l => l.id === (libraryIdMap.get((guestRecord as any).libraryId) || (guestRecord as any).libraryId));
+    const newRecordId = recordIds.has(guestRecord.id) ? uniqueId('gr', recordIds) : guestRecord.id;
+    recordIdMap.set(guestRecord.id, newRecordId);
+
+    const mappedSourceId =
+      guestRecord.type === 'book'
+        ? (bookIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
+        : guestRecord.type === 'course'
+          ? (courseIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
+          : guestRecord.sourceId;
+
     const record: StudyRecord = {
       ...guestRecord,
-      id: recordIds.has(guestRecord.id) ? uniqueId('gr', recordIds) : guestRecord.id,
+      id: newRecordId,
       planId: planIdMap.get(guestRecord.planId) || guestRecord.planId,
-      sourceId: mappedLibraryItem?.type === 'book'
-        ? (bookIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
-        : mappedLibraryItem?.type === 'course'
-          ? (courseIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
-          : guestRecord.sourceId,
+      sourceId: mappedSourceId,
     };
     merged.records.push(record);
     recordIds.add(record.id);
     preview.recordsToMigrate += 1;
+  }
+
+  // Bidirectional consistency between plan.recordId and record.planId
+  for (const plan of migratedPlans) {
+    if (plan.recordId) {
+      plan.recordId = recordIdMap.get(plan.recordId) || plan.recordId;
+    }
+  }
+
+  // Pre-existing orphan references in guest data should be preserved and reported in preview notes without throwing or fabricating false links.
+  const mergedPlanIds = new Set(merged.plans.map(p => p.id));
+  const mergedBookIds = new Set(merged.books.map(b => b.id));
+  const mergedCourseIds = new Set(merged.courses.map(c => c.id));
+  const mergedRecordIds = new Set(merged.records.map(r => r.id));
+
+  let orphanRecordCount = 0;
+  for (const guestRecord of guest.records ?? []) {
+    const finalPlanId = planIdMap.get(guestRecord.planId) || guestRecord.planId;
+    const finalSourceId =
+      guestRecord.type === 'book'
+        ? (bookIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
+        : guestRecord.type === 'course'
+          ? (courseIdMap.get(guestRecord.sourceId) || guestRecord.sourceId)
+          : guestRecord.sourceId;
+
+    const planMissing = Boolean(guestRecord.planId && !mergedPlanIds.has(finalPlanId));
+    const sourceMissing =
+      guestRecord.type === 'book'
+        ? Boolean(guestRecord.sourceId && !mergedBookIds.has(finalSourceId))
+        : guestRecord.type === 'course'
+          ? Boolean(guestRecord.sourceId && !mergedCourseIds.has(finalSourceId))
+          : false;
+
+    if (planMissing || sourceMissing) {
+      orphanRecordCount += 1;
+    }
+  }
+
+  let orphanPlanRecordCount = 0;
+  for (const plan of migratedPlans) {
+    if (plan.recordId && !mergedRecordIds.has(plan.recordId)) {
+      orphanPlanRecordCount += 1;
+    }
+  }
+
+  if (orphanRecordCount > 0) {
+    preview.notes.push(`${orphanRecordCount} 条旧学习记录包含未匹配的计划或实体引用，已保留原始引用`);
+  }
+  if (orphanPlanRecordCount > 0) {
+    preview.notes.push(`${orphanPlanRecordCount} 条旧日程关联的学习记录不存在，已保留原始引用`);
   }
 
   // 6. Wrong records (photos included) — remap bookId; data URLs are later uploaded
@@ -259,3 +333,111 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
   merged.version = 3;
   return { mergedState: merged, preview };
 }
+
+export interface ExecuteGuestMigrationOptions {
+  userId: string;
+  scope?: OperationScope;
+  isScopeValid?: (scope: OperationScope) => boolean;
+  guard?: () => boolean;
+  accountState: AppState;
+  guestState: AppState;
+  localRevision?: number;
+  loadSnapshotFn?: (userId: string) => Promise<SnapshotRecord | null>;
+  saveNamedRecoverySnapshotFn?: (userId: string, state: AppState, revision: number, tag: string) => Promise<void>;
+  commitMergedState?: (mergedState: AppState) => Promise<MutationResult<void>>;
+  markDoneFn?: (userId: string) => void;
+}
+
+/**
+ * Execute guest data migration to account with strict OperationScope and epoch validation.
+ * Aborts cleanly without marking completion or mutating state if user switched or logged out.
+ */
+export async function executeGuestMigration(options: ExecuteGuestMigrationOptions): Promise<MutationResult<void>> {
+  const {
+    userId,
+    scope,
+    isScopeValid,
+    guard,
+    accountState,
+    guestState,
+    localRevision = 0,
+    loadSnapshotFn = loadSnapshot,
+    saveNamedRecoverySnapshotFn = saveNamedRecoverySnapshot,
+    commitMergedState,
+    markDoneFn = markGuestMigrationDone,
+  } = options;
+
+  const checkGuard = (): boolean => {
+    if (!userId) return false;
+    if (guard && !guard()) return false;
+    if (isScopeValid && scope && !isScopeValid(scope)) return false;
+    if (scope && typeof (scope as any).isExpired === 'function' && (scope as any).isExpired()) return false;
+    return true;
+  };
+
+  // 1. Pre-flight epoch / scope verification
+  if (!checkGuard()) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+  }
+
+  // 2. Persist recovery points for both account and guest data
+  try {
+    const accountSnapshot = await loadSnapshotFn(userId);
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+    }
+
+    await saveNamedRecoverySnapshotFn(
+      userId,
+      accountSnapshot?.state ?? accountState,
+      accountSnapshot?.revision ?? localRevision,
+      'pre_guest_migration'
+    );
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+    }
+
+    await saveNamedRecoverySnapshotFn(userId, guestState, 0, 'guest_pre_migration');
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      code: 'RECOVERY_POINT_FAILED',
+      message: err instanceof Error ? err.message : '保存双方恢复点失败，已停止迁移',
+    };
+  }
+
+  // 3. Merge state
+  const { mergedState } = buildGuestMigration(accountState, guestState);
+
+  // 4. Verify scope before writing merged state
+  if (!checkGuard()) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+  }
+
+  // 5. Commit merged state
+  let result: MutationResult<void>;
+  if (commitMergedState) {
+    result = await commitMergedState(mergedState);
+  } else {
+    result = await commitMutation(
+      () => ({ nextState: mergedState, value: undefined }),
+      { userId, reason: 'guest_migration' }
+    );
+  }
+
+  if (!result.ok) {
+    return result;
+  }
+
+  // 6. Verify scope after commit before marking completion
+  if (!checkGuard()) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+  }
+
+  markDoneFn(userId);
+  return { ok: true, value: undefined };
+}
+

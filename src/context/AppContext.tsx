@@ -57,7 +57,7 @@ import {
   UpdateCheckResult,
 } from '../utils/versionCheck';
 import { mergeSeedIntoState } from '../utils/seedMerge';
-import { buildGuestMigration, GuestMigrationPreview } from '../utils/guestMigration';
+import { buildGuestMigration, executeGuestMigration, GuestMigrationPreview } from '../utils/guestMigration';
 import {
   applyStartTimer,
   applyPauseTimer,
@@ -1817,23 +1817,24 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     const guestState = guestMigration?.guestState;
     if (!guestState) return { ok: false, code: 'NO_GUEST_DATA', message: '未检测到可迁移的旧版本地数据' };
 
-    // 1. Persist BOTH recovery points before any merge; abort if persistence fails.
-    try {
-      const accountSnapshot = await loadSnapshot(user.id);
-      await saveNamedRecoverySnapshot(user.id, accountSnapshot?.state ?? state, accountSnapshot?.revision ?? localRevisionRef.current, 'pre_guest_migration');
-      await saveNamedRecoverySnapshot(user.id, guestState, 0, 'guest_pre_migration');
-    } catch (err) {
-      return { ok: false, code: 'RECOVERY_POINT_FAILED', message: err instanceof Error ? err.message : '保存双方恢复点失败，已停止迁移' };
-    }
+    const scope = createOperationScope(user.id);
+    const result = await executeGuestMigration({
+      userId: user.id,
+      scope,
+      isScopeValid: isOperationScopeValid,
+      accountState: state,
+      guestState,
+      localRevision: localRevisionRef.current,
+      commitMergedState: async (mergedState) => {
+        return executeMutation(() => ({ nextState: mergedState, value: undefined }), 'guest_migration');
+      },
+    });
 
-    const { mergedState } = buildGuestMigration(state, guestState);
-    const result = await executeMutation(() => ({ nextState: mergedState, value: undefined }), 'guest_migration');
     if (!result.ok) return result;
-    markGuestMigrationDone(user.id);
     setGuestMigration(null);
     setSyncMessage('旧版本地数据已迁移到当前账号，正在同步到云端');
     return { ok: true, value: undefined };
-  }, [executeMutation, guestMigration, state]);
+  }, [createOperationScope, executeMutation, guestMigration, isOperationScopeValid, state]);
 
   const dismissGuestMigration = useCallback(() => {
     setGuestMigration(null);
