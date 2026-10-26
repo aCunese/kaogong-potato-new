@@ -452,9 +452,9 @@ export interface GitFingerprint {
 export function getGitFingerprint(repoRoot: string): GitFingerprint {
   const head = runCommand('git', ['rev-parse', 'HEAD'], { cwd: repoRoot }).stdout.trim();
   const branch = runCommand('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot }).stdout.trim();
-  const status = runCommand('git', ['status', '--porcelain=v1'], { cwd: repoRoot }).stdout;
-  const diff = runCommand('git', ['diff', 'HEAD'], { cwd: repoRoot }).stdout;
-  const untrackedRaw = runCommand('git', ['ls-files', '--others', '--exclude-standard'], { cwd: repoRoot }).stdout;
+  const status = runCommand('git', ['status', '--porcelain=v1', '--', '.', ':!docs/implementation/evidence'], { cwd: repoRoot }).stdout;
+  const diff = runCommand('git', ['diff', 'HEAD', '--', '.', ':!docs/implementation/evidence'], { cwd: repoRoot }).stdout;
+  const untrackedRaw = runCommand('git', ['ls-files', '--others', '--exclude-standard', '--', '.', ':!docs/implementation/evidence'], { cwd: repoRoot }).stdout;
   const untrackedFiles = untrackedRaw.split(/\r?\n/).filter(Boolean).map(rel => {
     try {
       const full = path.join(repoRoot, rel);

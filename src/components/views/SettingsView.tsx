@@ -77,7 +77,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     getLatestRecoverySnapshot(currentUser?.id).then(snap => {
       setLatestRecovery(snap);
     });
-  }, [currentUser?.id]);
+  }, [currentUser?.id, showDataSettingsModal]);
 
   // Manual update check (unthrottled by manual=true)
   const handleManualCheckUpdate = async () => {
