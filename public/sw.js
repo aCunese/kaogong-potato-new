@@ -9,7 +9,9 @@
 //   - 页面侧仍通过 /version.json?nonce=<一次性随机值> 服务端回显 nonce 做网络新鲜度证明（双保险）。
 // ==============================================================================
 
-const CACHE_NAME = 'kaogong-shell-v3-1.0.3-20261027.01';
+const RELEASE_VERSION = '1.0.3';
+const RELEASE_BUILD = '20261027.01';
+const CACHE_NAME = `kaogong-shell-v3-${RELEASE_VERSION}-${RELEASE_BUILD}`;
 
 // 注意：这里绝对不能包含 /version.json（R16：版本响应不允许被缓存）
 const PRECACHE_RESOURCES = [
@@ -32,7 +34,8 @@ self.addEventListener('install', (event) => {
       return cache.addAll(SAFE_PRECACHE_RESOURCES).catch((err) => {
         console.warn('[SW] Pre-caching non-fatal warning:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
+    // DO NOT call self.skipWaiting() here! The new worker must enter waiting normally.
   );
 });
 
@@ -52,10 +55,26 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 2b. Message Listener for immediate Skip-Waiting on update
+// 2b. Message Listener for queries and skip-waiting
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+  if (!event.data) return;
+
+  if (event.data.type === 'GET_RELEASE_INFO') {
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({
+        type: 'RELEASE_INFO',
+        cacheName: CACHE_NAME,
+        version: RELEASE_VERSION,
+        build: RELEASE_BUILD,
+      });
+    }
+    return;
+  }
+
+  if (event.data.type === 'SKIP_WAITING') {
+    if (!event.data.targetBuild || event.data.targetBuild === RELEASE_BUILD) {
+      self.skipWaiting();
+    }
   }
 });
 

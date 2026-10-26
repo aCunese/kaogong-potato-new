@@ -55,6 +55,7 @@ export interface RemoteVersionInfo {
   servedAt?: string;
   apkVersion?: string;
   apkVersionCode?: number;
+  apkReleased?: boolean;
   apkDownloadUrl?: string;
   apkSha256?: string;
   apkSizeBytes?: number;
@@ -70,6 +71,7 @@ export interface UpdateRemoteInfo {
   build: string;
   apkVersion?: string;
   apkVersionCode?: number;
+  apkReleased?: boolean;
   apkDownloadUrl?: string;
   apkSha256?: string;
   apkSizeBytes?: number;
@@ -136,6 +138,7 @@ export type UpdateGuard = () => UpdateGuardResult;
 export interface ApplyWebUpdateOptions {
   /** App 层保护：计时器运行中 / 写入未持久化 / 待同步队列非空 / 冲突未处理时返回 ok:false */
   canActivate?: UpdateGuard;
+  targetBuild?: string;
 }
 
 export interface ApplyWebUpdateResult {
@@ -439,14 +442,68 @@ function writeStorage(key: string, value: string): void {
   }
 }
 
-interface PersistedCheckState {
+export interface ClientIdentity {
+  webVersion: string;
+  webBuild: string;
+  isNativeApp: boolean;
+  appVersionCode?: number;
+  appPackageName?: string;
+  certFingerprint?: string;
+  bridgeProtocol?: number;
+}
+
+export function getClientIdentity(): ClientIdentity {
+  const bridge = getNativeBridgeInfo();
+  const isNative = Boolean(bridge && bridge.available);
+  const identity: ClientIdentity = {
+    webVersion: CURRENT_WEB_VERSION,
+    webBuild: CURRENT_WEB_BUILD,
+    isNativeApp: isNative,
+  };
+  if (isNative && bridge) {
+    identity.appVersionCode = bridge.versionCode;
+    identity.appPackageName = bridge.packageName;
+    identity.certFingerprint = bridge.certFingerprint;
+    identity.bridgeProtocol = bridge.protocol;
+  }
+  return identity;
+}
+
+export function isSameClientIdentity(a: ClientIdentity, b: ClientIdentity): boolean {
+  return (
+    a.webVersion === b.webVersion &&
+    a.webBuild === b.webBuild &&
+    a.isNativeApp === b.isNativeApp &&
+    a.appVersionCode === b.appVersionCode &&
+    a.appPackageName === b.appPackageName &&
+    a.certFingerprint === b.certFingerprint &&
+    a.bridgeProtocol === b.bridgeProtocol
+  );
+}
+
+export interface PersistedCheckCache {
   verifiedAt: number;
-  result: UpdateCheckResult;
+  identity: ClientIdentity;
+  remote: UpdateRemoteInfo;
 }
 
 let lastVerifiedAt = 0;
-let cachedResult: UpdateCheckResult | null = null;
+let cachedIdentity: ClientIdentity | null = null;
+let cachedRemote: UpdateRemoteInfo | null = null;
 let stateRestored = false;
+
+function discardCache(): void {
+  lastVerifiedAt = 0;
+  cachedIdentity = null;
+  cachedRemote = null;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_STATE);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 function restorePersistedState(): void {
   if (stateRestored) return;
@@ -454,53 +511,107 @@ function restorePersistedState(): void {
   const raw = readStorage(STORAGE_KEY_STATE);
   if (!raw) return;
   try {
-    const parsed = JSON.parse(raw) as PersistedCheckState;
-    if (parsed && typeof parsed.verifiedAt === 'number' && parsed.result && typeof parsed.result === 'object') {
-      lastVerifiedAt = parsed.verifiedAt;
-      cachedResult = parsed.result;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.verifiedAt !== 'number') {
+      discardCache();
+      return;
     }
+    if (parsed.identity && parsed.remote && typeof parsed.remote === 'object') {
+      const currentIdentity = getClientIdentity();
+      if (!isSameClientIdentity(parsed.identity, currentIdentity)) {
+        discardCache();
+        return;
+      }
+      lastVerifiedAt = parsed.verifiedAt;
+      cachedIdentity = parsed.identity;
+      cachedRemote = parsed.remote;
+      return;
+    }
+    // 旧版结构或损坏缓存直接废弃
+    discardCache();
   } catch {
-    // 忽略损坏缓存
+    discardCache();
   }
 }
 
-function persistSuccessfulResult(result: UpdateCheckResult): void {
+function persistSuccessfulCheck(remote: RemoteVersionInfo): void {
   lastVerifiedAt = Date.now();
-  cachedResult = result;
+  cachedIdentity = getClientIdentity();
+  cachedRemote = toUpdateRemoteInfo(remote);
   try {
-    const payload: PersistedCheckState = { verifiedAt: lastVerifiedAt, result };
+    const payload: PersistedCheckCache = {
+      verifiedAt: lastVerifiedAt,
+      identity: cachedIdentity,
+      remote: cachedRemote,
+    };
     writeStorage(STORAGE_KEY_STATE, JSON.stringify(payload));
   } catch {
     // 结果可序列化性异常时不影响主流程
   }
 }
 
-function persistUnverifiedResult(result: UpdateCheckResult): void {
-  cachedResult = result;
+function persistUnverifiedResult(_result: UpdateCheckResult): void {
+  // 失败态或未验证结果不写入长期节流持久化缓存
 }
 
-/** 读取上次版本检查结果（可能来自 30 分钟节流缓存/上个会话） */
+function evaluateDecisionFromCache(remote: UpdateRemoteInfo, verifiedAt: number): UpdateCheckResult {
+  const currentIdentity = getClientIdentity();
+  const checkedAt = new Date(verifiedAt).toISOString();
+  const fullRemote: RemoteVersionInfo = {
+    ...remote,
+    schemaVersion: 3,
+  };
+
+  if (currentIdentity.isNativeApp) {
+    const bridge = getNativeBridgeInfo();
+    if (!bridge || !bridge.available) {
+      return {
+        status: 'unrecognized',
+        checkedAt,
+        source: 'unknown',
+        remoteInfo: remote,
+        cacheState: 'fresh',
+        fromCache: true,
+        errorCode: 'NATIVE_BRIDGE_UNAVAILABLE',
+        message: '原生版本桥接不可用，无法识别当前安装版本',
+      };
+    }
+    const res = decideNativeResult(bridge, fullRemote, { checkedAt, source: 'native' });
+    return { ...res, fromCache: true };
+  }
+
+  const res = decideBrowserResult(fullRemote, { checkedAt, source: 'web' });
+  return { ...res, fromCache: true };
+}
+
+/** 读取上次版本检查结果（可能来自 30 分钟节流缓存/上个会话，动态重新评估） */
 export function getCachedUpdateResult(): UpdateCheckResult | null {
   restorePersistedState();
-  return cachedResult;
+  if (!cachedRemote || !cachedIdentity) return null;
+  if (!isSameClientIdentity(cachedIdentity, getClientIdentity())) {
+    discardCache();
+    return null;
+  }
+  return evaluateDecisionFromCache(cachedRemote, lastVerifiedAt);
 }
 
 function isThrottleActive(): boolean {
   restorePersistedState();
-  if (lastVerifiedAt <= 0) return false;
+  if (lastVerifiedAt <= 0 || !cachedRemote || !cachedIdentity) return false;
+  if (!isSameClientIdentity(cachedIdentity, getClientIdentity())) {
+    discardCache();
+    return false;
+  }
   return Date.now() - lastVerifiedAt < UPDATE_CHECK_THROTTLE_MS;
 }
 
 /** 测试/调试辅助：清空节流与缓存状态 */
 export function resetUpdateCheckState(): void {
   lastVerifiedAt = 0;
-  cachedResult = null;
-  stateRestored = true;
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY_STATE);
-  } catch {
-    // ignore
-  }
+  cachedIdentity = null;
+  cachedRemote = null;
+  stateRestored = false;
+  discardCache();
 }
 
 /** 标记某个版本号的更新横幅已被用户关闭 */
@@ -586,6 +697,7 @@ function normalizeRemoteVersionInfo(data: unknown, nonce: string): RemoteVersion
   if (typeof data.deployedAt === 'string') info.deployedAt = data.deployedAt;
   if (typeof data.summary === 'string') info.summary = data.summary;
   if (typeof data.apkVersion === 'string') info.apkVersion = data.apkVersion;
+  if (typeof data.apkReleased === 'boolean') info.apkReleased = data.apkReleased;
   if (typeof data.apkVersionCode === 'number' && Number.isFinite(data.apkVersionCode)) {
     info.apkVersionCode = Math.trunc(data.apkVersionCode);
   } else if (data.apkVersionCode !== undefined && data.apkVersionCode !== null) {
@@ -664,18 +776,20 @@ async function fetchRemoteVersionInfo(): Promise<FetchOutcome> {
 // ------------------------------------------------------------------------------
 
 function toUpdateRemoteInfo(remote: RemoteVersionInfo): UpdateRemoteInfo {
-  return {
+  const result: UpdateRemoteInfo = {
     version: remote.version,
     build: remote.build,
-    apkVersion: remote.apkVersion,
-    apkVersionCode: remote.apkVersionCode,
-    apkDownloadUrl: remote.apkDownloadUrl,
-    apkSha256: remote.apkSha256,
-    apkSizeBytes: remote.apkSizeBytes,
-    apkPackageName: remote.apkPackageName,
-    apkCertFingerprint: remote.apkCertFingerprint,
-    summary: remote.summary,
   };
+  if (remote.apkVersion !== undefined) result.apkVersion = remote.apkVersion;
+  if (remote.apkVersionCode !== undefined) result.apkVersionCode = remote.apkVersionCode;
+  if (remote.apkReleased !== undefined) result.apkReleased = remote.apkReleased;
+  if (remote.apkDownloadUrl !== undefined) result.apkDownloadUrl = remote.apkDownloadUrl;
+  if (remote.apkSha256 !== undefined) result.apkSha256 = remote.apkSha256;
+  if (remote.apkSizeBytes !== undefined) result.apkSizeBytes = remote.apkSizeBytes;
+  if (remote.apkPackageName !== undefined) result.apkPackageName = remote.apkPackageName;
+  if (remote.apkCertFingerprint !== undefined) result.apkCertFingerprint = remote.apkCertFingerprint;
+  if (remote.summary !== undefined) result.summary = remote.summary;
+  return result;
 }
 
 interface BaseResult {
@@ -744,6 +858,22 @@ function decideNativeResult(
 
   const apkNewer = remoteVersionCode > installedVersionCode;
   if (apkNewer) {
+    if (remote.apkReleased === false) {
+      if (webUpdateAvailable) {
+        return {
+          ...common,
+          status: 'update_available',
+          apkUpdateAvailable: false,
+          message: `发现网页资源新版本（${CURRENT_WEB_BUILD} → ${remote.build}）；新版 Android 安装包暂未开放下载`,
+        };
+      }
+      return {
+        ...common,
+        status: 'latest',
+        apkUpdateAvailable: false,
+        message: `云端存在新版本规划（v${remote.apkVersion || remote.version}），但官方安装包尚未正式发布，暂不提示升级`,
+      };
+    }
     if (!isValidSha256(remote.apkSha256)) {
       return {
         ...common,
@@ -871,11 +1001,12 @@ async function performUpdateCheckInternal(): Promise<UpdateCheckResult> {
         errorCode: reasonCode,
         message: '原生版本桥接不可用或返回异常，无法识别当前安装版本。请通过官方安装包地址在系统浏览器覆盖安装最新正式版',
       };
-      persistSuccessfulResult(result);
       return result;
     }
     const result = decideNativeResult(bridge, remote, base);
-    persistSuccessfulResult(result);
+    if (result.status === 'latest' || result.status === 'update_available') {
+      persistSuccessfulCheck(remote);
+    }
     return result;
   }
 
@@ -888,12 +1019,13 @@ async function performUpdateCheckInternal(): Promise<UpdateCheckResult> {
       errorCode: 'LEGACY_WEBVIEW_NO_BRIDGE',
       message: '当前 Android 容器为旧版本，缺少原生版本桥接，无法识别安装版本。请复制官方安装包地址，在系统浏览器中下载覆盖安装',
     };
-    persistSuccessfulResult(result);
     return result;
   }
 
   const result = decideBrowserResult(remote, base);
-  persistSuccessfulResult(result);
+  if (result.status === 'latest' || result.status === 'update_available') {
+    persistSuccessfulCheck(remote);
+  }
   return result;
 }
 
@@ -992,12 +1124,95 @@ async function waitForWaitingWorker(
   return registration.waiting ?? null;
 }
 
+export const STORAGE_KEY_PENDING_RELOAD = 'kaogong_pending_reload_target';
+export const STORAGE_KEY_RELOAD_ATTEMPTS = 'kaogong_reload_attempts';
+
+interface WorkerReleaseInfo {
+  type: string;
+  cacheName?: string;
+  version?: string;
+  build?: string;
+}
+
+function queryWorkerReleaseInfo(worker: ServiceWorker, timeoutMs = 500): Promise<WorkerReleaseInfo | null> {
+  return new Promise((resolve) => {
+    try {
+      const channel = new MessageChannel();
+      let timer: any = null;
+      channel.port1.onmessage = (event) => {
+        if (timer) clearTimeout(timer);
+        resolve(event.data || null);
+      };
+      timer = setTimeout(() => {
+        resolve(null);
+      }, timeoutMs);
+      worker.postMessage({ type: 'GET_RELEASE_INFO' }, [channel.port2]);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function getStoredPendingReloadTarget(): string | null {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage.getItem(STORAGE_KEY_PENDING_RELOAD);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function setStoredPendingReloadTarget(targetBuild: string): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(STORAGE_KEY_PENDING_RELOAD, targetBuild);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function getStoredReloadAttempts(): number {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const v = sessionStorage.getItem(STORAGE_KEY_RELOAD_ATTEMPTS);
+      return v ? parseInt(v, 10) || 0 : 0;
+    }
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+function setStoredReloadAttempts(attempts: number): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(STORAGE_KEY_RELOAD_ATTEMPTS, String(attempts));
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function clearPendingReloadState(): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(STORAGE_KEY_PENDING_RELOAD);
+      sessionStorage.removeItem(STORAGE_KEY_RELOAD_ATTEMPTS);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * 应用 Web 热更新：
- *   1. 可选的 App 层保护检查（计时器/写事务/待同步/冲突）；
- *   2. 触发 registration.update()；
- *   3. 等待 waiting worker 或 controllerchange（可观测状态变化，~10 秒超时）；
- *   4. 只有观测到接管才返回 ok:true，随后由调用方刷新页面。
+ *   1. App 层保护检查（计时器/写事务/待同步/冲突）；
+ *   2. 检查当前 active worker 是否已经是目标更新或已接管，避免无休止等待未来 controllerchange；
+ *   3. 如果存在 waiting worker，发送 SKIP_WAITING 并等待 controllerchange；
+ *   4. 支持单次受保护刷新与 sessionStorage 目标校验，防止死循环。
  * 绝不清理 IndexedDB / 账号缓存 / 业务数据。
  */
 export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promise<ApplyWebUpdateResult> {
@@ -1028,45 +1243,131 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
     };
   }
 
-  // 先挂载 controllerchange 监听，再触发更新，避免错过事件
-  const controllerChangedPromise = waitForControllerChange(12000);
+  const targetBuild = options.targetBuild || getCachedUpdateResult()?.remoteInfo?.build || CURRENT_WEB_BUILD;
 
-  const existingWaiting = registration.waiting;
-  if (existingWaiting) {
+  // 检查是否有前次未完成的刷新意图
+  const pendingTarget = getStoredPendingReloadTarget();
+  const reloadAttempts = getStoredReloadAttempts();
+  if (pendingTarget) {
+    if (CURRENT_WEB_BUILD === pendingTarget) {
+      clearPendingReloadState();
+    } else if (reloadAttempts >= 1) {
+      clearPendingReloadState();
+      return {
+        ok: false,
+        controllerChanged: false,
+        message: `刷新后页面版本 (${CURRENT_WEB_BUILD}) 仍未更新至预期构建 (${pendingTarget})，请稍后重试或清理浏览器缓存`,
+      };
+    }
+  }
+
+  // 1. 检查当前 active worker 是否已经是目标更新（或已经接管客户端）
+  const activeWorker = registration.active;
+  let activeRelease: WorkerReleaseInfo | null = null;
+  if (activeWorker) {
+    activeRelease = await queryWorkerReleaseInfo(activeWorker, 500);
+  }
+
+  const activeMatchesTarget =
+    activeRelease?.build === targetBuild ||
+    (activeRelease?.cacheName && activeRelease.cacheName.includes(targetBuild));
+
+  // 如果 active worker 已经是目标更新，或者活跃且没有 waiting/installing 且页面已经被接管
+  if (
+    activeMatchesTarget ||
+    (activeWorker && !registration.waiting && !registration.installing && navigator.serviceWorker.controller)
+  ) {
+    setStoredPendingReloadTarget(targetBuild);
+    return {
+      ok: true,
+      controllerChanged: true,
+      message: '新版本已激活，刷新页面即可完成更新',
+    };
+  }
+
+  // 挂载 controllerchange 监听器，准备接收新 worker 接管
+  const controllerChangedPromise = waitForControllerChange(10000);
+
+  // 2. 如果已有 waiting worker，直接触发 SKIP_WAITING
+  let waiting = registration.waiting;
+  if (waiting) {
     try {
-      existingWaiting.postMessage({ type: 'SKIP_WAITING' });
+      waiting.postMessage({ type: 'SKIP_WAITING', targetBuild });
     } catch {
       // ignore
     }
   }
 
+  // 3. 触发 registration.update() 拉取潜在的新版本
   try {
     await registration.update();
   } catch {
-    // update 失败不直接判死：继续等待是否有已存在的 waiting/installing worker
+    // update 失败不直接判死
   }
 
-  const waiting = existingWaiting || (await waitForWaitingWorker(registration, 9000));
+  // 4. 如果之前没有 waiting，再次检查是否有新进入 waiting 的 worker
+  if (!waiting) {
+    waiting = registration.waiting || (await waitForWaitingWorker(registration, 3000));
+  }
+
   if (waiting) {
     try {
-      waiting.postMessage({ type: 'SKIP_WAITING' });
+      waiting.postMessage({ type: 'SKIP_WAITING', targetBuild });
     } catch {
       // ignore
     }
-  }
 
-  const controllerChanged = await controllerChangedPromise;
-  if (!controllerChanged) {
+    const controllerChanged = await controllerChangedPromise;
+    if (controllerChanged) {
+      setStoredPendingReloadTarget(targetBuild);
+      return {
+        ok: true,
+        controllerChanged: true,
+        message: '新版本资源已完成接管，刷新页面即可应用更新（本地数据与账号缓存不受影响）',
+      };
+    }
+
+    // 等待 controllerchange 超时：支持单次受保护刷新尝试
+    if (reloadAttempts === 0) {
+      setStoredPendingReloadTarget(targetBuild);
+      setStoredReloadAttempts(1);
+      return {
+        ok: true,
+        controllerChanged: false,
+        message: '新版本资源已下载就绪，刷新页面完成更新',
+      };
+    }
+
+    clearPendingReloadState();
     return {
       ok: false,
       controllerChanged: false,
       message: '未能观测到新版本 Service Worker 接管页面（可能新版本尚未部署完成、网络中断或浏览器未允许更新）。本地数据与账号缓存未被清理，请稍后重试',
     };
   }
+
+  // 5. 如果没有 waiting worker，检查 active worker（可能由 legacy worker 或在 update() 中直接激活）
+  const refreshedActive = registration.active;
+  if (refreshedActive) {
+    const refreshedRelease = await queryWorkerReleaseInfo(refreshedActive, 500);
+    if (
+      refreshedRelease?.build === targetBuild ||
+      refreshedRelease?.cacheName?.includes(targetBuild) ||
+      (navigator.serviceWorker.controller && !registration.installing)
+    ) {
+      setStoredPendingReloadTarget(targetBuild);
+      return {
+        ok: true,
+        controllerChanged: true,
+        message: '新版本已激活，刷新页面即可完成更新',
+      };
+    }
+  }
+
   return {
-    ok: true,
-    controllerChanged: true,
-    message: '新版本资源已完成接管，刷新页面即可应用更新（本地数据与账号缓存不受影响）',
+    ok: false,
+    controllerChanged: false,
+    message: '未能检测到新版本 Service Worker 资源，请确认网络连接后重试',
   };
 }
 

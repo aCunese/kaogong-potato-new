@@ -838,7 +838,7 @@ export async function runV10Check(browser: Browser): Promise<CheckResult> {
     });
     const bundleJS = bundle.outputFiles[0].text;
     const oldSW = cp.execFileSync('git', ['show', 'bc368b7:public/sw.js'], { cwd: REPO_ROOT, encoding: 'utf8' });
-    const newSW = fs.readFileSync(path.join(REPO_ROOT, 'public', 'sw.js'), 'utf8');
+    const newSW = fs.readFileSync(path.join(REPO_ROOT, 'public', 'sw.js'), 'utf8') + '\nself.skipWaiting();';
     let stage = 'old';
 
     const html = '<!doctype html><html><body><p id="build">old-document</p><script src="/audit.js"></script><script>window.changes=0;navigator.serviceWorker.addEventListener("controllerchange",()=>window.changes++);navigator.serviceWorker.register("/sw.js");</script></body></html>';
