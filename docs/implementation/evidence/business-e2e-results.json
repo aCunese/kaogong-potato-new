@@ -1,11 +1,11 @@
 {
-  "runId": "e2e_1793024207373_2afabf",
-  "baseUrl": "http://127.0.0.1:49548",
-  "dataDir": "/tmp/potato-business-e2e-5xYnzt/data",
+  "runId": "e2e_1793040141197_a74e2e",
+  "baseUrl": "http://127.0.0.1:57804",
+  "dataDir": "/tmp/potato-business-e2e-swD2ru/data",
   "webVersion": "1.0.3",
-  "webBuild": "20261027.01",
-  "checkedAt": "2026-10-26T14:18:03.382Z",
-  "gitHead": "bc368b7b8ac6217b1a31ef78cf74c5d0e7ebaa9c",
+  "webBuild": "20261027.02",
+  "checkedAt": "2026-10-26T18:43:37.307Z",
+  "gitHead": "8c24ba1051f2619874504cd36b26585e680141d2",
   "total": 38,
   "passed": 38,
   "failed": 0,
@@ -20,7 +20,7 @@
       "detail": {
         "versionInfo": {
           "version": "1.0.3",
-          "build": "20261027.01",
+          "build": "20261027.02",
           "schemaVersion": 3,
           "apkVersion": "1.0.3",
           "apkVersionCode": 4,
@@ -32,12 +32,12 @@
           "apkReleased": false,
           "deployedAt": "2026-10-27T00:00:00Z",
           "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
-          "servedAt": "2026-10-26T14:16:51.305Z",
+          "servedAt": "2026-10-26T18:42:24.519Z",
           "nonce": "startup"
         },
         "distVersion": {
           "version": "1.0.3",
-          "build": "20261027.01",
+          "build": "20261027.02",
           "schemaVersion": 3,
           "apkVersion": "1.0.3",
           "apkVersionCode": 4,
@@ -122,21 +122,21 @@
       "name": "B: wrong photo uploaded as server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793024228413_0f14e7ac8386"
+        "image": "/api/media/media_1793040161976_f277eccaa7de"
       }
     },
     {
       "name": "B: avatar uploaded as server media reference",
       "passed": true,
       "detail": {
-        "avatar": "/api/media/media_1793024229128_c34fa3a4b6c5"
+        "avatar": "/api/media/media_1793040162720_99791539dc78"
       }
     },
     {
       "name": "B: second independent device reads the actual photo bytes from server",
       "passed": true,
       "detail": {
-        "photoSrc": "/api/media/media_1793024228413_0f14e7ac8386",
+        "photoSrc": "/api/media/media_1793040161976_f277eccaa7de",
         "photoBytes": 774
       }
     },
@@ -153,7 +153,7 @@
       "passed": true,
       "detail": {
         "outbox": 1,
-        "offlineText": "离线补传_mvpcbzow\n@e2e_user_mvpcbjxy\n正式学员专属空间\n离线就绪\n编辑资料\n云端同步状态\n当前离线：已载入本机可靠缓存，联网后将自动恢复会话并补传\n离线 · 待同步\n检查更新\n支持 Web 与 Android 原"
+        "offlineText": "离线补传_mvplti7g\n@e2e_user_mvplt234\n正式学员专属空间\n离线就绪\n编辑资料\n云端同步状态\n当前离线：已载入本机可靠缓存，联网后将自动恢复会话并补传\n离线 · 待同步\n检查更新\n支持 Web 与 Android 原"
       }
     },
     {
@@ -179,7 +179,7 @@
       "name": "C: conflict resolution keeps the cloud content",
       "passed": true,
       "detail": {
-        "name": "A云端_mvpcc1fr"
+        "name": "A云端_mvpltjyg"
       }
     },
     {
@@ -256,12 +256,12 @@
       "passed": true,
       "detail": {
         "realDbBefore": {
-          "mtimeMs": 1792995675566.1826,
-          "size": 98304
+          "mtimeMs": 1793035693072.9568,
+          "size": 176128
         },
         "realDbAfter": {
-          "mtimeMs": 1792995675566.1826,
-          "size": 98304
+          "mtimeMs": 1793035693072.9568,
+          "size": 176128
         }
       }
     }
