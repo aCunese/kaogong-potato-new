@@ -508,7 +508,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const exportBackup = useCallback(() => {
     const backupObj = {
       app: '考公工作台·土豆新版',
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       state,
     };

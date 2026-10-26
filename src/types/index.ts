@@ -75,6 +75,7 @@ export interface StudyRecord {
   minutes: number;
   questions: number;
   errors: number;
+  lessons?: number; // for course completion
 }
 
 export interface WrongRecord {
@@ -82,7 +83,7 @@ export interface WrongRecord {
   date: string;
   bookId: string;
   note: string;
-  image: string; // base64 or object URL
+  image: string; // base64 or object URL or media ID
   storagePath?: string;
 }
 
@@ -101,7 +102,41 @@ export interface AppState {
   plans: Plan[];
   records: StudyRecord[];
   wrong: WrongRecord[];
-  version: number;
+  version: 3;
+}
+
+export type MutationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string; field?: string };
+
+export type CompletionInput =
+  | { type: 'book'; planId: string; questions: number; errors: number; minutes: number }
+  | { type: 'course'; planId: string; lessons: number; minutes: number }
+  | { type: 'custom'; planId: string; minutes: number };
+
+export interface MediaRecord {
+  id: string;
+  type: 'photo' | 'avatar';
+  mime: string;
+  blob: Blob | string;
+  thumbnailBlob?: Blob | string;
+  createdAt: string;
+}
+
+export interface SnapshotRecord {
+  key: 'latest';
+  state: AppState;
+  version: 3;
+  revision: number;
+  migratedFromV2: boolean;
+  updatedAt: string;
+}
+
+export interface DamagedCacheRecord {
+  id: string;
+  raw: string;
+  recordedAt: string;
+  reason: string;
 }
 
 export type MainTab = 'today' | 'learning' | 'wrong' | 'analysis' | 'settings';

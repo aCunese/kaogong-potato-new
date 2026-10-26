@@ -1,9 +1,23 @@
-import { AppState, Book, Course, Countdown, LibraryItem, Plan, StudyRecord, WrongRecord } from '../types';
+import { AppState, Book, Course, Countdown, LibraryItem, Plan, StudyRecord, WrongRecord, Profile } from '../types';
 
-export const INITIAL_COUNTDOWNS: Countdown[] = [
-  { id: 'cd-1', name: '国考', date: '2026-11-29' },
-  { id: 'cd-2', name: '省考', date: '2027-03-14' },
-  { id: 'cd-3', name: '事业编', date: '2027-04-18' },
+export const BLANK_PROFILE: Profile = {
+  name: '我的备考空间',
+  username: '',
+  avatar: '',
+};
+
+export const STABLE_COUNTDOWNS: Countdown[] = [
+  { id: 'exam-national', name: '国考', date: '' },
+  { id: 'exam-provincial', name: '省考', date: '' },
+  { id: 'exam-public-service', name: '事业编', date: '' },
+];
+
+export const INITIAL_COUNTDOWNS = STABLE_COUNTDOWNS;
+
+export const DEMO_COUNTDOWNS: Countdown[] = [
+  { id: 'exam-national', name: '国考', date: '2026-11-29' },
+  { id: 'exam-provincial', name: '省考', date: '2027-03-14' },
+  { id: 'exam-public-service', name: '事业编', date: '2027-04-18' },
 ];
 
 export const INITIAL_BOOKS: Book[] = [
@@ -96,6 +110,7 @@ export const INITIAL_PLANS: Plan[] = [
     subject: '资料分析',
     plannedMinutes: 30,
     actualMinutes: 35,
+    accumulatedMs: 35 * 60000,
     done: true,
     timerStart: 0,
     recordId: 'rec-today-1',
@@ -110,6 +125,7 @@ export const INITIAL_PLANS: Plan[] = [
     subject: '资料分析',
     plannedMinutes: 30,
     actualMinutes: 30,
+    accumulatedMs: 30 * 60000,
     done: true,
     timerStart: 0,
     recordId: 'rec-today-2',
@@ -124,6 +140,7 @@ export const INITIAL_PLANS: Plan[] = [
     subject: '判断推理',
     plannedMinutes: 40,
     actualMinutes: 0,
+    accumulatedMs: 0,
     done: false,
     timerStart: 0,
   },
@@ -137,6 +154,7 @@ export const INITIAL_PLANS: Plan[] = [
     subject: '政治理论',
     plannedMinutes: 20,
     actualMinutes: 0,
+    accumulatedMs: 0,
     done: false,
     timerStart: 0,
   },
@@ -148,9 +166,9 @@ export const INITIAL_RECORDS: StudyRecord[] = [
   // 资料分析: 360 min, 150 questions, 25 errors (83.3%)
   { id: 'rec-1', planId: 'p-hist-1', date: '2026-10-05', type: 'book', sourceId: 'b-1', subject: '资料分析', minutes: 120, questions: 50, errors: 8 },
   { id: 'rec-2', planId: 'p-hist-2', date: '2026-10-12', type: 'book', sourceId: 'b-1', subject: '资料分析', minutes: 110, questions: 50, errors: 9 },
-  { id: 'rec-3', planId: 'p-hist-3', date: '2026-10-20', type: 'course', sourceId: 'c-1', subject: '资料分析', minutes: 65, questions: 0, errors: 0 },
+  { id: 'rec-3', planId: 'p-hist-3', date: '2026-10-20', type: 'course', sourceId: 'c-1', subject: '资料分析', minutes: 65, questions: 0, errors: 0, lessons: 2 },
   { id: 'rec-today-1', planId: 'plan-1', date: '2026-10-25', type: 'book', sourceId: 'b-1', subject: '资料分析', minutes: 35, questions: 50, errors: 8 },
-  { id: 'rec-today-2', planId: 'plan-2', date: '2026-10-25', type: 'course', sourceId: 'c-1', subject: '资料分析', minutes: 30, questions: 0, errors: 0 },
+  { id: 'rec-today-2', planId: 'plan-2', date: '2026-10-25', type: 'course', sourceId: 'c-1', subject: '资料分析', minutes: 30, questions: 0, errors: 0, lessons: 1 },
 
   // 判断推理: 270 min, 120 questions, 24 errors (80%)
   { id: 'rec-4', planId: 'p-hist-4', date: '2026-10-06', type: 'book', sourceId: 'b-2', subject: '判断推理', minutes: 90, questions: 40, errors: 8 },
@@ -166,17 +184,17 @@ export const INITIAL_RECORDS: StudyRecord[] = [
   { id: 'rec-10', planId: 'p-hist-10', date: '2026-10-21', type: 'book', sourceId: 'b-4', subject: '数量关系', minutes: 90, questions: 25, errors: 7 },
 
   // 政治理论: 90 min (0 questions, course & custom)
-  { id: 'rec-11', planId: 'p-hist-11', date: '2026-10-09', type: 'course', sourceId: 'c-5', subject: '政治理论', minutes: 50, questions: 0, errors: 0 },
+  { id: 'rec-11', planId: 'p-hist-11', date: '2026-10-09', type: 'course', sourceId: 'c-5', subject: '政治理论', minutes: 50, questions: 0, errors: 0, lessons: 2 },
   { id: 'rec-12', planId: 'p-hist-12', date: '2026-10-17', type: 'custom', sourceId: '', subject: '政治理论', minutes: 40, questions: 0, errors: 0 },
 
   // 常识判断: 60 min (0 questions, book review)
   { id: 'rec-13', planId: 'p-hist-13', date: '2026-10-14', type: 'book', sourceId: 'b-6', subject: '常识判断', minutes: 60, questions: 0, errors: 0 },
 
   // 申论: 45 min
-  { id: 'rec-14', planId: 'p-hist-14', date: '2026-10-16', type: 'course', sourceId: 'c-6', subject: '申论', minutes: 45, questions: 0, errors: 0 },
+  { id: 'rec-14', planId: 'p-hist-14', date: '2026-10-16', type: 'course', sourceId: 'c-6', subject: '申论', minutes: 45, questions: 0, errors: 0, lessons: 1 },
 
   // 面试: 15 min
-  { id: 'rec-15', planId: 'p-hist-15', date: '2026-10-23', type: 'course', sourceId: 'c-7', subject: '面试', minutes: 15, questions: 0, errors: 0 },
+  { id: 'rec-15', planId: 'p-hist-15', date: '2026-10-23', type: 'course', sourceId: 'c-7', subject: '面试', minutes: 15, questions: 0, errors: 0, lessons: 1 },
 ];
 
 export const INITIAL_WRONG: WrongRecord[] = [
@@ -203,20 +221,48 @@ export const INITIAL_WRONG: WrongRecord[] = [
   },
 ];
 
-export const INITIAL_PROFILE: { name: string; username: string; avatar: string } = {
+export const INITIAL_PROFILE: Profile = {
   name: '土豆的备考空间',
   username: 'potato_01',
   avatar: '',
 };
 
-export const INITIAL_STATE: AppState = {
+export const BLANK_STATE: AppState = {
+  profile: BLANK_PROFILE,
+  countdowns: STABLE_COUNTDOWNS,
+  books: [],
+  courses: [],
+  library: [],
+  plans: [],
+  records: [],
+  wrong: [],
+  version: 3,
+};
+
+export const DEMO_STATE: AppState = {
   profile: INITIAL_PROFILE,
-  countdowns: INITIAL_COUNTDOWNS,
+  countdowns: DEMO_COUNTDOWNS,
   books: INITIAL_BOOKS,
   courses: INITIAL_COURSES,
   library: buildLibraryFromSources(INITIAL_BOOKS, INITIAL_COURSES, INITIAL_CUSTOM_ITEMS),
   plans: INITIAL_PLANS,
   records: INITIAL_RECORDS,
   wrong: INITIAL_WRONG,
-  version: 2,
+  version: 3,
 };
+
+// INITIAL_STATE defaults to BLANK_STATE for clean starts!
+export const INITIAL_STATE: AppState = BLANK_STATE;
+
+export function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getLocalMonthString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}

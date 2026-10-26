@@ -1,5 +1,9 @@
-import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile } from '../types';
-import { buildLibraryFromSources, INITIAL_PROFILE, INITIAL_COUNTDOWNS } from '../constants/initialData';
+import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, SUBJECTS, Subject, PlanType } from '../types';
+import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
+
+export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+const VALID_SUBJECT_SET = new Set<string>(SUBJECTS);
+const VALID_PLAN_TYPES = new Set<string>(['book', 'course', 'custom']);
 
 export interface BackupValidationResult {
   valid: boolean;
@@ -16,15 +20,37 @@ export interface BackupValidationResult {
   };
 }
 
+function isValidDateString(str: any): boolean {
+  if (typeof str !== 'string' || !str.trim()) return false;
+  const parsed = Date.parse(str);
+  return !isNaN(parsed);
+}
+
+function isNonNegativeNumber(val: any): boolean {
+  return typeof val === 'number' && !isNaN(val) && val >= 0;
+}
+
 /**
- * Validates, migrates, and repairs imported backup JSON.
- * Fixes:
- * - A02: Rejects incomplete/corrupted backups without crashing, provides detailed schema validation.
- * - A04: Assigns stable IDs to legacy countdowns lacking 'id' property.
+ * Strict versioned validation and migration for backup data.
+ * Supports v1, v2, v3 backups and normalizes to v3.
+ *
+ * Rules:
+ * - Rejects non-string and payload > 50MB
+ * - Rejects non-JSON and invalid root objects
+ * - Rejects unknown versions (version > 3)
+ * - Rejects missing core arrays: books, courses, countdowns, plans, records, wrong
+ * - Rejects null / non-object elements in any core array
+ * - Validates field types, non-negative numbers, subjects against SUBJECTS, and date formats
+ * - Strictly preserves accumulatedMs for plans; derives from (actualMinutes || 0) * 60000 if absent
+ * - Normalizes countdown IDs to stable IDs (exam-national, exam-provincial, exam-public-service)
  */
 export function validateAndMigrateBackup(jsonString: string): BackupValidationResult {
   if (!jsonString || typeof jsonString !== 'string') {
     return { valid: false, error: '备份文件内容为空或不是字符串' };
+  }
+
+  if (jsonString.length > MAX_BACKUP_SIZE_BYTES) {
+    return { valid: false, error: '备份文件大小超过 50MB 限制' };
   }
 
   let raw: any;
@@ -34,14 +60,27 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     return { valid: false, error: `JSON 格式解析失败: ${err.message || '语法错误'}` };
   }
 
-  if (!raw || typeof raw !== 'object') {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { valid: false, error: '备份文件数据结构非法，根节点不是对象' };
   }
 
   // Handle both { version: N, state: { ... } } and direct AppState
-  const target = raw.state && typeof raw.state === 'object' ? raw.state : raw;
+  const target = raw.state && typeof raw.state === 'object' && !Array.isArray(raw.state) ? raw.state : raw;
 
-  // Verify core arrays
+  // Version check: reject unknown versions > 3
+  const versionCandidate = typeof raw.version === 'number'
+    ? raw.version
+    : typeof target.version === 'number'
+    ? target.version
+    : undefined;
+
+  if (versionCandidate !== undefined) {
+    if (typeof versionCandidate !== 'number' || isNaN(versionCandidate) || versionCandidate < 1 || versionCandidate > 3) {
+      return { valid: false, error: `不支持的备份版本 (v${versionCandidate})，当前最高支持 v3` };
+    }
+  }
+
+  // CRITICAL: Reject missing core arrays!
   if (!Array.isArray(target.books)) {
     return { valid: false, error: '备份缺少必要的 books (题本列表) 数据' };
   }
@@ -51,93 +90,261 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   if (!Array.isArray(target.countdowns)) {
     return { valid: false, error: '备份缺少必要的 countdowns (倒计时列表) 数据' };
   }
+  if (!Array.isArray(target.plans)) {
+    return { valid: false, error: '备份缺少必要的 plans (学习计划) 数据' };
+  }
+  if (!Array.isArray(target.records)) {
+    return { valid: false, error: '备份缺少必要的 records (学习记录) 数据' };
+  }
+  if (!Array.isArray(target.wrong)) {
+    return { valid: false, error: '备份缺少必要的 wrong (错题记录) 数据' };
+  }
 
-  // Normalize countdowns with stable IDs (Fix A04)
-  const countdowns: Countdown[] = target.countdowns.map((cd: any, idx: number) => ({
-    id: typeof cd.id === 'string' && cd.id.trim() ? cd.id.trim() : `cd-${idx + 1}-${cd.name || 'exam'}`,
-    name: typeof cd.name === 'string' ? cd.name : `考试 ${idx + 1}`,
-    date: typeof cd.date === 'string' ? cd.date : '',
-  }));
+  // Reject null or non-object elements in core arrays
+  const coreArrayChecks = [
+    { name: 'books', arr: target.books },
+    { name: 'courses', arr: target.courses },
+    { name: 'countdowns', arr: target.countdowns },
+    { name: 'plans', arr: target.plans },
+    { name: 'records', arr: target.records },
+    { name: 'wrong', arr: target.wrong },
+  ];
 
-  // Fallback if empty countdowns
-  const finalCountdowns = countdowns.length > 0 ? countdowns : INITIAL_COUNTDOWNS;
+  for (const { name, arr } of coreArrayChecks) {
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] === null || arr[i] === undefined || typeof arr[i] !== 'object' || Array.isArray(arr[i])) {
+        return { valid: false, error: `数据校验失败: ${name} 中第 ${i + 1} 项包含空值或非法对象` };
+      }
+    }
+  }
 
-  // Sanitize books
-  const books: Book[] = target.books.map((b: any, idx: number) => ({
-    id: typeof b.id === 'string' && b.id ? b.id : `b-${Date.now()}-${idx}`,
-    name: typeof b.name === 'string' ? b.name : '未命名题本',
-    subject: b.subject || '言语理解',
-    total: typeof b.total === 'number' ? b.total : 100,
-    pages: typeof b.pages === 'number' ? b.pages : 1,
-    done: typeof b.done === 'number' ? b.done : 0,
-    errors: typeof b.errors === 'number' ? b.errors : 0,
-    minutes: typeof b.minutes === 'number' ? b.minutes : 0,
-  }));
+  // Validate & sanitize books
+  const books: Book[] = [];
+  for (let i = 0; i < target.books.length; i++) {
+    const b = target.books[i];
+    if (typeof b.name !== 'string' || !b.name.trim()) {
+      return { valid: false, error: `题本列表中第 ${i + 1} 项名称不能为空` };
+    }
+    if (!VALID_SUBJECT_SET.has(b.subject)) {
+      return { valid: false, error: `题本 "${b.name}" 的科目 "${b.subject}" 不合法` };
+    }
+    if (!isNonNegativeNumber(b.total)) {
+      return { valid: false, error: `题本 "${b.name}" 总题数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(b.pages)) {
+      return { valid: false, error: `题本 "${b.name}" 总页数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(b.done)) {
+      return { valid: false, error: `题本 "${b.name}" 已做题数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(b.errors)) {
+      return { valid: false, error: `题本 "${b.name}" 错题数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(b.minutes)) {
+      return { valid: false, error: `题本 "${b.name}" 学习用时必须为非负数字` };
+    }
 
-  // Sanitize courses
-  const courses: Course[] = target.courses.map((c: any, idx: number) => ({
-    id: typeof c.id === 'string' && c.id ? c.id : `c-${Date.now()}-${idx}`,
-    name: typeof c.name === 'string' ? c.name : '未命名课程',
-    subject: c.subject || '言语理解',
-    totalLessons: typeof c.totalLessons === 'number' ? c.totalLessons : 20,
-    completedLessons: typeof c.completedLessons === 'number' ? c.completedLessons : 0,
-    minutes: typeof c.minutes === 'number' ? c.minutes : 0,
-    url: typeof c.url === 'string' ? c.url : '',
-  }));
+    books.push({
+      id: typeof b.id === 'string' && b.id.trim() ? b.id.trim() : `b-${Date.now()}-${i}`,
+      name: b.name.trim(),
+      subject: b.subject as Subject,
+      total: Math.round(b.total),
+      pages: Math.round(b.pages),
+      done: Math.round(b.done),
+      errors: Math.round(b.errors),
+      minutes: Math.round(b.minutes),
+    });
+  }
 
-  // Safe fallback for profile (Fix A02)
+  // Validate & sanitize courses
+  const courses: Course[] = [];
+  for (let i = 0; i < target.courses.length; i++) {
+    const c = target.courses[i];
+    if (typeof c.name !== 'string' || !c.name.trim()) {
+      return { valid: false, error: `课程列表中第 ${i + 1} 项名称不能为空` };
+    }
+    if (!VALID_SUBJECT_SET.has(c.subject)) {
+      return { valid: false, error: `课程 "${c.name}" 的科目 "${c.subject}" 不合法` };
+    }
+    if (!isNonNegativeNumber(c.totalLessons)) {
+      return { valid: false, error: `课程 "${c.name}" 总讲数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(c.completedLessons)) {
+      return { valid: false, error: `课程 "${c.name}" 已学讲数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(c.minutes)) {
+      return { valid: false, error: `课程 "${c.name}" 学习用时必须为非负数字` };
+    }
+
+    courses.push({
+      id: typeof c.id === 'string' && c.id.trim() ? c.id.trim() : `c-${Date.now()}-${i}`,
+      name: c.name.trim(),
+      subject: c.subject as Subject,
+      totalLessons: Math.round(c.totalLessons),
+      completedLessons: Math.round(c.completedLessons),
+      minutes: Math.round(c.minutes),
+      url: typeof c.url === 'string' ? c.url.trim() : '',
+    });
+  }
+
+  // Validate & normalize countdowns (Stable IDs: exam-national, exam-provincial, exam-public-service)
+  const cdMap = new Map<string, Countdown>();
+  const extraCountdowns: Countdown[] = [];
+
+  for (let i = 0; i < target.countdowns.length; i++) {
+    const cd = target.countdowns[i];
+    const name = typeof cd.name === 'string' ? cd.name.trim() : `考试 ${i + 1}`;
+    const date = typeof cd.date === 'string' ? cd.date.trim() : '';
+
+    if (date !== '' && !isValidDateString(date)) {
+      return { valid: false, error: `倒计时 "${name}" 的考试日期格式无效: ${cd.date}` };
+    }
+
+    let stableId: string | null = null;
+    if (cd.id === 'exam-national' || name.includes('国考') || cd.id === 'cd-1') {
+      stableId = 'exam-national';
+    } else if (cd.id === 'exam-provincial' || name.includes('省考') || cd.id === 'cd-2') {
+      stableId = 'exam-provincial';
+    } else if (cd.id === 'exam-public-service' || name.includes('事业编') || cd.id === 'cd-3') {
+      stableId = 'exam-public-service';
+    }
+
+    if (stableId) {
+      cdMap.set(stableId, { id: stableId, name, date });
+    } else {
+      extraCountdowns.push({
+        id: typeof cd.id === 'string' && cd.id.trim() ? cd.id.trim() : `cd-custom-${i + 1}`,
+        name,
+        date,
+      });
+    }
+  }
+
+  // Ensure all 3 stable countdowns exist
+  const finalCountdowns: Countdown[] = [
+    cdMap.get('exam-national') || { id: 'exam-national', name: '国考', date: '' },
+    cdMap.get('exam-provincial') || { id: 'exam-provincial', name: '省考', date: '' },
+    cdMap.get('exam-public-service') || { id: 'exam-public-service', name: '事业编', date: '' },
+    ...extraCountdowns,
+  ];
+
+  // Validate & sanitize plans
+  const plans: Plan[] = [];
+  for (let i = 0; i < target.plans.length; i++) {
+    const p = target.plans[i];
+    if (typeof p.name !== 'string' || !p.name.trim()) {
+      return { valid: false, error: `学习计划列表中第 ${i + 1} 项名称不能为空` };
+    }
+    if (!isValidDateString(p.date)) {
+      return { valid: false, error: `学习计划 "${p.name}" 的日期格式无效: ${p.date}` };
+    }
+    if (!VALID_PLAN_TYPES.has(p.type)) {
+      return { valid: false, error: `学习计划 "${p.name}" 的类型 "${p.type}" 不合法` };
+    }
+    if (!VALID_SUBJECT_SET.has(p.subject)) {
+      return { valid: false, error: `学习计划 "${p.name}" 的科目 "${p.subject}" 不合法` };
+    }
+    if (!isNonNegativeNumber(p.plannedMinutes)) {
+      return { valid: false, error: `学习计划 "${p.name}" 计划用时必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(p.actualMinutes)) {
+      return { valid: false, error: `学习计划 "${p.name}" 实际用时必须为非负数字` };
+    }
+
+    // CRITICAL: Preserve accumulatedMs if valid number, otherwise derive from (actualMinutes || 0) * 60000
+    const accumulatedMs = (typeof p.accumulatedMs === 'number' && !isNaN(p.accumulatedMs) && p.accumulatedMs >= 0)
+      ? p.accumulatedMs
+      : Math.round((p.actualMinutes || 0) * 60000);
+
+    const timerStart = (typeof p.timerStart === 'number' && !isNaN(p.timerStart) && p.timerStart >= 0)
+      ? p.timerStart
+      : 0;
+
+    plans.push({
+      id: typeof p.id === 'string' && p.id.trim() ? p.id.trim() : `plan-${Date.now()}-${i}`,
+      date: p.date.trim(),
+      libraryId: typeof p.libraryId === 'string' ? p.libraryId.trim() : '',
+      name: p.name.trim(),
+      type: p.type as PlanType,
+      sourceId: typeof p.sourceId === 'string' ? p.sourceId.trim() : '',
+      subject: p.subject as Subject,
+      plannedMinutes: Math.round(p.plannedMinutes),
+      actualMinutes: Math.round(p.actualMinutes),
+      accumulatedMs,
+      done: Boolean(p.done),
+      timerStart,
+      recordId: typeof p.recordId === 'string' && p.recordId.trim() ? p.recordId.trim() : undefined,
+    });
+  }
+
+  // Validate & sanitize records
+  const records: StudyRecord[] = [];
+  for (let i = 0; i < target.records.length; i++) {
+    const r = target.records[i];
+    if (!isValidDateString(r.date)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项的日期格式无效: ${r.date}` };
+    }
+    if (!VALID_PLAN_TYPES.has(r.type)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项的类型 "${r.type}" 不合法` };
+    }
+    if (!VALID_SUBJECT_SET.has(r.subject)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项的科目 "${r.subject}" 不合法` };
+    }
+    if (!isNonNegativeNumber(r.minutes)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项用时必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(r.questions)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项题目数必须为非负数字` };
+    }
+    if (!isNonNegativeNumber(r.errors)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项错题数必须为非负数字` };
+    }
+
+    const lessons = (typeof r.lessons === 'number' && !isNaN(r.lessons) && r.lessons >= 0)
+      ? Math.round(r.lessons)
+      : undefined;
+
+    records.push({
+      id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rec-${Date.now()}-${i}`,
+      planId: typeof r.planId === 'string' ? r.planId.trim() : '',
+      date: r.date.trim(),
+      type: r.type as PlanType,
+      sourceId: typeof r.sourceId === 'string' ? r.sourceId.trim() : '',
+      subject: r.subject as Subject,
+      minutes: Math.round(r.minutes),
+      questions: Math.round(r.questions),
+      errors: Math.round(r.errors),
+      lessons,
+    });
+  }
+
+  // Validate & sanitize wrong records
+  const wrong: WrongRecord[] = [];
+  for (let i = 0; i < target.wrong.length; i++) {
+    const w = target.wrong[i];
+    if (!isValidDateString(w.date)) {
+      return { valid: false, error: `错题记录中第 ${i + 1} 项的日期格式无效: ${w.date}` };
+    }
+
+    wrong.push({
+      id: typeof w.id === 'string' && w.id.trim() ? w.id.trim() : `wrong-${Date.now()}-${i}`,
+      date: w.date.trim(),
+      bookId: typeof w.bookId === 'string' ? w.bookId.trim() : '',
+      note: typeof w.note === 'string' ? w.note : '',
+      image: typeof w.image === 'string' ? w.image : '',
+      storagePath: typeof w.storagePath === 'string' ? w.storagePath : undefined,
+    });
+  }
+
+  // Sanitize profile
+  const rawProfile = target.profile && typeof target.profile === 'object' ? target.profile : {};
   const profile: Profile = {
-    name: (target.profile && typeof target.profile.name === 'string') ? target.profile.name : INITIAL_PROFILE.name,
-    username: (target.profile && typeof target.profile.username === 'string') ? target.profile.username : INITIAL_PROFILE.username,
-    avatar: (target.profile && typeof target.profile.avatar === 'string') ? target.profile.avatar : INITIAL_PROFILE.avatar,
+    name: typeof rawProfile.name === 'string' && rawProfile.name.trim() ? rawProfile.name.trim() : BLANK_PROFILE.name,
+    username: typeof rawProfile.username === 'string' ? rawProfile.username.trim() : BLANK_PROFILE.username,
+    avatar: typeof rawProfile.avatar === 'string' ? rawProfile.avatar : BLANK_PROFILE.avatar,
   };
 
-  // Safe fallback for plans
-  const plans: Plan[] = Array.isArray(target.plans)
-    ? target.plans.map((p: any, idx: number) => ({
-        id: typeof p.id === 'string' && p.id ? p.id : `plan-${Date.now()}-${idx}`,
-        date: typeof p.date === 'string' ? p.date : new Date().toISOString().slice(0, 10),
-        libraryId: typeof p.libraryId === 'string' ? p.libraryId : '',
-        name: typeof p.name === 'string' ? p.name : '学习计划',
-        type: p.type === 'course' ? 'course' : p.type === 'custom' ? 'custom' : 'book',
-        sourceId: typeof p.sourceId === 'string' ? p.sourceId : '',
-        subject: p.subject || '言语理解',
-        plannedMinutes: typeof p.plannedMinutes === 'number' ? p.plannedMinutes : 30,
-        actualMinutes: typeof p.actualMinutes === 'number' ? p.actualMinutes : 0,
-        done: Boolean(p.done),
-        timerStart: typeof p.timerStart === 'number' ? p.timerStart : 0,
-        recordId: typeof p.recordId === 'string' ? p.recordId : undefined,
-      }))
-    : [];
-
-  // Safe fallback for records
-  const records: StudyRecord[] = Array.isArray(target.records)
-    ? target.records.map((r: any, idx: number) => ({
-        id: typeof r.id === 'string' && r.id ? r.id : `rec-${Date.now()}-${idx}`,
-        planId: typeof r.planId === 'string' ? r.planId : '',
-        date: typeof r.date === 'string' ? r.date : new Date().toISOString().slice(0, 10),
-        type: r.type === 'course' ? 'course' : r.type === 'custom' ? 'custom' : 'book',
-        sourceId: typeof r.sourceId === 'string' ? r.sourceId : '',
-        subject: r.subject || '言语理解',
-        minutes: typeof r.minutes === 'number' ? r.minutes : 0,
-        questions: typeof r.questions === 'number' ? r.questions : 0,
-        errors: typeof r.errors === 'number' ? r.errors : 0,
-      }))
-    : [];
-
-  // Safe fallback for wrong records
-  const wrong: WrongRecord[] = Array.isArray(target.wrong)
-    ? target.wrong.map((w: any, idx: number) => ({
-        id: typeof w.id === 'string' && w.id ? w.id : `wrong-${Date.now()}-${idx}`,
-        date: typeof w.date === 'string' ? w.date : new Date().toISOString().slice(0, 10),
-        bookId: typeof w.bookId === 'string' ? w.bookId : '',
-        note: typeof w.note === 'string' ? w.note : '',
-        image: typeof w.image === 'string' ? w.image : '',
-        storagePath: typeof w.storagePath === 'string' ? w.storagePath : undefined,
-      }))
-    : [];
-
-  // Rebuild library from sanitized sources
+  // Reconcile library from sources
   const existingLib = Array.isArray(target.library) ? target.library : [];
   const library = buildLibraryFromSources(books, courses, existingLib);
 
@@ -150,7 +357,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     plans,
     records,
     wrong,
-    version: 2,
+    version: 3,
   };
 
   return {
