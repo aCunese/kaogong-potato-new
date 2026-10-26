@@ -23,8 +23,20 @@ import {
   createPortableBackupState,
   setActiveUserPartition,
   clearOutbox,
+  saveLastActiveUser,
+  getLastActiveUser,
+  clearLocalCache,
+  getActiveGenerationId,
 } from '../utils/db';
-import { syncOutboxWithServer, pullLatestFromServer, SyncResult } from '../utils/syncClient';
+import {
+  syncNormal,
+  syncOutboxWithServer,
+  pullLatestFromServer,
+  forcePullRemote,
+  forceUploadLocal,
+  SyncResult,
+} from '../utils/syncClient';
+import { createSeedState } from '../utils/seedFactory';
 import {
   applyStartTimer,
   applyPauseTimer,
@@ -110,10 +122,15 @@ export interface AppContextType {
   syncStatus: SyncState;
   syncMessage: string | null;
   conflictData: { serverRevision: number; serverState: AppState | null } | null;
+  localRevision: number;
   login: (username: string, password: string) => Promise<MutationResult<User>>;
   register: (username: string, password: string, nickname: string, inviteCode: string) => Promise<MutationResult<User>>;
   logout: () => Promise<void>;
   triggerSync: () => Promise<SyncResult>;
+  forceUpload: () => Promise<SyncResult>;
+  forcePull: () => Promise<SyncResult>;
+  clearLocalData: () => Promise<void>;
+  importSeedTemplate: () => Promise<MutationResult<void>>;
   resolveConflict: (choice: 'keep_local' | 'keep_remote') => Promise<MutationResult<void>>;
 
   // Offline & Auto-Update
@@ -170,6 +187,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     setCorruptedRaw(null);
   }, []);
 
+  const [localRevision, setLocalRevision] = useState<number>(1);
+  const localRevisionRef = useRef<number>(1);
+  const authEpochRef = useRef<number>(0);
+
   // Forward declaration of triggerSync for background calls
   const triggerSyncRef = useRef<() => Promise<SyncResult>>(async () => ({ ok: false, status: 'offline' }));
 
@@ -177,30 +198,52 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   useEffect(() => {
     if (preview) return;
     let mounted = true;
+    const epoch = authEpochRef.current;
 
     fetch('/api/auth/me')
       .then(async r => {
         if (r.ok) {
           const authData = await r.json();
           if (authData.ok && authData.user) {
-            if (mounted) {
+            if (mounted && authEpochRef.current === epoch) {
               setCurrentUser(authData.user);
               setCsrfToken(authData.csrfToken);
+              saveLastActiveUser(authData.user);
             }
             setActiveUserPartition(authData.user.id);
             return loadLatestState(authData.user.id);
           }
         }
+        // Explicit 401 or 403: session expired / invalid
+        saveLastActiveUser(null);
         setActiveUserPartition(null);
-        return loadLatestState();
+        return loadLatestState(null);
       })
       .catch(() => {
+        // Network error during cold start -> fallback to cached non-sensitive user identity (Defect E)
+        const cachedUser = getLastActiveUser();
+        if (cachedUser) {
+          if (mounted && authEpochRef.current === epoch) {
+            setCurrentUser({
+              id: cachedUser.id,
+              username: cachedUser.username,
+              nickname: cachedUser.nickname,
+              role: cachedUser.role,
+            });
+            setSyncStatus('idle');
+            setSyncMessage('离线模式：已加载本机备考空间');
+          }
+          setActiveUserPartition(cachedUser.id);
+          return loadLatestState(cachedUser.id);
+        }
         setActiveUserPartition(null);
-        return loadLatestState();
+        return loadLatestState(null);
       })
       .then(res => {
-        if (!mounted) return;
+        if (!mounted || authEpochRef.current !== epoch) return;
         readyRef.current = true;
+        setLocalRevision(res.revision);
+        localRevisionRef.current = res.revision;
         setState(res.state);
         if (res.corruptedRaw) {
           setCorruptedRaw(res.corruptedRaw);
@@ -210,7 +253,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       })
       .catch(err => {
         console.error('加载本地数据库异常:', err);
-        if (mounted) {
+        if (mounted && authEpochRef.current === epoch) {
           readyRef.current = false;
           setStorageError('加载本地数据失败，已暂停保存以保护原数据。请刷新页面重试。');
           setIsLoading(false);
@@ -391,13 +434,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
           requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
           state: nextState,
           expectedRevision: nextRevision - 1,
-          generationId: '',
+          generationId: getActiveGenerationId(currentUser.id),
           createdAt: new Date().toISOString(),
           status: 'pending',
         }) : undefined,
       });
 
       if (result.ok && appliedNextState) {
+        localRevisionRef.current += 1;
+        setLocalRevision(localRevisionRef.current);
         setState(appliedNextState);
         if (currentUser && navigator.onLine) {
           triggerSync().catch(() => {});
@@ -613,24 +658,76 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   );
 
   // ----------------------------------------------------------------------
-  // System: Reset, Backup, Import
+  // System: Reset, Clear Local Cache, Import Seed Template, Backup, Import
   // ----------------------------------------------------------------------
+  const clearLocalData = useCallback(async (): Promise<void> => {
+    if (preview) {
+      setState(createPreviewState());
+      return;
+    }
+    await clearLocalCache(currentUser?.id ?? null);
+    const refreshed = await loadLatestState(currentUser?.id ?? null);
+    setState(refreshed.state);
+    localRevisionRef.current = refreshed.revision;
+    setLocalRevision(refreshed.revision);
+    setSyncStatus('idle');
+    setSyncMessage('已清除本机缓存，下次联网将重新拉取云端数据');
+  }, [preview, currentUser]);
+
   const resetState = useCallback(async (): Promise<MutationResult<void>> => {
     if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法重置。' };
     if (preview) return executeMutation(() => ({ nextState: createPreviewState(), value: undefined }));
-    try {
-      const reset = await resetDatabase();
-      if (!reset) throw new Error('重置未成功，原数据已保留。');
-      setState(structuredClone(BLANK_STATE));
-      return { ok: true, value: undefined };
-    } catch (err) {
-      return {
-        ok: false,
-        code: 'RESET_FAILED',
-        message: err instanceof Error ? err.message : String(err),
-      };
+
+    if (!currentUser) {
+      // Guest mode reset
+      try {
+        const reset = await resetDatabase(null);
+        if (!reset) throw new Error('重置未成功，原数据已保留。');
+        setState(structuredClone(BLANK_STATE));
+        localRevisionRef.current = 1;
+        setLocalRevision(1);
+        return { ok: true, value: undefined };
+      } catch (err) {
+        return {
+          ok: false,
+          code: 'RESET_FAILED',
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
-  }, [preview, executeMutation]);
+
+    // Authenticated user reset: business mutation (Defect F)
+    // 1. Clear study plans, records and wrong entries
+    // 2. Reset progress on books and courses to 0
+    // 3. Keep profile and countdown configurations intact
+    // 4. Commits through standard mutation pipeline to enqueue sync to cloud
+    return executeMutation(draft => {
+      draft.plans = [];
+      draft.records = [];
+      draft.wrong = [];
+      for (const b of draft.books) {
+        b.done = 0;
+        b.errors = 0;
+        b.minutes = 0;
+      }
+      for (const c of draft.courses) {
+        c.completedLessons = 0;
+        c.minutes = 0;
+      }
+      return { nextState: draft, value: undefined };
+    });
+  }, [preview, currentUser, executeMutation]);
+
+  const importSeedTemplate = useCallback(async (): Promise<MutationResult<void>> => {
+    if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未就绪' };
+    const seed = createSeedState(currentUser?.username || 'user', currentUser?.nickname || '同学');
+    return executeMutation(draft => {
+      draft.books = seed.books;
+      draft.courses = seed.courses;
+      draft.library = seed.library;
+      return { nextState: draft, value: undefined };
+    });
+  }, [currentUser, executeMutation]);
 
   const exportBackup = useCallback(async (): Promise<MutationResult<void>> => {
     if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法导出备份。' };
@@ -709,6 +806,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   }, [state]);
 
   const login = useCallback(async (username: string, password: string): Promise<MutationResult<User>> => {
+    authEpochRef.current += 1;
+    const currentEpoch = authEpochRef.current;
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -719,8 +818,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       if (!res.ok || !data.ok) {
         return { ok: false, code: data.code || 'LOGIN_FAILED', message: data.message || '登录失败' };
       }
+      if (authEpochRef.current !== currentEpoch) {
+        return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+      }
+
       setCurrentUser(data.user);
       setCsrfToken(data.csrfToken);
+      saveLastActiveUser(data.user);
       setActiveUserPartition(data.user.id);
 
       const userState = await loadLatestState(data.user.id);
@@ -728,18 +832,31 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         const pullRes = await pullLatestFromServer(data.user.id);
         if (pullRes.ok && pullRes.serverState) {
           setState(pullRes.serverState);
+          localRevisionRef.current = pullRes.serverRevision || 1;
+          setLocalRevision(localRevisionRef.current);
         } else {
           setState(userState.state);
+          localRevisionRef.current = userState.revision || 1;
+          setLocalRevision(localRevisionRef.current);
         }
       } else {
         setState(userState.state);
+        localRevisionRef.current = userState.revision || 1;
+        setLocalRevision(localRevisionRef.current);
+        // Background check server for remote updates
+        pullLatestFromServer(data.user.id).then(pullRes => {
+          if (pullRes.ok && pullRes.serverState && authEpochRef.current === currentEpoch) {
+            setState(pullRes.serverState);
+            localRevisionRef.current = pullRes.serverRevision || localRevisionRef.current;
+            setLocalRevision(localRevisionRef.current);
+          }
+        }).catch(() => {});
       }
-      triggerSync().catch(() => {});
       return { ok: true, value: data.user };
     } catch (err) {
       return { ok: false, code: 'NETWORK_ERROR', message: '无法连接登录服务，请检查网络' };
     }
-  }, [triggerSync]);
+  }, []);
 
   const register = useCallback(async (
     username: string,
@@ -747,6 +864,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     nickname: string,
     inviteCode: string
   ): Promise<MutationResult<User>> => {
+    authEpochRef.current += 1;
+    const currentEpoch = authEpochRef.current;
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -757,94 +876,146 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       if (!res.ok || !data.ok) {
         return { ok: false, code: data.code || 'REGISTER_FAILED', message: data.message || '注册失败' };
       }
+      if (authEpochRef.current !== currentEpoch) {
+        return { ok: false, code: 'AUTH_STALE', message: '操作已取消' };
+      }
+
       setCurrentUser(data.user);
       setCsrfToken(data.csrfToken);
+      saveLastActiveUser(data.user);
       setActiveUserPartition(data.user.id);
 
-      await commitMutation<void>(draft => ({ nextState: draft, value: undefined }), {
-        userId: data.user.id,
-        targetRevision: 1,
-        outboxBuilder: (nextState) => ({
-          id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      // Clean registration flow: server already seeded 14 books, 7 courses, 22 library items at rev 1.
+      // Hydrate server workspace directly into local IndexedDB without pushing blank snapshot (Defect D & Seed Req)
+      const pullRes = await pullLatestFromServer(data.user.id);
+      if (pullRes.ok && pullRes.serverState) {
+        setState(pullRes.serverState);
+        localRevisionRef.current = pullRes.serverRevision || 1;
+        setLocalRevision(localRevisionRef.current);
+      } else {
+        // Fallback: create fresh seed state locally
+        const freshSeed = createSeedState(data.user.username, data.user.nickname);
+        await commitMutation<void>(() => ({ nextState: freshSeed, value: undefined }), {
           userId: data.user.id,
-          requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-          state: nextState,
-          expectedRevision: 0,
-          generationId: '',
-          createdAt: new Date().toISOString(),
-          status: 'pending',
-          reason: 'initial_register',
-        }),
-      });
+          targetRevision: 1,
+        });
+        setState(freshSeed);
+        localRevisionRef.current = 1;
+        setLocalRevision(1);
+      }
 
-      triggerSync().catch(() => {});
       return { ok: true, value: data.user };
     } catch (err) {
       return { ok: false, code: 'NETWORK_ERROR', message: '无法连接注册服务，请检查网络' };
     }
-  }, [triggerSync]);
+  }, []);
 
   const logout = useCallback(async (): Promise<void> => {
+    authEpochRef.current += 1;
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
         headers: csrfToken ? { 'x-csrf-token': csrfToken } : undefined,
       });
     } catch {}
+    saveLastActiveUser(null);
     setCurrentUser(null);
     setCsrfToken(null);
     setActiveUserPartition(null);
     const guestState = await loadLatestState(null);
     setState(guestState.state);
+    localRevisionRef.current = guestState.revision || 1;
+    setLocalRevision(localRevisionRef.current);
     setSyncStatus('idle');
     setSyncMessage(null);
     setConflictData(null);
   }, [csrfToken]);
+
+  const forceUpload = useCallback(async (): Promise<SyncResult> => {
+    if (!currentUser) return { ok: false, status: 'offline', message: '未登录云端账号' };
+    setSyncStatus('syncing');
+    setSyncMessage('正在将当前手机记录上传覆盖云端...');
+    const result = await forceUploadLocal(
+      currentUser.id,
+      csrfToken || '',
+      conflictData?.serverRevision ?? localRevisionRef.current,
+      localRevisionRef.current
+    );
+    if (result.ok) {
+      setSyncStatus('synced');
+      setSyncMessage('云端记录已更新为本机当前状态');
+      setConflictData(null);
+    } else {
+      setSyncStatus('failed');
+      setSyncMessage(result.message || '上传云端失败');
+    }
+    return result;
+  }, [currentUser, csrfToken, conflictData]);
+
+  const forcePull = useCallback(async (): Promise<SyncResult> => {
+    if (!currentUser) return { ok: false, status: 'offline', message: '未登录云端账号' };
+    setSyncStatus('syncing');
+    setSyncMessage('正在从云端拉取存档...');
+    const remoteCheck = await pullLatestFromServer(currentUser.id);
+    if (remoteCheck.status === 'conflict') {
+      setSyncStatus('conflict');
+      setConflictData({
+        serverRevision: remoteCheck.serverRevision || 0,
+        serverState: remoteCheck.serverState || null,
+      });
+      return remoteCheck;
+    }
+    if (remoteCheck.ok && remoteCheck.serverState) {
+      setState(remoteCheck.serverState);
+      localRevisionRef.current = remoteCheck.serverRevision || localRevisionRef.current;
+      setLocalRevision(localRevisionRef.current);
+      setSyncStatus('synced');
+      setSyncMessage('已从云端拉取最新数据覆盖本机');
+      setConflictData(null);
+      return remoteCheck;
+    }
+    return remoteCheck;
+  }, [currentUser]);
 
   const resolveConflict = useCallback(async (choice: 'keep_local' | 'keep_remote'): Promise<MutationResult<void>> => {
     if (!currentUser || !conflictData) return { ok: false, code: 'NO_CONFLICT', message: '当前没有待解决的冲突' };
 
     if (choice === 'keep_remote') {
       if (!conflictData.serverState) return { ok: false, code: 'NO_SERVER_STATE', message: '云端无有效状态' };
-      await commitMutation<void>(() => ({
-        nextState: conflictData.serverState!,
-        value: undefined,
-      }), {
-        userId: currentUser.id,
-        targetRevision: conflictData.serverRevision,
-      });
-      await clearOutbox(currentUser.id);
-      setState(conflictData.serverState);
-      setConflictData(null);
-      setSyncStatus('synced');
-      setSyncMessage('已采用云端最新数据覆盖本地');
-      return { ok: true, value: undefined };
+      const res = await forcePullRemote(
+        currentUser.id,
+        conflictData.serverState,
+        conflictData.serverRevision,
+        localRevisionRef.current
+      );
+      if (res.ok) {
+        setState(conflictData.serverState);
+        localRevisionRef.current = conflictData.serverRevision;
+        setLocalRevision(conflictData.serverRevision);
+        setConflictData(null);
+        setSyncStatus('synced');
+        setSyncMessage('已采用云端最新数据覆盖本地');
+        return { ok: true, value: undefined };
+      }
+      return { ok: false, code: 'CONFLICT_RESOLVE_FAILED', message: res.message || '采用云端失败' };
     } else {
-      // Clear outdated outbox items that caused the 409 conflict before enqueuing forced local state
-      await clearOutbox(currentUser.id);
-      await commitMutation<void>(draft => ({
-        nextState: draft,
-        value: undefined,
-      }), {
-        userId: currentUser.id,
-        targetRevision: conflictData.serverRevision + 1,
-        outboxBuilder: (nextState) => ({
-          id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-          userId: currentUser.id,
-          requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-          state: nextState,
-          expectedRevision: conflictData.serverRevision,
-          generationId: '',
-          createdAt: new Date().toISOString(),
-          status: 'pending',
-          reason: 'conflict_force_local',
-        }),
-      });
-      setConflictData(null);
-      await triggerSync();
-      return { ok: true, value: undefined };
+      const res = await forceUploadLocal(
+        currentUser.id,
+        csrfToken || '',
+        conflictData.serverRevision,
+        localRevisionRef.current
+      );
+      if (res.ok) {
+        localRevisionRef.current = conflictData.serverRevision + 1;
+        setLocalRevision(localRevisionRef.current);
+        setConflictData(null);
+        setSyncStatus('synced');
+        setSyncMessage('已保留本机记录并更新云端');
+        return { ok: true, value: undefined };
+      }
+      return { ok: false, code: 'CONFLICT_RESOLVE_FAILED', message: res.message || '上传云端失败' };
     }
-  }, [currentUser, conflictData, triggerSync]);
+  }, [currentUser, csrfToken, conflictData]);
 
   return (
     <AppContext.Provider
@@ -888,10 +1059,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         syncStatus,
         syncMessage,
         conflictData,
+        localRevision,
         login,
         register,
         logout,
         triggerSync,
+        forceUpload,
+        forcePull,
+        clearLocalData,
+        importSeedTemplate,
         resolveConflict,
         offlineReady,
         updateInfo,

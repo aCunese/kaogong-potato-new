@@ -9,6 +9,7 @@ import { FocusModal } from './components/views/FocusModal';
 import { CompletionModal } from './components/views/CompletionModal';
 import { MonthPickerModal } from './components/views/MonthPickerModal';
 import { SyncModal } from './components/views/SyncModal';
+import { ConflictModal } from './components/views/ConflictModal';
 import { BackupModal } from './components/views/BackupModal';
 import { ProfileEditModal } from './components/views/ProfileEditModal';
 import {
@@ -65,6 +66,12 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     currentUser,
     logout,
     triggerSync,
+    forceUpload,
+    forcePull,
+    conflictData,
+    resolveConflict,
+    localRevision,
+    exportBackup,
     updateInfo,
     dismissUpdate,
     applyUpdate,
@@ -924,7 +931,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               danger: false,
               onConfirm: () => {
                 if (currentUser) {
-                  triggerSync().then(r => {
+                  forceUpload().then(r => {
                     showToast(r.ok ? '云端已更新至本机状态' : r.message || '上传同步失败');
                     setConfirmConfig(prev => ({ ...prev, open: false }));
                   });
@@ -944,7 +951,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               danger: true,
               onConfirm: () => {
                 if (currentUser) {
-                  triggerSync().then(r => {
+                  forcePull().then(r => {
                     showToast(r.ok ? '已从云端拉取最新数据覆盖本机' : r.message || '拉取失败');
                     setConfirmConfig(prev => ({ ...prev, open: false }));
                   });
@@ -956,6 +963,41 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             });
           }}
           onToast={showToast}
+        />
+
+        <ConflictModal
+          isOpen={Boolean(conflictData)}
+          onClose={() => {}}
+          localState={state}
+          localRevision={localRevision}
+          serverState={conflictData?.serverState ?? null}
+          serverRevision={conflictData?.serverRevision ?? 0}
+          onKeepLocal={() => {
+            resolveConflict('keep_local').then(r => {
+              showToast(r.ok ? '已保留本机记录并更新云端' : r.message || '同步失败');
+            });
+          }}
+          onKeepRemote={() => {
+            resolveConflict('keep_remote').then(r => {
+              showToast(r.ok ? '已采用云端最新数据覆盖本机' : r.message || '同步失败');
+            });
+          }}
+          onExportLocal={() => {
+            exportBackup().then(r => {
+              showToast(r.ok ? '本机数据备份已下载' : r.message || '导出失败');
+            });
+          }}
+          onExportServer={() => {
+            if (!conflictData?.serverState) return;
+            const blob = new Blob([JSON.stringify(conflictData.serverState, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `kaogong_server_backup_rev${conflictData.serverRevision}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('云端冲突数据备份已下载');
+          }}
         />
 
         <BackupModal

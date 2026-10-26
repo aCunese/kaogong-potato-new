@@ -139,64 +139,97 @@ describe('Backend Server API & Security Suite', () => {
     const { csrfToken } = await regRes.json();
     const cookie = regRes.headers.get('set-cookie')!;
 
-    // 1. Initial workspace get: no cloud data yet
+    // 1. Initial workspace get: newly registered user has atomic seed data at revision 1
     const getRes = await fetch(`${baseUrl}/api/workspace`, {
       headers: { cookie },
     });
     assert.equal(getRes.status, 200);
     const getJson = await getRes.json();
-    assert.equal(getJson.hasCloudData, false);
-    assert.equal(getJson.revision, 0);
+    assert.equal(getJson.hasCloudData, true);
+    assert.equal(getJson.revision, 1);
+    assert.equal(getJson.seedVersion, 1);
+    assert.ok(getJson.generationId);
+    const currentGen = getJson.generationId;
 
-    // 2. Push revision 1 without CSRF token -> rejected with 403
+    // Verify formal seed data contents (14 books, 7 courses, 22 library, 0 progress, empty history)
+    assert.equal(getJson.state.books.length, 14);
+    assert.equal(getJson.state.courses.length, 7);
+    assert.equal(getJson.state.library.length, 22);
+    assert.equal(getJson.state.plans.length, 0);
+    assert.equal(getJson.state.records.length, 0);
+    assert.equal(getJson.state.wrong.length, 0);
+    assert.equal(getJson.state.books[0].done, 0);
+    assert.equal(getJson.state.books[0].minutes, 0);
+    assert.equal(getJson.state.courses[0].completedLessons, 0);
+    assert.equal(getJson.state.courses[0].url, ''); // Placeholder URLs cleared
+
+    // 2. Push without CSRF token -> rejected with 403
     const noCsrfRes = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-sync-1', state: BLANK_STATE }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-1', state: getJson.state }),
     });
     assert.equal(noCsrfRes.status, 403);
 
-    // 3. Push revision 1 with CSRF token -> success
+    // 3. Push with invalid generationId or empty generationId -> rejected with 409 GENERATION_MISMATCH (Defect I)
+    const badGenRes = await fetch(`${baseUrl}/api/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
+      body: JSON.stringify({ expectedRevision: 1, generationId: '', requestId: 'req-sync-1', state: getJson.state }),
+    });
+    assert.equal(badGenRes.status, 409);
+    assert.equal((await badGenRes.json()).code, 'GENERATION_MISMATCH');
+
+    // 4. Push with malformed state payload -> rejected with 400 INVALID_WORKSPACE_STATE (Defect J)
+    const badPayloadRes = await fetch(`${baseUrl}/api/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-1', state: 'invalid_string_state' }),
+    });
+    assert.equal(badPayloadRes.status, 400);
+    assert.equal((await badPayloadRes.json()).code, 'INVALID_WORKSPACE_STATE');
+
+    // 5. Valid push with expectedRevision: 1 -> increments revision to 2
     const push1Res = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-sync-1', state: BLANK_STATE }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-1', state: getJson.state }),
     });
     assert.equal(push1Res.status, 200);
     const push1Json = await push1Res.json();
     assert.equal(push1Json.ok, true);
-    assert.equal(push1Json.revision, 1);
+    assert.equal(push1Json.revision, 2);
 
-    // 4. Idempotent retry with identical payload and requestId -> returns revision 1 without incrementing
+    // 6. Idempotent retry with identical payload and requestId -> returns revision 2 without incrementing
     const retryRes = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-sync-1', state: BLANK_STATE }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-1', state: getJson.state }),
     });
     assert.equal(retryRes.status, 200);
     const retryJson = await retryRes.json();
-    assert.equal(retryJson.revision, 1);
+    assert.equal(retryJson.revision, 2);
     assert.equal(retryJson.idempotent, true);
 
-    // 5. Same requestId with different state -> rejected with 400
+    // 7. Same requestId with different state -> rejected with 400
     const tamperRes = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-sync-1', state: { ...BLANK_STATE, profile: { name: 'Tampered', targetExam: '', examYear: '', avatar: '' } } }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-1', state: { ...getJson.state, profile: { name: 'Tampered', username: 'david', avatar: '' } } }),
     });
     assert.equal(tamperRes.status, 400);
     assert.equal((await tamperRes.json()).code, 'DUPLICATE_REQUEST_ID_DIFFERENT_PAYLOAD');
 
-    // 6. Push with stale expectedRevision (0 instead of 1) -> rejected with 409 Conflict
+    // 8. Push with stale expectedRevision (1 instead of 2) -> rejected with 409 Conflict
     const conflictRes = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, cookie },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-sync-2', state: BLANK_STATE }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: currentGen, requestId: 'req-sync-2', state: getJson.state }),
     });
     assert.equal(conflictRes.status, 409);
     const confJson = await conflictRes.json();
     assert.equal(confJson.code, 'REVISION_CONFLICT');
-    assert.equal(confJson.serverRevision, 1);
+    assert.equal(confJson.serverRevision, 2);
   });
 
   test('Multi-user isolation: User A cannot read User B media attachments', async () => {
@@ -302,10 +335,10 @@ describe('Backend Server API & Security Suite', () => {
     });
     assert.equal(newLoginRes.status, 200);
 
-    // 5. Single user restore: increments user revision without affecting others
+    // 5. Single user restore: increments user revision without affecting others (initial rev 1 -> restored rev 2)
     const restored = restoreUserWorkspace(userG.id, JSON.stringify({ version: 3, state: BLANK_STATE }));
     assert.equal(restored.ok, true);
-    assert.equal(restored.revision, 1);
+    assert.equal(restored.revision, 2);
 
     // 6. Generation rotation: rotates generation ID and revokes all active sessions
     const oldGen = getCurrentGenerationId();
@@ -326,41 +359,46 @@ describe('Backend Server API & Security Suite', () => {
     const regRes = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: uH, password: 'userhpass', nickname: 'User H', inviteCode: inviteH }),
+      body: JSON.stringify({ username: uH, password: 'userhpassword123', nickname: '考生小明', inviteCode: inviteH }),
     });
     const { csrfToken: csrfH } = await regRes.json();
     const cookieH = regRes.headers.get('set-cookie')!;
+    const curGenH = getCurrentGenerationId();
 
-    // 1. Push rev 1
-    const stateRev1 = {
+    // 1. User H starts at seeded rev 1 -> Push rev 2
+    const stateRev2 = {
       ...BLANK_STATE,
       plans: [{ id: 'plan-h-1', title: '版本1计划', done: false, date: '2026-10-26' }],
     };
-    await fetch(`${baseUrl}/api/workspace`, {
+    const pushH1 = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
-      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-h-1', state: stateRev1 }),
+      body: JSON.stringify({ expectedRevision: 1, generationId: curGenH, requestId: 'req-h-1', state: stateRev2 }),
     });
+    assert.equal(pushH1.status, 200);
 
-    // 2. Push rev 2 (creates history entry for rev 1)
-    const stateRev2 = {
+    // 2. Push rev 3 (creates history entry for rev 2)
+    const stateRev3 = {
       ...BLANK_STATE,
       plans: [{ id: 'plan-h-2', title: '版本2计划', done: true, date: '2026-10-26' }],
     };
-    await fetch(`${baseUrl}/api/workspace`, {
+    const pushH2 = await fetch(`${baseUrl}/api/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
-      body: JSON.stringify({ expectedRevision: 1, requestId: 'req-h-2', state: stateRev2 }),
+      body: JSON.stringify({ expectedRevision: 2, generationId: curGenH, requestId: 'req-h-2', state: stateRev3 }),
     });
+    assert.equal(pushH2.status, 200);
 
-    // 3. GET /api/backups/export
+    // 3. GET /api/backups/export with Unicode username (Defect J)
     const exportRes = await fetch(`${baseUrl}/api/backups/export`, {
       headers: { cookie: cookieH },
     });
     assert.equal(exportRes.status, 200);
+    const contentDisp = exportRes.headers.get('content-disposition') || '';
+    assert.ok(contentDisp.includes('filename*=UTF-8'));
     const exportedData = await exportRes.json();
     assert.equal(exportedData.version, 3);
-    assert.equal(exportedData.revision, 2);
+    assert.equal(exportedData.revision, 3);
     assert.equal(exportedData.state.plans[0].id, 'plan-h-2');
 
     // 4. GET /api/backups/history
@@ -370,19 +408,71 @@ describe('Backend Server API & Security Suite', () => {
     assert.equal(historyRes.status, 200);
     const { history } = await historyRes.json();
     assert.ok(Array.isArray(history));
-    assert.equal(history.length >= 1, true);
-    assert.equal(history[0].revision, 1);
+    assert.equal(history.length >= 2, true); // Rev 1 and Rev 2 saved into history
+    assert.equal(history[0].revision, 2); // Latest history entry is rev 2
+    assert.equal(history[1].revision, 1); // Previous history entry is rev 1
 
-    // 5. POST /api/backups/restore-history
+    // 5. POST /api/backups/restore-history (revert to rev 2)
+    const targetRev2 = history.find((h: any) => h.revision === 2)!;
     const restoreRes = await fetch(`${baseUrl}/api/backups/restore-history`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
-      body: JSON.stringify({ historyId: history[0].id }),
+      body: JSON.stringify({ historyId: targetRev2.id }),
     });
     assert.equal(restoreRes.status, 200);
     const restoreData = await restoreRes.json();
     assert.equal(restoreData.ok, true);
-    assert.equal(restoreData.revision, 3); // Revision incremented to 3
-    assert.equal(restoreData.state.plans[0].id, 'plan-h-1'); // Restored state matches rev 1
+    assert.equal(restoreData.revision, 4); // Revision incremented from 3 to 4
+    assert.equal(restoreData.state.plans[0].id, 'plan-h-1'); // Restored state matches rev 2
+  });
+
+  test('Concurrent double-spend protection for invite codes and password resets (Defect H)', async () => {
+    // 1. Race two registrations concurrently on the exact same single-use invite code
+    const sharedInvite = createInviteCode('race_admin');
+    const uRace1 = `race1_${Math.random().toString(36).substring(2, 7)}`;
+    const uRace2 = `race2_${Math.random().toString(36).substring(2, 7)}`;
+
+    const [res1, res2] = await Promise.all([
+      fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uRace1, password: 'password12345', nickname: 'Race 1', inviteCode: sharedInvite }),
+      }),
+      fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uRace2, password: 'password12345', nickname: 'Race 2', inviteCode: sharedInvite }),
+      }),
+    ]);
+
+    const statuses = [res1.status, res2.status].sort();
+    assert.deepEqual(statuses, [200, 400], 'Exactly one registration must succeed and one must fail');
+
+    // 2. Race two password resets concurrently on the exact same reset code
+    const inviteUser = createInviteCode('race_admin');
+    const uReset = `reset_${Math.random().toString(36).substring(2, 7)}`;
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uReset, password: 'originalpassword123', nickname: 'Reset User', inviteCode: inviteUser }),
+    });
+    const regData = await regRes.json();
+    const resetInfo = createPasswordResetCode(regData.user.id, 'admin')!;
+
+    const [resetRes1, resetRes2] = await Promise.all([
+      fetch(`${baseUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: resetInfo.code, newPassword: 'newsecurepass1' }),
+      }),
+      fetch(`${baseUrl}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: resetInfo.code, newPassword: 'newsecurepass2' }),
+      }),
+    ]);
+
+    const resetStatuses = [resetRes1.status, resetRes2.status].sort();
+    assert.deepEqual(resetStatuses, [200, 400], 'Exactly one password reset must succeed and one must fail');
   });
 });

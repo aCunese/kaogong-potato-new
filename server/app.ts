@@ -25,6 +25,7 @@ import {
 } from './workspace';
 import { saveUserMedia, getUserMediaFile, deleteUserMedia, getUserTotalMediaUsage, MAX_USER_QUOTA_BYTES } from './media';
 import { resetPasswordWithCode } from './admin';
+import { createSeedState } from '../src/utils/seedFactory';
 
 const app = express();
 
@@ -94,8 +95,9 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
     res.status(400).json({ ok: false, code: 'INVALID_USERNAME', message: '用户名至少需要 2 位字符' });
     return;
   }
-  if (!password || typeof password !== 'string' || password.length < 4) {
-    res.status(400).json({ ok: false, code: 'INVALID_PASSWORD', message: '密码至少需要 4 位字符' });
+  // Enforce consistent 8-character minimum password policy across register and reset (Defect H)
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    res.status(400).json({ ok: false, code: 'INVALID_PASSWORD', message: '密码长度至少需要 8 位字符' });
     return;
   }
   if (!inviteCode || typeof inviteCode !== 'string') {
@@ -107,37 +109,66 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   const cleanNickname = (nickname && typeof nickname === 'string' && nickname.trim()) ? nickname.trim() : cleanUsername;
   const db = getDb();
 
-  // Validate invite code
+  // Pre-check invite code and username existence to fail fast before hashing
   const invite = db.prepare('SELECT * FROM invites WHERE code = ? AND used_at IS NULL').get(inviteCode) as any;
   if (!invite) {
     res.status(400).json({ ok: false, code: 'INVALID_INVITE_CODE', message: '邀请码无效或已被使用' });
     return;
   }
 
-  // Check username uniqueness
   const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(cleanUsername);
   if (existingUser) {
     res.status(409).json({ ok: false, code: 'USERNAME_EXISTS', message: '该用户名已被注册，请尝试其他用户名' });
     return;
   }
 
+  // Hash password outside transaction
   const passwordHash = await hashPassword(password);
   const userId = `u_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   const nowIso = new Date().toISOString();
+  const currentGen = getCurrentGenerationId();
 
-  // Transaction: Create user and mark invite used
-  const registerTx = db.transaction(() => {
-    db.prepare(`
-      INSERT INTO users (id, username, nickname, password_hash, role, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'user', 1, ?, ?)
-    `).run(userId, cleanUsername, cleanNickname, passwordHash, nowIso, nowIso);
+  // Create clean seed AppState for the new user (14 books, 7 courses, 22 library items, 0 progress, empty history)
+  const seedState = createSeedState(cleanUsername, cleanNickname);
+  const seedStateJson = JSON.stringify(seedState);
 
-    db.prepare(`
-      UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?
-    `).run(userId, nowIso, inviteCode);
-  });
+  // Atomic Registration Transaction:
+  // 1. Conditionally claim invite (strictly verify used_at IS NULL and changes === 1 to defeat race double-spends)
+  // 2. Insert user
+  // 3. Atomically seed user workspace with revision: 1 and seed_version: 1
+  try {
+    const registerTx = db.transaction(() => {
+      const inviteUpdate = db.prepare(`
+        UPDATE invites SET used_by = ?, used_at = ? WHERE code = ? AND used_at IS NULL
+      `).run(userId, nowIso, inviteCode);
 
-  registerTx();
+      if (inviteUpdate.changes !== 1) {
+        throw new Error('INVITE_ALREADY_USED');
+      }
+
+      db.prepare(`
+        INSERT INTO users (id, username, nickname, password_hash, role, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'user', 1, ?, ?)
+      `).run(userId, cleanUsername, cleanNickname, passwordHash, nowIso, nowIso);
+
+      db.prepare(`
+        INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, seed_version, updated_at)
+        VALUES (?, 1, ?, ?, 3, 1, ?)
+      `).run(userId, currentGen, seedStateJson, nowIso);
+    });
+
+    registerTx();
+  } catch (err: any) {
+    if (err.message === 'INVITE_ALREADY_USED') {
+      res.status(400).json({ ok: false, code: 'INVALID_INVITE_CODE', message: '邀请码已被其他用户同时认领或已失效' });
+      return;
+    }
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE' || String(err).includes('UNIQUE')) {
+      res.status(409).json({ ok: false, code: 'USERNAME_EXISTS', message: '该用户名已被注册，请尝试其他用户名' });
+      return;
+    }
+    throw err;
+  }
 
   // Issue session
   const { token, csrfToken } = createSession(userId);
@@ -301,7 +332,8 @@ app.post('/api/media/upload', requireAuth, uploadMiddleware.single('file'), (req
 });
 
 app.get('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const media = getUserMediaFile(req.user!.id, req.params.id);
+  const mediaId = String(req.params.id);
+  const media = getUserMediaFile(req.user!.id, mediaId);
   if (!media) {
     res.status(404).json({ ok: false, code: 'NOT_FOUND', message: '图片不存在或无权访问' });
     return;
@@ -314,7 +346,8 @@ app.get('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response
 });
 
 app.delete('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const deleted = deleteUserMedia(req.user!.id, req.params.id);
+  const mediaId = String(req.params.id);
+  const deleted = deleteUserMedia(req.user!.id, mediaId);
   if (!deleted) {
     res.status(404).json({ ok: false, code: 'NOT_FOUND', message: '图片不存在或无权删除' });
     return;
@@ -332,8 +365,15 @@ app.get('/api/backups/export', requireAuth, (req: AuthenticatedRequest, res: Res
     res.status(404).json({ ok: false, code: 'EMPTY_WORKSPACE', message: '暂无可导出的工作台数据' });
     return;
   }
+  const timestamp = Date.now();
+  const safeAscii = `kaogong_backup_${req.user!.id}_${timestamp}.json`;
+  const utf8Filename = `考公备考备份_${req.user!.username}_${timestamp}.json`;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="kaogong_backup_${req.user!.username}_${Date.now()}.json"`);
+  // RFC 5987 compliant Content-Disposition handling Unicode/Chinese usernames safely (Defect J)
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`
+  );
   res.json(backup);
 });
 

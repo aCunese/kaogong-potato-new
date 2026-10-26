@@ -60,13 +60,14 @@ export function createPasswordResetCode(userId: string, createdBy: string = 'adm
 }
 
 export async function resetPasswordWithCode(code: string, newPlainPassword: string): Promise<{ ok: boolean; message: string }> {
-  if (!newPlainPassword || newPlainPassword.length < 4) {
-    return { ok: false, message: '新密码长度至少需要 4 位字符' };
+  if (!newPlainPassword || newPlainPassword.length < 8) {
+    return { ok: false, message: '新密码长度至少需要 8 位字符' };
   }
 
   const db = getDb();
   const nowIso = new Date().toISOString();
 
+  // Fast pre-check before expensive Argon2 hashing
   const resetRow = db.prepare(`
     SELECT * FROM reset_codes WHERE code = ? AND expires_at > ? AND used_at IS NULL
   `).get(code, nowIso) as { code: string; user_id: string } | undefined;
@@ -77,17 +78,31 @@ export async function resetPasswordWithCode(code: string, newPlainPassword: stri
 
   const newHash = await hashPassword(newPlainPassword);
 
-  const tx = db.transaction(() => {
-    // 1. Mark reset code used
-    db.prepare('UPDATE reset_codes SET used_at = ? WHERE code = ?').run(nowIso, code);
-    // 2. Update user password
-    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(newHash, nowIso, resetRow.user_id);
-    // 3. Revoke all old active sessions
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(resetRow.user_id);
-  });
+  try {
+    const tx = db.transaction(() => {
+      // 1. Conditionally claim reset code with changes === 1 check (Defect H)
+      const claimInfo = db.prepare(`
+        UPDATE reset_codes SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at > ?
+      `).run(nowIso, code, nowIso);
 
-  tx();
-  return { ok: true, message: '密码重置成功，请使用新密码重新登录' };
+      if (claimInfo.changes !== 1) {
+        throw new Error('RESET_CODE_ALREADY_USED');
+      }
+
+      // 2. Update user password
+      db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(newHash, nowIso, resetRow.user_id);
+      // 3. Revoke all old active sessions
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(resetRow.user_id);
+    });
+
+    tx();
+    return { ok: true, message: '密码重置成功，请使用新密码重新登录' };
+  } catch (err: any) {
+    if (err.message === 'RESET_CODE_ALREADY_USED') {
+      return { ok: false, message: '重置码已被使用或已失效' };
+    }
+    throw err;
+  }
 }
 
 /**

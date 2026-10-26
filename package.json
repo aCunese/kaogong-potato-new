@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.server.json --noEmit",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview --port 4174",
     "server": "node --import tsx server/index.ts",
     "admin": "node --import tsx server/cli.ts",
-    "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts",
+    "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts",
     "test:server": "node --import tsx --test tests/server.test.ts",
     "test:dr": "node --import tsx --test tests/disaster-recovery.test.ts",
     "test": "npm run test:unit && npm run test:server && npm run test:dr"

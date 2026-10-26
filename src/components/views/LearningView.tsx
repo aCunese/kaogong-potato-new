@@ -225,7 +225,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
                         打开课程网页
                       </a>
                     ) : (
-                      <span className="text-[11px] text-ink-muted/70">未设置课程链接</span>
+                      <span className="text-[11px] text-ink-muted/70">待添加课程链接</span>
                     )}
                   </div>
                 </Card>

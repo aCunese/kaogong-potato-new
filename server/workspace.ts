@@ -8,6 +8,7 @@ export interface WorkspaceRow {
   generation_id: string;
   state_json: string;
   schema_version: number;
+  seed_version?: number;
   updated_at: string;
 }
 
@@ -16,9 +17,33 @@ export interface WorkspaceGetResponse {
   hasCloudData: boolean;
   revision: number;
   generationId: string;
+  snapshotGenerationId?: string;
   schemaVersion: number;
+  seedVersion?: number;
   updatedAt?: string;
   state: AppState | null;
+}
+
+export function validateWorkspacePayload(state: any, schemaVersion: any): { valid: boolean; message?: string } {
+  if (schemaVersion !== 3) {
+    return { valid: false, message: `不支持的工作区 schema 版本: ${schemaVersion}，仅支持版本 3` };
+  }
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return { valid: false, message: '工作区 state 必须为有效 JSON 对象，不能为字符串、数组或空值' };
+  }
+  const requiredArrays = ['books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns'];
+  for (const field of requiredArrays) {
+    if (!Array.isArray(state[field])) {
+      return { valid: false, message: `工作区数据缺少必需的数组字段: ${field}` };
+    }
+    if (state[field].some((item: any) => item === null || item === undefined)) {
+      return { valid: false, message: `工作区字段 ${field} 包含无效的空元素 (null/undefined)` };
+    }
+  }
+  if (!state.profile || typeof state.profile !== 'object' || Array.isArray(state.profile)) {
+    return { valid: false, message: '工作区缺少有效的 profile 个人信息配置' };
+  }
+  return { valid: true };
 }
 
 export function getUserWorkspace(userId: string): WorkspaceGetResponse {
@@ -32,7 +57,9 @@ export function getUserWorkspace(userId: string): WorkspaceGetResponse {
       hasCloudData: false,
       revision: 0,
       generationId: currentGen,
+      snapshotGenerationId: currentGen,
       schemaVersion: 3,
+      seedVersion: 0,
       state: null,
     };
   }
@@ -48,8 +75,10 @@ export function getUserWorkspace(userId: string): WorkspaceGetResponse {
     ok: true,
     hasCloudData: true,
     revision: row.revision,
-    generationId: row.generation_id,
+    generationId: currentGen,
+    snapshotGenerationId: row.generation_id,
     schemaVersion: row.schema_version,
+    seedVersion: row.seed_version || 0,
     updatedAt: row.updated_at,
     state: parsedState,
   };
@@ -82,14 +111,32 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
   const db = getDb();
   const currentGen = getCurrentGenerationId();
 
-  // 1. Check generation ID: if server underwent full disaster recovery and generation rotated, reject old client outbox
-  if (input.generationId && input.generationId !== currentGen) {
+  // 1. Strict Schema & State Payload Validation (Defect J)
+  const validation = validateWorkspacePayload(input.state, input.schemaVersion);
+  if (!validation.valid) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'INVALID_WORKSPACE_STATE',
+      message: validation.message || '工作区数据格式校验未通过',
+    };
+  }
+
+  // 2. Strict Generation ID Guard: Non-empty & must match current server generation (Defect I)
+  if (!input.generationId || typeof input.generationId !== 'string' || input.generationId !== currentGen) {
+    const existing = db.prepare('SELECT * FROM workspaces WHERE user_id = ?').get(input.userId) as WorkspaceRow | undefined;
+    let serverState: AppState | null = null;
+    if (existing) {
+      try { serverState = JSON.parse(existing.state_json); } catch {}
+    }
     return {
       ok: false,
       status: 409,
       code: 'GENERATION_MISMATCH',
-      message: '服务器已执行整机灾备恢复，代际已轮换。为防止覆盖灾备数据，请重新核对云端版本。',
+      message: '服务器代际不匹配或发生过灾备恢复。为防止覆盖灾备数据，请重新核对云端版本。',
       generationId: currentGen,
+      serverRevision: existing ? existing.revision : 0,
+      serverState,
     };
   }
 
@@ -159,13 +206,14 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
 
     // Write new workspace
     db.prepare(`
-      INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, seed_version, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         revision = excluded.revision,
         generation_id = excluded.generation_id,
         state_json = excluded.state_json,
         schema_version = excluded.schema_version,
+        seed_version = COALESCE(workspaces.seed_version, 0),
         updated_at = excluded.updated_at
     `).run(input.userId, nextRevision, currentGen, payloadString, input.schemaVersion || 3, nowIso);
 

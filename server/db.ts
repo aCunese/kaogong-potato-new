@@ -85,6 +85,7 @@ export function getDb(): DatabaseType {
       generation_id TEXT NOT NULL,
       state_json TEXT NOT NULL,
       schema_version INTEGER NOT NULL DEFAULT 3,
+      seed_version INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
 
@@ -123,6 +124,13 @@ export function getDb(): DatabaseType {
     CREATE INDEX IF NOT EXISTS idx_media_user ON media_records(user_id);
     CREATE INDEX IF NOT EXISTS idx_history_user_rev ON workspace_history(user_id, revision);
   `);
+
+  // Migration: ensure seed_version column exists on existing workspaces table
+  try {
+    db.exec('ALTER TABLE workspaces ADD COLUMN seed_version INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists
+  }
 
   // Ensure global sync generation ID exists
   const getGen = db.prepare('SELECT value FROM server_meta WHERE key = ?').get('generation_id') as { value: string } | undefined;

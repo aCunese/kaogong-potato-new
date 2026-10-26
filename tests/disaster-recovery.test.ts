@@ -30,6 +30,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     const { hashPassword, createSession } = await import('../server/auth');
     const { syncUserWorkspace, getUserWorkspace } = await import('../server/workspace');
     const { saveUserMedia, getUserMediaFile } = await import('../server/media');
+    const { BLANK_STATE } = await import('../src/constants/initialData');
 
     const db = getDb();
     const initialGenId = getCurrentGenerationId();
@@ -47,13 +48,9 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // Initial state: Revision 1
     const initialWorkspace = {
-      user: { nickname: '灾备演练测试员', avatar: 'pose-1' },
-      plans: [{ id: 'plan-dr-1', title: '灾备前核心计划', done: false, date: '2026-10-26' }],
-      records: [],
-      books: [],
-      courses: [],
-      customItems: [],
-      wrongRecords: [],
+      ...BLANK_STATE,
+      profile: { name: '灾备演练测试员', username: 'dr_tester', avatar: 'pose-1' },
+      plans: [{ id: 'plan-dr-1', libraryId: 'lib-1', name: '灾备前核心计划', type: 'book', sourceId: 'b-1', subject: '资料分析', plannedMinutes: 30, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: 0, date: '2026-10-26' }],
     };
 
     const sync1 = syncUserWorkspace({
@@ -147,9 +144,10 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     const restoredWorkspace = getUserWorkspace(userId);
     assert.ok(restoredWorkspace);
     assert.equal(restoredWorkspace.revision, 1);
-    assert.equal(restoredWorkspace.generationId, initialGenId);
+    assert.equal(restoredWorkspace.generationId, nextGenId);
+    assert.equal(restoredWorkspace.snapshotGenerationId, initialGenId);
     assert.equal(restoredWorkspace.state.plans[0].id, 'plan-dr-1');
-    assert.equal(restoredWorkspace.state.plans[0].title, '灾备前核心计划');
+    assert.equal(restoredWorkspace.state.plans[0].name, '灾备前核心计划');
 
     // Check sessions were revoked by rotateGenerationId
     const activeSessions = restoredDb.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number };
