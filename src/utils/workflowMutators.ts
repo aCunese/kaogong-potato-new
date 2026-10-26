@@ -87,13 +87,16 @@ export function applyCompletePlan(
     return { error: { code: 'NOT_FOUND', message: '计划未找到或已完成' } };
   }
 
-  if (input.minutes < 0) {
-    return { error: { code: 'INVALID_INPUT', message: '用时不能为负数' } };
+  if (input.type !== plan.type) {
+    return { error: { code: 'INVALID_INPUT', message: '登记类型与计划类型不一致' } };
+  }
+  if (!Number.isSafeInteger(input.minutes) || input.minutes <= 0) {
+    return { error: { code: 'INVALID_INPUT', message: '用时必须为大于0的整数分钟' } };
   }
 
   if (input.type === 'book') {
-    if (input.questions < 0 || input.errors < 0) {
-      return { error: { code: 'INVALID_INPUT', message: '做题数和错题数不能为负数' } };
+    if (!Number.isSafeInteger(input.questions) || !Number.isSafeInteger(input.errors) || input.questions < 0 || input.errors < 0) {
+      return { error: { code: 'INVALID_INPUT', message: '做题数和错题数必须为非负整数' } };
     }
     const sourceBook = draft.books.find(b => b.id === plan.sourceId);
     if (!sourceBook) {
@@ -112,8 +115,8 @@ export function applyCompletePlan(
     sourceBook.errors += input.errors;
     sourceBook.minutes += input.minutes;
   } else if (input.type === 'course') {
-    if (input.lessons <= 0) {
-      return { error: { code: 'INVALID_INPUT', message: '完成课时数必须大于0' } };
+    if (!Number.isSafeInteger(input.lessons) || input.lessons <= 0) {
+      return { error: { code: 'INVALID_INPUT', message: '完成课时数必须为大于0的整数' } };
     }
     const sourceCourse = draft.courses.find(c => c.id === plan.sourceId);
     if (!sourceCourse) {

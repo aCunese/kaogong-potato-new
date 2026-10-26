@@ -3,7 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
 import { Play, Pause, CheckCircle2, X, Clock, Sparkles } from 'lucide-react';
-import { Plan } from '../../types';
+import { Plan, MutationResult } from '../../types';
+import { getPlanElapsedMs } from '../../utils/workflowPresentation';
 
 interface FocusModalProps {
   plan: Plan | null;
@@ -22,9 +23,12 @@ export const FocusModal: React.FC<FocusModalProps> = ({
 }) => {
   const { state, startTimer, pauseTimer } = useApp();
   const [, setTick] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+    setErrorMsg('');
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [isOpen]);
@@ -37,7 +41,16 @@ export const FocusModal: React.FC<FocusModalProps> = ({
   const isActuallyRunning = livePlan.timerStart > 0 && variantOverride !== 'paused';
   const isPaused = livePlan.timerStart === 0 || variantOverride === 'paused';
 
-  const totalElapsedMs = (livePlan.accumulatedMs || 0) + (isActuallyRunning ? Math.max(0, Date.now() - livePlan.timerStart) : 0);
+  const totalElapsedMs = getPlanElapsedMs(isActuallyRunning ? livePlan : { ...livePlan, timerStart: 0 });
+  const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
+    if (isSaving) return false;
+    setIsSaving(true);
+    setErrorMsg('');
+    const result = await action();
+    setIsSaving(false);
+    if (!result.ok) { setErrorMsg(result.message); return false; }
+    return true;
+  };
   const totalSeconds = Math.floor(totalElapsedMs / 1000);
   const displayMinutes = Math.floor(totalSeconds / 60);
   const displaySeconds = totalSeconds % 60;
@@ -48,7 +61,12 @@ export const FocusModal: React.FC<FocusModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in">
-      <div className="bg-paper border border-line w-full max-w-sm rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="专注计时"
+        className="bg-paper border border-line w-full max-w-sm rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center relative overflow-hidden max-h-[90dvh] overflow-y-auto"
+      >
         {/* 背景光效 */}
         <div className="absolute -top-16 -right-16 w-40 h-40 bg-sage-light/50 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -bottom-16 -left-16 w-40 h-40 bg-potato-light/50 rounded-full blur-2xl pointer-events-none" />
@@ -106,6 +124,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
           </div>
         </div>
 
+        {errorMsg && <div role="alert" className="text-xs text-alarm mt-2">{errorMsg}</div>}
+
         {/* 操作按钮组 */}
         <div className="w-full grid grid-cols-2 gap-3 mt-6">
           {isActuallyRunning ? (
@@ -113,7 +133,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
               variant="secondary"
               size="lg"
               fullWidth
-              onClick={() => pauseTimer(livePlan.id)}
+              disabled={isSaving}
+              onClick={() => runTimerAction(() => pauseTimer(livePlan.id))}
             >
               <Pause size={18} className="text-sage" />
               暂停
@@ -123,7 +144,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
               variant="primary"
               size="lg"
               fullWidth
-              onClick={() => startTimer(livePlan.id)}
+              disabled={isSaving}
+              onClick={() => runTimerAction(() => startTimer(livePlan.id))}
             >
               <Play size={18} />
               继续计时
@@ -134,18 +156,10 @@ export const FocusModal: React.FC<FocusModalProps> = ({
             variant="primary"
             size="lg"
             fullWidth
+            disabled={isSaving}
             onClick={async () => {
-              let finalPlan = livePlan;
-              if (isActuallyRunning) {
-                await pauseTimer(livePlan.id);
-                finalPlan = {
-                  ...livePlan,
-                  timerStart: 0,
-                  accumulatedMs: totalElapsedMs,
-                  actualMinutes: Math.floor(totalElapsedMs / 60000),
-                };
-              }
-              onComplete(finalPlan);
+              if (isActuallyRunning && !await runTimerAction(() => pauseTimer(livePlan.id))) return;
+              onComplete(livePlan);
             }}
           >
             <CheckCircle2 size={18} />

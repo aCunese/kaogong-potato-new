@@ -4,7 +4,8 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { Card, Button, Tag } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
-import { Plan } from '../../types';
+import { Plan, MutationResult } from '../../types';
+import { getPlanElapsedMs } from '../../utils/workflowPresentation';
 
 interface TodayViewProps {
   forcedMode?: 'normal' | 'empty' | 'multi';
@@ -29,6 +30,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
   const [, setTick] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
+    setErrorMsg('');
+    const result = await action();
+    if (!result.ok) setErrorMsg(result.message);
+  };
 
   // Keep live timer tick
   useEffect(() => {
@@ -62,7 +69,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const doneCount = displayedPlans.filter(p => p.done).length;
   const totalElapsedMs = displayedPlans.reduce((sum, p) => {
-    const elapsed = (p.accumulatedMs || 0) + (p.timerStart > 0 ? Math.max(0, Date.now() - p.timerStart) : 0);
+    const elapsed = getPlanElapsedMs(p);
     return sum + elapsed;
   }, 0);
   const totalMinutes = Math.floor(totalElapsedMs / 60000);
@@ -87,6 +94,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
+      {errorMsg && <div role="alert" className="p-3 text-xs text-alarm bg-alarm-light rounded-xl">{errorMsg}</div>}
       {/* 顶部个人状态条（如开启展示） */}
       {showProfileBar && (
         <div className="flex items-center justify-between px-1 py-0.5">
@@ -241,7 +249,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
                   <span>计划 {plan.plannedMinutes} 分钟</span>
                   <span>·</span>
-                  <span>已累计 {Math.floor(((plan.accumulatedMs || 0) + (isRunning ? Math.max(0, Date.now() - plan.timerStart) : 0)) / 60000)} 分钟</span>
+                  <span>已累计 {Math.floor(getPlanElapsedMs(plan) / 60000)} 分钟</span>
                 </div>
 
                 {/* 正在计时状态：原版大数字行展示 (Fixes A08) */}
@@ -255,7 +263,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       <span>正在专注进行中</span>
                     </div>
                     <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
-                      {formatTimer(plan.timerStart, plan.accumulatedMs || 0)}
+                      {formatTimer(plan.timerStart, plan.accumulatedMs ?? plan.actualMinutes * 60000)}
                     </div>
                   </div>
                 )}
@@ -268,7 +276,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                         variant="secondary"
                         size="md"
                         fullWidth
-                        onClick={() => pauseTimer(plan.id)}
+                        onClick={() => runTimerAction(() => pauseTimer(plan.id))}
                       >
                         <Pause size={16} className="text-sage" />
                         暂停计时
@@ -278,7 +286,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                         variant="secondary"
                         size="md"
                         fullWidth
-                        onClick={() => startTimer(plan.id)}
+                        onClick={() => runTimerAction(() => startTimer(plan.id))}
                       >
                         <Play size={16} className="text-sage" />
                         开始计时

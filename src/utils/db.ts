@@ -118,71 +118,65 @@ async function getSnapshotFromDB(): Promise<SnapshotRecord | null> {
   });
 }
 
-async function putSnapshotToDB(snapshot: SnapshotRecord): Promise<void> {
-  if (typeof indexedDB === 'undefined') {
-    memoryStore.snapshots.set('latest', JSON.parse(JSON.stringify(snapshot)));
-    return;
+class RevisionConflictError extends Error {
+  constructor() {
+    super('其他页面已更新本地数据，请检查最新内容后重试。');
   }
+}
 
-  const db = await initDatabase();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('snapshots', 'readwrite');
-    const store = tx.objectStore('snapshots');
-    const request = store.put(snapshot);
-
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error || new Error('写入快照失败'));
-  });
+async function putSnapshotToDB(snapshot: SnapshotRecord, expectedRevision: number): Promise<void> {
+  return writeMutationToDB(snapshot, undefined, undefined, expectedRevision);
 }
 
 async function writeMutationToDB(
   snapshot: SnapshotRecord,
   newMedia?: MediaRecord[],
-  deletedMediaIds?: string[]
+  deletedMediaIds?: string[],
+  expectedRevision: number = snapshot.revision - 1
 ): Promise<void> {
   if (typeof indexedDB === 'undefined') {
-    memoryStore.snapshots.set('latest', JSON.parse(JSON.stringify(snapshot)));
-    if (newMedia) {
-      for (const m of newMedia) {
-        memoryStore.media.set(m.id, JSON.parse(JSON.stringify(m)));
-      }
+    if ((memoryStore.snapshots.get('latest')?.revision ?? 0) !== expectedRevision) {
+      throw new RevisionConflictError();
     }
-    if (deletedMediaIds) {
-      for (const id of deletedMediaIds) {
-        memoryStore.media.delete(id);
-      }
-    }
+    const mediaCopies = newMedia?.map(m => structuredClone(m));
+    memoryStore.snapshots.set('latest', structuredClone(snapshot));
+    for (const m of mediaCopies ?? []) memoryStore.media.set(m.id, m);
+    for (const id of deletedMediaIds ?? []) memoryStore.media.delete(id);
     return;
   }
 
   const db = await initDatabase();
   const storeNames = ['snapshots'];
-  if ((newMedia && newMedia.length > 0) || (deletedMediaIds && deletedMediaIds.length > 0)) {
-    storeNames.push('media');
-  }
+  if (newMedia?.length || deletedMediaIds?.length) storeNames.push('media');
 
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(storeNames, 'readwrite');
-    const snapshotsStore = tx.objectStore('snapshots');
-    snapshotsStore.put(snapshot);
-
-    if (storeNames.includes('media')) {
-      const mediaStore = tx.objectStore('media');
-      if (newMedia) {
-        for (const m of newMedia) {
-          mediaStore.put(m);
-        }
-      }
-      if (deletedMediaIds) {
-        for (const id of deletedMediaIds) {
-          mediaStore.delete(id);
-        }
-      }
-    }
-
+    let failure: Error | null = null;
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('写入事务失败'));
-    tx.onabort = () => reject(tx.error || new Error('写入事务已中止'));
+    tx.onerror = () => reject(failure || tx.error || new Error('写入事务失败'));
+    tx.onabort = () => reject(failure || tx.error || new Error('写入事务已中止'));
+
+    const snapshotsStore = tx.objectStore('snapshots');
+    const request = snapshotsStore.get('latest');
+    request.onsuccess = () => {
+      // Compare and write under the same IndexedDB lock, shared by all tabs.
+      if ((request.result?.revision ?? 0) !== expectedRevision) {
+        failure = new RevisionConflictError();
+        tx.abort();
+        return;
+      }
+      try {
+        snapshotsStore.put(snapshot);
+        if (storeNames.includes('media')) {
+          const mediaStore = tx.objectStore('media');
+          for (const m of newMedia ?? []) mediaStore.put(m);
+          for (const id of deletedMediaIds ?? []) mediaStore.delete(id);
+        }
+      } catch (err) {
+        failure = err instanceof Error ? err : new Error(String(err));
+        tx.abort();
+      }
+    };
   });
 }
 
@@ -241,7 +235,7 @@ export async function loadLatestState(): Promise<LoadStateResult> {
           migratedFromV2: true,
           updatedAt: new Date().toISOString(),
         };
-        await putSnapshotToDB(initialSnapshot);
+        await putSnapshotToDB(initialSnapshot, 0);
 
         return {
           state: validated.migratedState,
@@ -328,7 +322,7 @@ export async function commitMutation<T>(
     } catch (err) {
       return {
         ok: false,
-        code: 'COMMIT_FAILED',
+        code: err instanceof RevisionConflictError ? 'REVISION_CONFLICT' : 'COMMIT_FAILED',
         message: err instanceof Error ? err.message : String(err),
       };
     }
@@ -356,10 +350,10 @@ export async function saveDamagedCache(raw: string, reason: string): Promise<str
   return new Promise<string>((resolve, reject) => {
     const tx = db.transaction('damaged_cache', 'readwrite');
     const store = tx.objectStore('damaged_cache');
-    const req = store.put(record);
-
-    req.onsuccess = () => resolve(id);
-    req.onerror = () => reject(req.error || new Error('保存受损缓存失败'));
+    tx.oncomplete = () => resolve(id);
+    tx.onerror = () => reject(tx.error || new Error('保存受损缓存失败'));
+    tx.onabort = () => reject(tx.error || new Error('保存受损缓存事务已中止'));
+    store.put(record);
   });
 }
 
@@ -388,7 +382,7 @@ export async function getDamagedCaches(): Promise<DamagedCacheRecord[]> {
 export async function getMedia(id: string): Promise<MediaRecord | null> {
   if (typeof indexedDB === 'undefined') {
     const item = memoryStore.media.get(id);
-    return item ? JSON.parse(JSON.stringify(item)) : null;
+    return item ? structuredClone(item) : null;
   }
 
   const db = await initDatabase();
@@ -407,7 +401,7 @@ export async function getMedia(id: string): Promise<MediaRecord | null> {
  */
 export async function saveMedia(record: MediaRecord): Promise<boolean> {
   if (typeof indexedDB === 'undefined') {
-    memoryStore.media.set(record.id, JSON.parse(JSON.stringify(record)));
+    memoryStore.media.set(record.id, structuredClone(record));
     return true;
   }
 
@@ -415,10 +409,10 @@ export async function saveMedia(record: MediaRecord): Promise<boolean> {
   return new Promise<boolean>((resolve, reject) => {
     const tx = db.transaction('media', 'readwrite');
     const store = tx.objectStore('media');
-    const req = store.put(record);
-
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error || new Error('保存媒体记录失败'));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error('保存媒体记录失败'));
+    tx.onabort = () => reject(tx.error || new Error('保存媒体事务已中止'));
+    store.put(record);
   });
 }
 
@@ -435,10 +429,10 @@ export async function deleteMedia(id: string): Promise<boolean> {
   return new Promise<boolean>((resolve, reject) => {
     const tx = db.transaction('media', 'readwrite');
     const store = tx.objectStore('media');
-    const req = store.delete(id);
-
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error || new Error(`删除媒体记录 (${id}) 失败`));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error(`删除媒体记录 (${id}) 失败`));
+    tx.onabort = () => reject(tx.error || new Error('删除媒体事务已中止'));
+    store.delete(id);
   });
 }
 
@@ -458,7 +452,47 @@ export async function resetDatabase(): Promise<boolean> {
       migratedFromV2: true, // Mark migratedFromV2 so localStorage is never re-migrated
       updatedAt: new Date().toISOString(),
     };
-    await putSnapshotToDB(resetSnapshot);
+    await putSnapshotToDB(resetSnapshot, current?.revision ?? 0);
     return true;
   });
+}
+
+/** Resolve local attachment references before generating a portable JSON backup. */
+export async function createPortableBackupState(
+  state: AppState,
+  options?: { isPreview?: boolean }
+): Promise<AppState> {
+  const portable = structuredClone(state);
+  const asDataURL = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error('读取备份图片失败'));
+    reader.readAsDataURL(blob);
+  });
+  const resolveImage = async (image: string, storagePath?: string): Promise<string> => {
+    // Built-in potato avatars (pose-0 to pose-7), static assets, data URIs, and external URLs are self-contained.
+    if (!storagePath && (!image || /^(data:image\/|https?:\/\/)/i.test(image) || image.startsWith('pose-') || image.startsWith('/') || image.startsWith('./'))) {
+      return image;
+    }
+    // In isolated preview mode, never query the real persistent IndexedDB media store.
+    if (options?.isPreview) {
+      return image;
+    }
+    if (!storagePath && image.startsWith('blob:')) {
+      const response = await fetch(image);
+      if (!response.ok) throw new Error('无法读取本地错题图片');
+      return asDataURL(await response.blob());
+    }
+    const media = await getMedia(storagePath || image);
+    if (!media) throw new Error('备份图片附件缺失，已停止导出，请检查错题照片。');
+    if (media.blob instanceof Blob) return asDataURL(media.blob);
+    if (typeof media.blob === 'string' && media.blob.startsWith('data:image/')) return media.blob;
+    throw new Error('备份图片附件格式无效，已停止导出。');
+  };
+  for (const wrong of portable.wrong) {
+    wrong.image = await resolveImage(wrong.image, wrong.storagePath);
+    delete wrong.storagePath;
+  }
+  portable.profile.avatar = await resolveImage(portable.profile.avatar);
+  return portable;
 }

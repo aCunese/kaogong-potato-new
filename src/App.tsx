@@ -26,7 +26,7 @@ import {
 import { StatesPreviewView } from './components/views/StatesPreviewView';
 import { ConfirmModalsView } from './components/views/ConfirmModalsView';
 import { ScreenInspectorModal, ALL_50_SCREENS, ScreenSize } from './components/views/ScreenInspectorModal';
-import { ConfirmModal, Tag } from './components/common/UIComponents';
+import { ConfirmModal, closeTopModal } from './components/common/UIComponents';
 import { getLocalMonthString } from './constants/initialData';
 import {
   Calendar,
@@ -41,7 +41,7 @@ import {
   Info,
   AlertCircle,
 } from 'lucide-react';
-import { MainTab, Plan, Book, Course, WrongRecord, LearningSubTab, AnalysisSubTab } from './types';
+import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult } from './types';
 
 declare global {
   interface Window {
@@ -49,14 +49,14 @@ declare global {
   }
 }
 
-export const App: React.FC = () => {
+export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const {
     state,
     activeDate,
     corruptedRaw,
     clearCorruptedRaw,
     resetState,
-    exportBackup,
+    isLoading,
     deletePlan,
     deleteBook,
     deleteCourse,
@@ -95,6 +95,8 @@ export const App: React.FC = () => {
   const [authModal, setAuthModal] = useState<{ open: boolean; mode: 'login' | 'register' }>({ open: false, mode: 'login' });
   const [downloadApkOpen, setDownloadApkOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [legendRecords, setLegendRecords] = useState<StudyRecord[] | undefined>();
+  const [legendRangeLabel, setLegendRangeLabel] = useState<string | undefined>();
 
   // Dedicated Modals (Fixes A07, A11, A09)
   const [monthPickerOpen, setMonthPickerOpen] = useState<boolean>(false);
@@ -109,7 +111,7 @@ export const App: React.FC = () => {
     message: string;
     impactText?: string;
     danger?: boolean;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
   }>({
     open: false,
     title: '',
@@ -133,8 +135,16 @@ export const App: React.FC = () => {
     }, 2400);
   };
 
+  const confirmMutation = async (action: () => Promise<MutationResult<unknown>>, successMessage: string) => {
+    const result = await action();
+    if (!result.ok) throw new Error(result.message);
+    showToast(successMessage);
+    setConfirmConfig(prev => ({ ...prev, open: false }));
+  };
+
   // Jump to any of the 50 screens (Fixes A07: all 19 misrouted screens properly resolved)
   const handleJumpToScreen = (screenId: string) => {
+    if (!preview) return;
     // Reset special states
     setShowStatesPreview(false);
     setShowConfirmModalsView(false);
@@ -200,37 +210,37 @@ export const App: React.FC = () => {
         break;
       case 'focus':
         setActiveTab('today');
-        setFocusPlan(state.plans[0] || null);
+        setFocusPlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
         setFocusVariantOverride('normal');
         break;
       case 'focus-paused':
         setActiveTab('today');
-        setFocusPlan(state.plans[0] || null);
+        setFocusPlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
         setFocusVariantOverride('paused');
         break;
       case 'focus-course':
         setActiveTab('today');
-        setFocusPlan(state.plans.find(p => p.type === 'course') || state.plans[0]);
+        setFocusPlan(state.plans.find(p => p.type === 'course' && !p.done) || null);
         setFocusVariantOverride('course');
         break;
       case 'focus-custom':
         setActiveTab('today');
-        setFocusPlan(state.plans.find(p => p.type === 'custom') || state.plans[0]);
+        setFocusPlan(state.plans.find(p => p.type === 'custom' && !p.done) || null);
         setFocusVariantOverride('custom');
         break;
       case 'add-plan':
         setAddPlanOpen(true);
         break;
       case 'complete-book':
-        setCompletePlan(state.plans.find(p => p.type === 'book') || state.plans[0]);
+        setCompletePlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
         setCompletionInitialSuccess(false);
         break;
       case 'complete-course':
-        setCompletePlan(state.plans.find(p => p.type === 'course') || state.plans[0]);
+        setCompletePlan(state.plans.find(p => p.type === 'course' && !p.done) || null);
         setCompletionInitialSuccess(false);
         break;
       case 'complete-custom':
-        setCompletePlan(state.plans.find(p => p.type === 'custom') || state.plans[0]);
+        setCompletePlan(state.plans.find(p => p.type === 'custom' && !p.done) || null);
         setCompletionInitialSuccess(false);
         break;
       case 'complete-success':
@@ -282,6 +292,8 @@ export const App: React.FC = () => {
         setDownloadApkOpen(true);
         break;
       case 'overall-legend':
+        setLegendRecords(undefined);
+        setLegendRangeLabel(undefined);
         setLegendOpen(true);
         break;
       case 'month-picker':
@@ -315,11 +327,7 @@ export const App: React.FC = () => {
             message: `将「${targetPlan.name}」从今日计划中移除。`,
             impactText: '已经登记的学习记录和题本累计进度会安全保留。',
             danger: true,
-            onConfirm: () => {
-              deletePlan(targetPlan.id);
-              showToast('已从今日日程中移除');
-              setConfirmConfig(prev => ({ ...prev, open: false }));
-            },
+            onConfirm: () => confirmMutation(() => deletePlan(targetPlan.id), '已从今日日程中移除'),
           });
         }
         break;
@@ -363,6 +371,7 @@ export const App: React.FC = () => {
   // Android / Browser Back Button Contract
   useEffect(() => {
     window.handleBack = (): boolean => {
+      if (closeTopModal()) return true;
       // 1. If any modal is open, close the topmost modal and return true
       if (confirmConfig.open) {
         setConfirmConfig(prev => ({ ...prev, open: false }));
@@ -487,7 +496,7 @@ export const App: React.FC = () => {
   return (
     <div className={`w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-0 ${screenSize === 'full' ? '' : 'lg:py-6'} text-ink-main selection:bg-sage-light overflow-x-hidden`}>
       {/* 桌面端外围工具条（当 screenSize !== 'full' 时在桌面端呈现） */}
-      {screenSize !== 'full' && (
+      {preview && screenSize !== 'full' && (
         <header className="w-full max-w-2xl px-4 py-2 hidden lg:flex items-center justify-between text-xs text-ink-muted mb-2">
           <div className="flex items-center gap-2">
             <span className="font-bold text-ink-main flex items-center gap-1.5">
@@ -495,7 +504,7 @@ export const App: React.FC = () => {
               考公工作台 · 土豆陪伴新版
             </span>
             <span className="text-[11px] text-sage font-medium bg-sage-light px-2 py-0.5 rounded-md">
-              React+TS+Vite 1:1还原版
+              独立演示预览
             </span>
           </div>
 
@@ -554,7 +563,7 @@ export const App: React.FC = () => {
         className={`${getContainerClasses()} transition-all duration-300`}
       >
         {/* 顶部移动端小工具条（屏幕宽度较小时提供轻量直达入口） */}
-        <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
+        {preview && <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
           <span className="font-bold text-ink-main flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-potato inline-block" />
             土豆考公工作台
@@ -566,7 +575,7 @@ export const App: React.FC = () => {
             <Layers size={11} />
             <span>50屏矩阵</span>
           </button>
-        </div>
+        </div>}
 
         {/* 视图主体内容区：独立平滑内部滚动，底部留出足够 padding 防止导航遮挡 */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 pt-3 pb-4">
@@ -587,7 +596,9 @@ export const App: React.FC = () => {
               </button>
             </div>
           )}
-          {showStatesPreview ? (
+          {isLoading ? (
+            <div role="status" className="py-16 text-center text-sm text-ink-muted">正在载入本地工作台…</div>
+          ) : showStatesPreview ? (
             <StatesPreviewView
               initialTab={statesPreviewTab}
               onBack={() => setShowStatesPreview(false)}
@@ -619,11 +630,7 @@ export const App: React.FC = () => {
                   message: `确定从今日计划中移除「${plan.name}」吗？`,
                   impactText: '已经登记的学习记录和题本累计进度会安全保留。',
                   danger: true,
-                  onConfirm: () => {
-                    deletePlan(plan.id);
-                    showToast('已从今日日程中移除');
-                    setConfirmConfig(prev => ({ ...prev, open: false }));
-                  },
+                  onConfirm: () => confirmMutation(() => deletePlan(plan.id), '已从今日日程中移除'),
                 });
               }}
             />
@@ -645,13 +652,10 @@ export const App: React.FC = () => {
                       ? '移除该网课及其事项库对应条目，历史听课记录仍会保留。'
                       : '将从自定义事项库中移除该项。',
                   danger: true,
-                  onConfirm: () => {
-                    if (type === 'book') deleteBook(id);
-                    else if (type === 'course') deleteCourse(id);
-                    else deleteCustomItem(id);
-                    showToast('已安全删除并同步更新事项库');
-                    setConfirmConfig(prev => ({ ...prev, open: false }));
-                  },
+                  onConfirm: () => confirmMutation(
+                    () => type === 'book' ? deleteBook(id) : type === 'course' ? deleteCourse(id) : deleteCustomItem(id),
+                    '已安全删除并同步更新事项库'
+                  ),
                 });
               }}
               onToast={showToast}
@@ -667,11 +671,7 @@ export const App: React.FC = () => {
                   message: `确定从“${bookName}”中删除该错题照片吗？`,
                   impactText: '注意：删除照片仅移除图片记录与笔记，不会擅自减少题本中累计统计的错题总数。',
                   danger: true,
-                  onConfirm: () => {
-                    deleteWrongRecord(recId);
-                    showToast('已删除错题照片记录');
-                    setConfirmConfig(prev => ({ ...prev, open: false }));
-                  },
+                  onConfirm: () => confirmMutation(() => deleteWrongRecord(recId), '已删除错题照片记录'),
                 });
               }}
             />
@@ -680,7 +680,11 @@ export const App: React.FC = () => {
               initialSubTab={analysisSubTab}
               selectedMonth={selectedMonth}
               onOpenMonthPicker={() => setMonthPickerOpen(true)}
-              onOpenLegendDetail={() => setLegendOpen(true)}
+              onOpenLegendDetail={(records, rangeLabel) => {
+                setLegendRecords(records);
+                setLegendRangeLabel(rangeLabel);
+                setLegendOpen(true);
+              }}
             />
           ) : (
             <SettingsView
@@ -694,14 +698,10 @@ export const App: React.FC = () => {
                 setConfirmConfig({
                   open: true,
                   title: '恢复初始数据危险确认',
-                  message: '确定要将工作台恢复为全新初始预设吗？',
-                  impactText: '重要提示：当前添加的自定义题本、新日程和错题照片将被重置！建议先点击“导出备份”。',
+                  message: '确定清空当前工作台并恢复空白状态吗？',
+                  impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
                   danger: true,
-                  onConfirm: () => {
-                    resetState();
-                    showToast('已恢复初始演示基准数据');
-                    setConfirmConfig(prev => ({ ...prev, open: false }));
-                  },
+                  onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
                 });
               }}
               onOpenLogoutConfirm={() => {
@@ -712,7 +712,7 @@ export const App: React.FC = () => {
                   impactText: '退出后转为单机离线模式，本地数据不会丢失，随时可重新登录接续。',
                   danger: true,
                   onConfirm: () => {
-                    showToast('已退出账号，当前处于单机离线模式');
+                    showToast('当前为离线模式，未连接云端账号');
                     setConfirmConfig(prev => ({ ...prev, open: false }));
                   },
                 });
@@ -724,7 +724,7 @@ export const App: React.FC = () => {
         </div>
 
         {/* 底部固定 5 大入口导航栏：flex-none sticky bottom-0 z-30 */}
-        <nav className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <nav aria-label="主导航" className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {[
             { id: 'today', label: '今日', icon: Calendar },
             { id: 'learning', label: '学习', icon: BookOpen },
@@ -737,9 +737,12 @@ export const App: React.FC = () => {
             return (
               <button
                 key={tab.id}
+                disabled={isLoading}
                 onClick={() => {
                   setShowStatesPreview(false);
                   setShowConfirmModalsView(false);
+                  setTodayForcedMode('normal');
+                  setForcedGuestMode(false);
                   setActiveTab(tab.id as MainTab);
                 }}
                 className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
@@ -846,6 +849,8 @@ export const App: React.FC = () => {
 
         <OverallLegendModal
           isOpen={legendOpen}
+          records={legendRecords}
+          rangeLabel={legendRangeLabel}
           onClose={() => setLegendOpen(false)}
         />
 
@@ -871,7 +876,7 @@ export const App: React.FC = () => {
               impactText: '上传后云端旧数据将被本机记录完全覆盖。',
               danger: false,
               onConfirm: () => {
-                showToast('已上传并覆盖云端存档');
+                showToast('云端服务尚未接入，无法上传');
                 setConfirmConfig(prev => ({ ...prev, open: false }));
               },
             });
@@ -884,7 +889,7 @@ export const App: React.FC = () => {
               impactText: '拉取后本机未同步的改动将被云端记录覆盖。',
               danger: true,
               onConfirm: () => {
-                showToast('已从云端拉取最新记录并覆盖本机');
+                showToast('云端服务尚未接入，无法拉取');
                 setConfirmConfig(prev => ({ ...prev, open: false }));
               },
             });
@@ -899,14 +904,10 @@ export const App: React.FC = () => {
             setConfirmConfig({
               open: true,
               title: '恢复初始数据危险确认',
-              message: '确定要将工作台恢复为全新初始预设吗？',
-              impactText: '重要提示：当前添加的自定义题本、新日程和错题照片将被重置！建议先点击“导出备份”。',
+              message: '确定清空当前工作台并恢复空白状态吗？',
+              impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
               danger: true,
-              onConfirm: () => {
-                resetState();
-                showToast('已恢复初始演示基准数据');
-                setConfirmConfig(prev => ({ ...prev, open: false }));
-              },
+              onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
             });
           }}
           onToast={showToast}

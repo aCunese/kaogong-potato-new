@@ -181,6 +181,7 @@ export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
               </div>
 
               <Button
+                data-screen-id={s.id}
                 variant="primary"
                 size="sm"
                 className="shrink-0 text-xs py-1 px-2.5 h-7"

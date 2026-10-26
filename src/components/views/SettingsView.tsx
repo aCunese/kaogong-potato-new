@@ -34,10 +34,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const { state, exportBackup, importBackup, selfCheck, storageError, clearStorageError } = useApp();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string; details: string[] } | null>(null);
   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [operationError, setOperationError] = useState('');
+  const importingRef = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Check login status (supports forcedGuestMode for A07 guest matrix inspection)
-  const isGuest = forcedGuestMode || !state.profile.username || state.profile.username === 'guest';
+  const isGuest = true;
+
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setOperationError('');
+    try {
+      const result = await exportBackup();
+      if (!result.ok) { setOperationError(result.message); return; }
+      onToast('备份文件已成功生成并下载！');
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : '备份导出失败');
+    } finally { setExporting(false); }
+  };
 
   const handleSelfCheck = () => {
     const res = selfCheck();
@@ -55,25 +72,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const validation = validateAndMigrateBackup(content);
       if (!validation.valid || !validation.summary) {
         onToast(`备份文件校验失败: ${validation.error || '格式不正确'}`);
-        alert(`导入被拒绝：\n${validation.error || '无法解析的备份文件'}`);
+        setOperationError(validation.error || '无法解析的备份文件');
         return;
       }
 
       // Open explicit confirmation modal before overwriting user state
       setPendingBackup({ content, validation });
     };
+    reader.onerror = () => setOperationError('读取备份文件失败，请重新选择');
     reader.readAsText(file);
     e.target.value = '';
   };
 
   const handleConfirmImport = async () => {
-    if (!pendingBackup) return;
-    const res = await importBackup(pendingBackup.content);
-    if (res.ok) {
-      onToast('备份导入成功，已完整恢复数据！');
-      setPendingBackup(null);
-    } else {
-      onToast(`导入失败: ${res.message}`);
+    if (!pendingBackup || importingRef.current) return;
+    importingRef.current = true;
+    setImporting(true);
+    setOperationError('');
+    try {
+      const res = await importBackup(pendingBackup.content);
+      if (res.ok) {
+        onToast('备份导入成功，已完整恢复数据！');
+        setPendingBackup(null);
+      } else { setOperationError(res.message); }
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : '备份导入失败');
+    } finally {
+      importingRef.current = false;
+      setImporting(false);
     }
   };
 
@@ -152,7 +178,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <p className="text-xs text-ink-muted leading-relaxed">
           {isGuest
-            ? '当前为离线模式。登录或注册专属备考账号，可将做题数据与复盘进度自动备份至服务端。'
+            ? '当前为离线模式，云端登录、注册与同步服务尚未接入。请使用本地 JSON 备份保存进度。'
             : `当前已登录账号：${state.profile.username}。可进行手动数据上传或从云端拉取覆盖。`}
         </p>
 
@@ -198,9 +224,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </p>
 
         <div className="flex gap-2 pt-1">
-          <Button variant="secondary" size="sm" fullWidth onClick={exportBackup}>
+          <Button variant="secondary" size="sm" fullWidth onClick={handleExport} disabled={exporting}>
             <Download size={14} />
-            导出备份 (JSON)
+            {exporting ? '生成备份中…' : '导出备份 (JSON)'}
           </Button>
           <Button
             variant="secondary"
@@ -219,6 +245,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onChange={handleFileInput}
           />
         </div>
+        {operationError && !pendingBackup && <p role="alert" className="text-xs text-alarm">{operationError}</p>}
       </Card>
 
       {/* 4. 数据一致性自检 */}
@@ -259,7 +286,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <h3 className="text-sm font-bold">恢复初始工作台数据</h3>
         </div>
         <p className="text-xs text-ink-muted leading-relaxed">
-          恢复为初始示例数据（含14本题本、7门网课、1260分钟学情基准）。请确保在重置前已导出备份。
+          清空题本、网课、日程、学习记录和错题照片，恢复空白工作台。请确保在重置前已导出备份。
         </p>
         <Button variant="danger" size="sm" onClick={onOpenResetConfirm}>
           恢复初始数据
@@ -271,6 +298,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <Modal
           isOpen={true}
           onClose={() => setPendingBackup(null)}
+          closeDisabled={importing}
           title="用这份备份恢复？"
         >
           <div className="space-y-4 text-center">
@@ -317,11 +345,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div className="flex gap-2.5 pt-2">
+              {operationError && <p role="alert" className="text-xs text-alarm">{operationError}</p>}
               <Button
                 variant="secondary"
                 size="md"
                 fullWidth
                 onClick={() => setPendingBackup(null)}
+                disabled={importing}
               >
                 再想想
               </Button>
@@ -330,8 +360,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 size="md"
                 fullWidth
                 onClick={handleConfirmImport}
+                disabled={importing}
               >
-                确认导入覆盖
+                {importing ? '导入中…' : '确认导入覆盖'}
               </Button>
             </div>
           </div>

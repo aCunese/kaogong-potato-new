@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Modal, Button, Card, Tag, ConfirmModal } from '../common/UIComponents';
 import { Download, Upload, ShieldCheck, CheckCircle2, AlertTriangle, FileText, Database } from 'lucide-react';
 import { PotatoSprite } from '../common/PotatoSprite';
@@ -21,6 +21,27 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   const { state, exportBackup, importBackup } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState('');
+  const openRef = useRef(isOpen);
+  openRef.current = isOpen;
+  useEffect(() => {
+    if (!isOpen) setPendingBackup(null);
+    setError('');
+  }, [isOpen]);
+
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setError('');
+    try {
+      const result = await exportBackup();
+      if (!result.ok) { setError(result.message); return; }
+      onToast('备份文件已成功生成并下载！');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '备份导出失败');
+    } finally { setExporting(false); }
+  };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -28,15 +49,17 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
     const reader = new FileReader();
     reader.onload = () => {
+      if (!openRef.current) return;
       const content = reader.result as string;
       const validation = validateAndMigrateBackup(content);
       if (!validation.valid || !validation.summary) {
         onToast(`备份文件校验失败: ${validation.error || '格式不正确'}`);
-        alert(`导入被拒绝：\n${validation.error || '无法解析的备份文件'}`);
+        setError(validation.error || '无法解析的备份文件');
         return;
       }
       setPendingBackup({ content, validation });
     };
+    reader.onerror = () => { if (openRef.current) setError('读取备份文件失败，请重新选择'); };
     reader.readAsText(file);
     e.target.value = '';
   };
@@ -49,7 +72,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       setPendingBackup(null);
       onClose();
     } else {
-      onToast(`导入失败: ${res.message}`);
+      return res;
     }
   };
 
@@ -83,13 +106,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               variant="primary"
               size="md"
               fullWidth
-              onClick={() => {
-                exportBackup();
-                onToast('备份文件已成功生成并下载！');
-              }}
+              onClick={handleExport}
+              disabled={exporting}
             >
               <Download size={16} />
-              导出 JSON 备份
+              {exporting ? '生成备份中…' : '导出 JSON 备份'}
             </Button>
 
             <Button
@@ -102,6 +123,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               导入恢复备份
             </Button>
           </div>
+          {error && <p role="alert" className="text-xs text-alarm">{error}</p>}
 
           {/* 资产统计 */}
           <div className="bg-cream/70 rounded-xl p-3 text-xs space-y-1.5 border border-line">
@@ -128,7 +150,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
           {/* 重置引导 */}
           <div className="pt-2 border-t border-line/60 flex items-center justify-between text-xs">
-            <span className="text-ink-muted">需要清空并恢复默认数据？</span>
+            <span className="text-ink-muted">需要清空当前学习数据？</span>
             <button
               onClick={() => {
                 onClose();

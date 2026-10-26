@@ -21,16 +21,24 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const [name, setName] = useState(state.profile.name || '土豆的备考空间');
   const [selectedAvatar, setSelectedAvatar] = useState<string>(state.profile.avatar || 'pose-0');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
+  const [error, setError] = useState('');
+  const savingRef = useRef(false);
+  const imageRequest = useRef(0);
 
   // Initialize and synchronize draft on open/profile change so uncommitted drafts are NEVER retained
   useEffect(() => {
     if (isOpen) {
+      setError('');
       setName(state.profile.name || '土豆的备考空间');
       setSelectedAvatar(state.profile.avatar || 'pose-0');
     }
+    return () => { imageRequest.current += 1; };
   }, [isOpen, state.profile]);
 
   const handleCancel = () => {
+    if (savingRef.current || processingImage) return;
     setName(state.profile.name || '土豆的备考空间');
     setSelectedAvatar(state.profile.avatar || 'pose-0');
     onClose();
@@ -51,34 +59,53 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+    const requestId = ++imageRequest.current;
+    setProcessingImage(true);
+    setError('');
     try {
       const dataUrl = await compressImage(file, {
         maxWidth: 320,
         maxHeight: 320,
         quality: 0.75,
       });
+      if (requestId !== imageRequest.current) return;
       setSelectedAvatar(dataUrl);
       onToast('头像已上传就绪，点击下方保存即可应用');
     } catch (err) {
-      onToast(err instanceof Error ? err.message : '相册头像处理失败');
+      if (requestId === imageRequest.current) setError(err instanceof Error ? err.message : '相册头像处理失败');
     } finally {
+      if (requestId === imageRequest.current) setProcessingImage(false);
       e.target.value = '';
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (savingRef.current || processingImage) return;
     if (!name.trim()) {
-      alert('请输入空间昵称');
+      setError('请输入空间昵称');
       return;
     }
-    updateProfile(name.trim(), selectedAvatar);
-    onToast('备考资料已保存更新！');
-    onClose();
+    savingRef.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      const result = await updateProfile(name.trim(), selectedAvatar);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      onToast('备考资料已保存更新！');
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '资料保存失败，请重试');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} title="编辑个人资料 (13:1231)">
+    <Modal isOpen={isOpen} onClose={handleCancel} closeDisabled={saving || processingImage} title="编辑个人资料 (13:1231)">
       <div className="space-y-4">
         {/* 大头像展示与相册上传 */}
         <div className="flex flex-col items-center justify-center pt-1 pb-2">
@@ -86,6 +113,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <Avatar avatar={selectedAvatar} size={76} />
             <button
               type="button"
+              disabled={saving || processingImage}
               onClick={() => fileInputRef.current?.click()}
               className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-sage text-white flex items-center justify-center shadow-md hover:bg-sage-dark active:scale-95 transition-all"
               title="上传相册头像"
@@ -101,11 +129,13 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             accept="image/*"
             className="hidden"
             onChange={handleAvatarFile}
+            disabled={saving || processingImage}
           />
 
           <Button
             type="button"
             variant="secondary"
+            disabled={saving || processingImage}
             size="sm"
             className="mt-2.5 text-xs text-sage"
             onClick={() => fileInputRef.current?.click()}
@@ -125,6 +155,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <button
                   key={opt.id}
                   type="button"
+                  disabled={saving || processingImage}
                   onClick={() => setSelectedAvatar(opt.id)}
                   className={`p-2 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                     active
@@ -154,13 +185,14 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         </div>
 
         {/* 提交按钮 */}
+        {error && <p role="alert" className="text-xs text-alarm">{error}</p>}
         <div className="flex gap-2.5 pt-2">
-          <Button variant="secondary" size="md" fullWidth onClick={handleCancel}>
+          <Button variant="secondary" size="md" fullWidth onClick={handleCancel} disabled={saving || processingImage}>
             取消
           </Button>
-          <Button variant="primary" size="md" fullWidth onClick={handleSave}>
+          <Button variant="primary" size="md" fullWidth onClick={handleSave} disabled={saving || processingImage}>
             <Check size={16} />
-            保存资料
+            {processingImage ? '处理头像中…' : saving ? '保存中…' : '保存资料'}
           </Button>
         </div>
       </div>

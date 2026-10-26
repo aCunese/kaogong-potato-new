@@ -165,6 +165,22 @@ export const WrongView: React.FC<WrongViewProps> = ({
                       )}
                     </div>
                     <div className="mt-2 text-xs text-ink-muted truncate">{record.note || '无复盘原因'}</div>
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-line/50 text-xs">
+                      <button
+                        onClick={() => onOpenDetailModal(record)}
+                        className="text-sage font-medium flex items-center gap-1 hover:underline"
+                      >
+                        <Eye size={12} />
+                        查看详情
+                      </button>
+                      <button
+                        onClick={() => onOpenDeleteConfirm(record.id, '原题本已删除归属')}
+                        className="text-ink-muted hover:text-alarm p-1"
+                        title="删除错题照片"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </Card>
                 ))}
               </div>

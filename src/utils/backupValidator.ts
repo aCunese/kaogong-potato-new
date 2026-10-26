@@ -1,4 +1,4 @@
-import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, SUBJECTS, Subject, PlanType } from '../types';
+import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, Subject, PlanType } from '../types';
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
 
 export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -27,7 +27,7 @@ function isValidDateString(str: any): boolean {
 }
 
 function isNonNegativeNumber(val: any): boolean {
-  return typeof val === 'number' && !isNaN(val) && val >= 0;
+  return typeof val === 'number' && Number.isFinite(val) && val >= 0;
 }
 
 /**
@@ -49,7 +49,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     return { valid: false, error: '备份文件内容为空或不是字符串' };
   }
 
-  if (jsonString.length > MAX_BACKUP_SIZE_BYTES) {
+  if (jsonString.length > MAX_BACKUP_SIZE_BYTES || new TextEncoder().encode(jsonString).byteLength > MAX_BACKUP_SIZE_BYTES) {
     return { valid: false, error: '备份文件大小超过 50MB 限制' };
   }
 
@@ -67,16 +67,13 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   // Handle both { version: N, state: { ... } } and direct AppState
   const target = raw.state && typeof raw.state === 'object' && !Array.isArray(raw.state) ? raw.state : raw;
 
-  // Version check: reject unknown versions > 3
-  const versionCandidate = typeof raw.version === 'number'
-    ? raw.version
-    : typeof target.version === 'number'
-    ? target.version
-    : undefined;
-
-  if (versionCandidate !== undefined) {
-    if (typeof versionCandidate !== 'number' || isNaN(versionCandidate) || versionCandidate < 1 || versionCandidate > 3) {
-      return { valid: false, error: `不支持的备份版本 (v${versionCandidate})，当前最高支持 v3` };
+  // A declared version must be one of the supported integer schema versions.
+  for (const candidate of [raw, target]) {
+    if (Object.prototype.hasOwnProperty.call(candidate, 'version')) {
+      const version = candidate.version;
+      if (!Number.isInteger(version) || version < 1 || version > 3) {
+        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v3` };
+      }
     }
   }
 
@@ -251,12 +248,18 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       return { valid: false, error: `学习计划 "${p.name}" 实际用时必须为非负数字` };
     }
 
+    for (const field of ['accumulatedMs', 'timerStart']) {
+      if (p[field] !== undefined && !isNonNegativeNumber(p[field])) {
+        return { valid: false, error: `学习计划 "${p.name}" 的 ${field} 必须为有限非负数字` };
+      }
+    }
+
     // CRITICAL: Preserve accumulatedMs if valid number, otherwise derive from (actualMinutes || 0) * 60000
-    const accumulatedMs = (typeof p.accumulatedMs === 'number' && !isNaN(p.accumulatedMs) && p.accumulatedMs >= 0)
+    const accumulatedMs = (isNonNegativeNumber(p.accumulatedMs))
       ? p.accumulatedMs
       : Math.round((p.actualMinutes || 0) * 60000);
 
-    const timerStart = (typeof p.timerStart === 'number' && !isNaN(p.timerStart) && p.timerStart >= 0)
+    const timerStart = (isNonNegativeNumber(p.timerStart))
       ? p.timerStart
       : 0;
 
@@ -300,7 +303,10 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       return { valid: false, error: `学习记录中第 ${i + 1} 项错题数必须为非负数字` };
     }
 
-    const lessons = (typeof r.lessons === 'number' && !isNaN(r.lessons) && r.lessons >= 0)
+    if (r.lessons !== undefined && !isNonNegativeNumber(r.lessons)) {
+      return { valid: false, error: `学习记录中第 ${i + 1} 项讲数必须为有限非负数字` };
+    }
+    const lessons = (isNonNegativeNumber(r.lessons))
       ? Math.round(r.lessons)
       : undefined;
 
@@ -326,13 +332,19 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       return { valid: false, error: `错题记录中第 ${i + 1} 项的日期格式无效: ${w.date}` };
     }
 
+    if (w.image && (typeof w.image !== 'string' || !/^(data:image\/|https?:\/\/)/i.test(w.image))) {
+      return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的本地图片引用，请重新导出完整备份` };
+    }
+    if (w.storagePath && !w.image) {
+      return { valid: false, error: `错题记录中第 ${i + 1} 项缺少图片附件内容` };
+    }
     wrong.push({
       id: typeof w.id === 'string' && w.id.trim() ? w.id.trim() : `wrong-${Date.now()}-${i}`,
       date: w.date.trim(),
       bookId: typeof w.bookId === 'string' ? w.bookId.trim() : '',
       note: typeof w.note === 'string' ? w.note : '',
       image: typeof w.image === 'string' ? w.image : '',
-      storagePath: typeof w.storagePath === 'string' ? w.storagePath : undefined,
+
     });
   }
 
@@ -345,7 +357,21 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   };
 
   // Reconcile library from sources
-  const existingLib = Array.isArray(target.library) ? target.library : [];
+  if (target.library !== undefined && !Array.isArray(target.library)) {
+    return { valid: false, error: '事项库 library 必须为数组' };
+  }
+  const existingLib: LibraryItem[] = [];
+  for (const [index, item] of (target.library ?? []).entries()) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)
+      || typeof item.id !== 'string' || !item.id.trim()
+      || typeof item.name !== 'string' || !item.name.trim()
+      || !VALID_PLAN_TYPES.has(item.type) || !VALID_SUBJECT_SET.has(item.subject)
+      || typeof item.sourceId !== 'string'
+      || !isNonNegativeNumber(item.defaultMinutes) || item.defaultMinutes <= 0) {
+      return { valid: false, error: `事项库中第 ${index + 1} 项数据无效` };
+    }
+    existingLib.push({ id: item.id.trim(), name: item.name.trim(), type: item.type, sourceId: item.sourceId.trim(), subject: item.subject, defaultMinutes: item.defaultMinutes });
+  }
   const library = buildLibraryFromSources(books, courses, existingLib);
 
   const migratedState: AppState = {

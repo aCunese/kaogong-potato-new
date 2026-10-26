@@ -119,7 +119,7 @@ export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({
         <div>
           <h1 className="text-xl font-bold text-ink-main">8 类危险确认弹窗系统</h1>
           <p className="text-xs text-ink-muted mt-0.5">
-            严格按照设计规范建立独立影响提示与二次确认机制
+            演示预览：确认操作仅关闭弹窗，不修改学习数据
           </p>
         </div>
         <Button variant="secondary" size="sm" onClick={onBack}>
@@ -168,7 +168,6 @@ export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({
           confirmText="确认执行"
           cancelText="取消返回"
           onConfirm={() => {
-            alert(`已确认操作：${currentItem.title}`);
             handleClose();
           }}
           onCancel={handleClose}

@@ -4,6 +4,7 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
 import { X, CheckCircle2, Award, ArrowRight, AlertCircle } from 'lucide-react';
 import { Plan } from '../../types';
+import { getCompletionMinutes, getCompletionSummary } from '../../utils/workflowPresentation';
 
 interface CompletionModalProps {
   plan: Plan | null;
@@ -20,14 +21,18 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   onToast,
   initialSuccess = false,
 }) => {
-  const { completePlan, activeDate } = useApp();
+  const { state, completePlan, pauseTimer, activeDate } = useApp();
+  const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
 
   // Form states with dynamic per-task reset (Fixes A12)
-  const [questions, setQuestions] = useState<number>(30);
+  const [questions, setQuestions] = useState<number>(0);
   const [errors, setErrors] = useState<number>(0);
-  const [actualMinutes, setActualMinutes] = useState<number>(30);
+  const [actualMinutes, setActualMinutes] = useState<number>(0);
   const [lessons, setLessons] = useState<number>(1);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [preparedPlanId, setPreparedPlanId] = useState('');
+  const [prepareAttempt, setPrepareAttempt] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Success view state
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
@@ -39,37 +44,46 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     summary: string;
   } | null>(null);
 
-  // Sync form inputs to current plan on open to eliminate cross-task residue (Fixes A12)
+  // Pause before preparing the form; wait for the persisted live plan before deriving minutes.
   useEffect(() => {
-    if (!isOpen || !plan) return;
+    if (!isOpen || !livePlan) return;
+    let cancelled = false;
+    setPreparedPlanId('');
+    setIsSubmitting(false);
+    setErrorMsg('');
+    setQuestions(0);
+    setErrors(0);
+    setLessons(1);
+    setActualMinutes(0);
+    setIsSuccess(false);
 
-    if (initialSuccess) {
-      setIsSuccess(true);
+    if (livePlan.done || initialSuccess) {
+      const record = state.records.find(item => item.id === livePlan.recordId)
+        || state.records.find(item => item.planId === livePlan.id);
       setLastCompletedData({
-        name: plan.name,
-        type: plan.type,
-        subject: plan.subject,
-        minutes: plan.actualMinutes || plan.plannedMinutes || 40,
-        summary: plan.type === 'book'
-          ? '完成 30 题 · 错题 6 道 · 正确率 80%'
-          : plan.type === 'course'
-          ? '完成 1 讲课时 · 重点笔记已标记'
-          : '今日自定义事项已完成 · 投入专注 30 分钟',
+        name: livePlan.name,
+        type: livePlan.type,
+        subject: record?.subject || livePlan.subject,
+        minutes: record?.minutes ?? livePlan.actualMinutes,
+        summary: record ? getCompletionSummary(record) : '该计划未关联可用的学习记录',
       });
+      setIsSuccess(true);
       return;
     }
 
-    const defaultMins = (plan.accumulatedMs && plan.accumulatedMs > 0)
-      ? Math.max(1, Math.round(plan.accumulatedMs / 60000))
-      : (plan.actualMinutes > 0 ? plan.actualMinutes : (plan.plannedMinutes || 30));
+    if (livePlan.timerStart > 0) {
+      pauseTimer(livePlan.id).then(result => {
+        if (!cancelled && !result.ok) setErrorMsg(result.message);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [isOpen, plan?.id, initialSuccess, prepareAttempt]);
 
-    setActualMinutes(defaultMins);
-    setQuestions(plan.type === 'book' ? 20 : 0);
-    setErrors(0);
-    setLessons(1);
-    setIsSuccess(false);
-    setErrorMsg('');
-  }, [isOpen, plan?.id, initialSuccess]);
+  useEffect(() => {
+    if (!isOpen || !livePlan || livePlan.done || initialSuccess || livePlan.timerStart > 0 || preparedPlanId === livePlan.id) return;
+    setActualMinutes(getCompletionMinutes(livePlan));
+    setPreparedPlanId(livePlan.id);
+  }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
 
   if (!isOpen || !plan) return null;
 
@@ -81,7 +95,12 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || preparedPlanId !== plan.id || livePlan?.timerStart || livePlan?.done) return;
     setErrorMsg('');
+    if (!Number.isSafeInteger(actualMinutes) || actualMinutes <= 0) {
+      setErrorMsg('学习用时必须为大于0的整数分钟');
+      return;
+    }
 
     let res;
 
@@ -94,6 +113,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('错题数不能大于本次做题总数');
         return;
       }
+      setIsSubmitting(true);
       res = await completePlan({
         type: 'book',
         planId: plan.id,
@@ -106,6 +126,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('课时数必须大于0，用时不能为负数');
         return;
       }
+      setIsSubmitting(true);
       res = await completePlan({
         type: 'course',
         planId: plan.id,
@@ -117,6 +138,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('学习用时不能为负数');
         return;
       }
+      setIsSubmitting(true);
       res = await completePlan({
         type: 'custom',
         planId: plan.id,
@@ -124,6 +146,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       });
     }
 
+    setIsSubmitting(false);
     if (!res.ok) {
       setErrorMsg(res.message);
       return;
@@ -135,11 +158,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       type: plan.type,
       subject: plan.subject,
       minutes: record.minutes,
-      summary: plan.type === 'book'
-        ? `完成 ${record.questions} 题 · 错题 ${record.errors} 道 · 正确率 ${record.questions > 0 ? Math.round(((record.questions - record.errors) / record.questions) * 100) : 0}%`
-        : plan.type === 'course'
-        ? `听完 ${record.lessons ?? lessons} 讲课时 · 用时 ${record.minutes} 分钟`
-        : `完成自定义事项 · 累计投入 ${record.minutes} 分钟`,
+      summary: getCompletionSummary(record),
     });
     setIsSuccess(true);
     onToast(plan.type === 'book' ? '刷题登记已保存！' : plan.type === 'course' ? '网课登记已保存！' : '自定义事项已登记！');
@@ -147,7 +166,12 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-paper border border-line w-full max-w-sm rounded-3xl p-5 shadow-2xl relative">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="完成登记"
+        className="bg-paper border border-line w-full max-w-sm rounded-3xl p-5 shadow-2xl relative max-h-[90dvh] overflow-y-auto"
+      >
         <button
           onClick={handleClose}
           className="absolute top-4 right-4 p-2 text-ink-muted hover:text-ink-main hover:bg-black/5 rounded-full"
@@ -311,7 +335,12 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
             )}
 
             <div className="pt-2">
-              <Button variant="primary" size="md" fullWidth type="submit">
+              {errorMsg && livePlan?.timerStart ? (
+                <Button variant="secondary" size="md" fullWidth onClick={() => setPrepareAttempt(value => value + 1)}>
+                  重试暂停计时
+                </Button>
+              ) : null}
+              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart)}>
                 <CheckCircle2 size={16} />
                 保存并完成
               </Button>

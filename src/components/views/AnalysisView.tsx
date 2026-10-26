@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
-import { SUBJECTS, Subject, AnalysisSubTab } from '../../types';
+import { SUBJECTS, Subject, AnalysisSubTab, StudyRecord } from '../../types';
+import { filterAnalysisRecords } from '../../utils/workflowPresentation';
 import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
 
 const SUBJECT_COLORS: Record<Subject, string> = {
@@ -20,7 +21,7 @@ interface AnalysisViewProps {
   initialSubTab?: AnalysisSubTab;
   selectedMonth?: string;
   onOpenMonthPicker: () => void;
-  onOpenLegendDetail: () => void;
+  onOpenLegendDetail: (records?: StudyRecord[], rangeLabel?: string) => void;
 }
 
 export const AnalysisView: React.FC<AnalysisViewProps> = ({
@@ -43,17 +44,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
     }
   }, [initialSubTab]);
 
-  // Filter records by range for overall with dynamic current timestamp (Fixes A09)
-  const getOverallRecords = () => {
-    if (range === 'all') return state.records;
-    const now = new Date();
-    const days = parseInt(range, 10);
-    const startDate = new Date(now.getTime() - (days - 1) * 24 * 3600 * 1000);
-    const startStr = startDate.toISOString().slice(0, 10);
-    return state.records.filter(r => r.date >= startStr);
-  };
-
-  const overallRecords = getOverallRecords();
+  const overallRecords = filterAnalysisRecords(state.records, range, activeDate);
   const overallTotalMinutes = overallRecords.reduce((sum, r) => sum + r.minutes, 0);
 
   // Calculate subject minutes for overall
@@ -173,7 +164,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                 八科时间投入分布
               </div>
               <button
-                onClick={onOpenLegendDetail}
+                onClick={() => onOpenLegendDetail(overallRecords, range === 'all' ? '全部记录' : `近${range}天`)}
                 className="text-xs text-sage flex items-center gap-0.5 hover:underline"
               >
                 <span>图例与明细</span>

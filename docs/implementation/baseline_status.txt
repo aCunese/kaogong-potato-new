@@ -1,0 +1,24 @@
+ M scripts/verify-screens.ts
+ M src/App.tsx
+ M src/components/common/UIComponents.tsx
+ M src/components/views/AnalysisView.tsx
+ M src/components/views/BackupModal.tsx
+ M src/components/views/CompletionModal.tsx
+ M src/components/views/ConfirmModalsView.tsx
+ M src/components/views/EditModals.tsx
+ M src/components/views/FocusModal.tsx
+ M src/components/views/LearningView.tsx
+ M src/components/views/ProfileEditModal.tsx
+ M src/components/views/ScreenInspectorModal.tsx
+ M src/components/views/SettingsView.tsx
+ M src/components/views/TodayView.tsx
+ M src/components/views/WrongView.tsx
+ M src/context/AppContext.tsx
+ M src/main.tsx
+ M src/utils/backupValidator.ts
+ M src/utils/db.ts
+ M src/utils/workflowMutators.ts
+?? docs/
+?? src/utils/workflowPresentation.ts
+?? tests/storage-regressions.test.ts
+?? tests/workflow-regressions.test.ts

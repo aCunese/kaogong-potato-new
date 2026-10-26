@@ -23,6 +23,13 @@ export const LearningView: React.FC<LearningViewProps> = ({
   onToast,
 }) => {
   const { state, updateLibraryMinutes, quickAddPlan } = useApp();
+  const [errorMsg, setErrorMsg] = useState('');
+  const [pendingAddId, setPendingAddId] = useState('');
+  const updateMinutes = async (id: string, minutes: number) => {
+    setErrorMsg('');
+    const result = await updateLibraryMinutes(id, minutes);
+    if (!result.ok) setErrorMsg(result.message);
+  };
   const [subTab, setSubTab] = useState<LearningSubTab>(initialSubTab);
 
   // Sync internal subTab whenever parent initialSubTab changes (Fixes A14)
@@ -40,6 +47,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
+      {errorMsg && <div role="alert" className="p-3 text-xs text-alarm bg-alarm-light rounded-xl">{errorMsg}</div>}
       {/* 头部与吉祥物 */}
       <div className="flex items-center justify-between pt-1">
         <div>
@@ -150,7 +158,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-ink-muted font-medium">
-              共 {state.courses.length} 门课程
+              共 {state.courses.length} 门网课
             </span>
             <Button variant="primary" size="sm" onClick={() => onOpenCourseEdit()}>
               <Plus size={14} />
@@ -259,7 +267,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
                       type="number"
                       min={1}
                       value={item.defaultMinutes}
-                      onChange={e => updateLibraryMinutes(item.id, parseInt(e.target.value) || 1)}
+                      onChange={e => updateMinutes(item.id, parseInt(e.target.value) || 1)}
                       className="w-14 px-1.5 py-0.5 bg-cream/70 border border-line rounded text-xs text-center font-mono"
                     />
                     <span>分钟</span>
@@ -270,8 +278,14 @@ export const LearningView: React.FC<LearningViewProps> = ({
                   <Button
                     variant="light"
                     size="sm"
-                    onClick={() => {
-                      quickAddPlan(item.id);
+                    disabled={Boolean(pendingAddId)}
+                    onClick={async () => {
+                      if (pendingAddId) return;
+                      setPendingAddId(item.id);
+                      setErrorMsg('');
+                      const result = await quickAddPlan(item.id);
+                      setPendingAddId('');
+                      if (!result.ok) { setErrorMsg(result.message); return; }
                       onToast(`已将“${item.name}”加入今日日程`);
                     }}
                   >

@@ -1,10 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
-import { SUBJECTS, Subject, Book, Course, WrongRecord } from '../../types';
+import { SUBJECTS, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { compressImage } from '../../utils/imageCompressor';
+
+function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const save = async (action: () => Promise<MutationResult<unknown>>, message: string) => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setErrorMsg('');
+    try {
+      const result = await action();
+      if (!result.ok) { setErrorMsg(result.message); return; }
+      onToast(message);
+      onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : '保存失败，请重试');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return { save, isSaving, errorMsg, setErrorMsg };
+}
+
+const FormError: React.FC<{ message: string }> = ({ message }) => message ? (
+  <div role="alert" className="p-2.5 bg-alarm-light text-alarm rounded-xl text-xs">{message}</div>
+) : null;
 
 /* =========================================================================
    1. Add Plan Modal (add-plan: 12:1867)
@@ -15,13 +40,14 @@ export const AddPlanModal: React.FC<{
   onToast: (msg: string) => void;
 }> = ({ isOpen, onClose, onToast }) => {
   const { state, addPlan } = useApp();
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [selectedLibId, setSelectedLibId] = useState<string>(state.library[0]?.id || '');
   const [minutes, setMinutes] = useState<number>(30);
 
   useEffect(() => {
-    if (state.library.length > 0 && !selectedLibId) {
-      setSelectedLibId(state.library[0].id);
-      setMinutes(state.library[0].defaultMinutes);
+    if (!state.library.some(item => item.id === selectedLibId)) {
+      setSelectedLibId(state.library[0]?.id || '');
+      setMinutes(state.library[0]?.defaultMinutes || 30);
     }
   }, [state.library, selectedLibId]);
 
@@ -33,15 +59,14 @@ export const AddPlanModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedLibId) return;
-    addPlan(selectedLibId, minutes);
-    onToast('已成功添加到今日日程！');
-    onClose();
+    if (!selectedLibId) { setErrorMsg('请先添加题本、网课或自定义事项'); return; }
+    void save(() => addPlan(selectedLibId, minutes), '已成功添加到今日日程！');
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="从事项库挑选加入今天">
       <form onSubmit={handleSubmit} className="space-y-4">
+        <FormError message={errorMsg} />
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1.5">选择事项</label>
           <select
@@ -68,7 +93,7 @@ export const AddPlanModal: React.FC<{
           />
         </div>
 
-        <Button variant="primary" size="md" fullWidth type="submit">
+        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !selectedLibId}>
           确认加入今日日程
         </Button>
       </form>
@@ -94,7 +119,7 @@ export const BookEditModal: React.FC<{
   const [done, setDone] = useState(0);
   const [errors, setErrors] = useState(0);
   const [minutes, setMinutes] = useState(0);
-  const [errorMsg, setErrorMsg] = useState('');
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
 
   useEffect(() => {
     if (book) {
@@ -129,13 +154,10 @@ export const BookEditModal: React.FC<{
     }
 
     if (book) {
-      editBook(book.id, { name: name.trim(), subject, total, pages, done, errors, minutes });
-      onToast('题本数据已更新！');
+      void save(() => editBook(book.id, { name: name.trim(), subject, total, pages, done, errors, minutes }), '题本数据已更新！');
     } else {
-      addBook({ name: name.trim(), subject, total, pages, done, errors, minutes });
-      onToast('题本已创建，并自动生成同名事项！');
+      void save(() => addBook({ name: name.trim(), subject, total, pages, done, errors, minutes }), '题本已创建，并自动生成同名事项！');
     }
-    onClose();
   };
 
   return (
@@ -231,7 +253,7 @@ export const BookEditModal: React.FC<{
         </p>
 
         <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit">
+          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
             保存题本数据
           </Button>
         </div>
@@ -257,7 +279,7 @@ export const CourseEditModal: React.FC<{
   const [completedLessons, setCompletedLessons] = useState(0);
   const [minutes, setMinutes] = useState(0);
   const [url, setUrl] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
 
   useEffect(() => {
     if (course) {
@@ -290,13 +312,10 @@ export const CourseEditModal: React.FC<{
     }
 
     if (course) {
-      editCourse(course.id, { name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() });
-      onToast('网课数据已更新！');
+      void save(() => editCourse(course.id, { name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课数据已更新！');
     } else {
-      addCourse({ name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() });
-      onToast('网课已添加，并自动生成同名事项！');
+      void save(() => addCourse({ name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课已添加，并自动生成同名事项！');
     }
-    onClose();
   };
 
   return (
@@ -376,7 +395,7 @@ export const CourseEditModal: React.FC<{
         </div>
 
         <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit">
+          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
             保存网课数据
           </Button>
         </div>
@@ -394,21 +413,21 @@ export const CustomAddModal: React.FC<{
   onToast: (msg: string) => void;
 }> = ({ isOpen, onClose, onToast }) => {
   const { addCustomItem } = useApp();
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<Subject>('申论');
   const [defaultMinutes, setDefaultMinutes] = useState(30);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    addCustomItem(name.trim(), subject, defaultMinutes);
-    onToast('已添加自定义学习事项！');
-    onClose();
+    if (!name.trim()) { setErrorMsg('请填写事项名称'); return; }
+    void save(() => addCustomItem(name.trim(), subject, defaultMinutes), '已添加自定义学习事项！');
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="添加自定义备考事项">
       <form onSubmit={handleSubmit} className="space-y-3">
+        <FormError message={errorMsg} />
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">事项名称</label>
           <input
@@ -443,7 +462,7 @@ export const CustomAddModal: React.FC<{
         </div>
 
         <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit">
+          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
             添加到事项库
           </Button>
         </div>
@@ -462,6 +481,7 @@ export const CountdownModal: React.FC<{
   onToast: (msg: string) => void;
 }> = ({ isOpen, cdIndex, onClose, onToast }) => {
   const { state, updateCountdown } = useApp();
+  const { save, isSaving, errorMsg } = useSaveMutation(onClose, onToast);
   const cd = state.countdowns[cdIndex];
   const [date, setDate] = useState('');
 
@@ -472,14 +492,13 @@ export const CountdownModal: React.FC<{
   if (!cd) return null;
 
   const handleSave = () => {
-    updateCountdown(cd.id, date);
-    onToast(`已更新${cd.name}考试日期！`);
-    onClose();
+    void save(() => updateCountdown(cd.id, date), `已更新${cd.name}考试日期！`);
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`设置${cd.name}考试日期`}>
       <div className="space-y-4">
+        <FormError message={errorMsg} />
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">考试日期</label>
           <input
@@ -492,7 +511,7 @@ export const CountdownModal: React.FC<{
         <p className="text-xs text-ink-muted leading-relaxed">
           考试类型固定为「国考、省考、事业编」三大考程，修改后首页即时展示剩余备考天数。
         </p>
-        <Button variant="primary" size="md" fullWidth onClick={handleSave}>
+        <Button variant="primary" size="md" fullWidth onClick={handleSave} disabled={isSaving}>
           保存考试日期
         </Button>
       </div>
@@ -698,7 +717,6 @@ export const AuthModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, mode, onClose, onToast }) => {
-  const { updateProfile } = useApp();
   const [username, setUsername] = useState('potato_01');
   const [password, setPassword] = useState('1234');
   const [errorMsg, setErrorMsg] = useState('');
@@ -717,10 +735,7 @@ export const AuthModal: React.FC<{
       return;
     }
 
-    // Update profile in isolated state
-    updateProfile('土豆备考空间', undefined);
-    onToast(mode === 'login' ? `欢迎回来，${cleanUser}！已连接云端状态。` : `注册成功，欢迎开启备考，${cleanUser}！`);
-    onClose();
+    setErrorMsg('当前为本地离线版本，尚未接入账号服务，无法登录或注册。');
   };
 
   return (
@@ -754,7 +769,7 @@ export const AuthModal: React.FC<{
         </div>
 
         <p className="text-[11px] text-ink-muted leading-relaxed">
-          适配独立 Node 服务端的用户名与密码鉴权接口规范（/api/auth/*）。
+          账号服务尚未接入，当前学习数据仅保存在本机。
         </p>
 
         <Button variant="primary" size="md" fullWidth type="submit">
@@ -776,20 +791,23 @@ export { DownloadApkModal } from './DownloadApkModal';
 export const OverallLegendModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-}> = ({ isOpen, onClose }) => {
+  records?: StudyRecord[];
+  rangeLabel?: string;
+}> = ({ isOpen, onClose, records, rangeLabel = '全部记录' }) => {
   const { state } = useApp();
-  const totalMin = state.records.reduce((sum, r) => sum + r.minutes, 0);
+  const displayedRecords = records || state.records;
+  const totalMin = displayedRecords.reduce((sum, r) => sum + r.minutes, 0);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="八科投入时间与图例详情">
       <div className="space-y-3">
         <div className="text-xs text-ink-muted">
-          已登记全部累计投入：<span className="font-bold text-ink-main font-mono">{totalMin}</span> 分钟
+          {rangeLabel}已登记投入：<span className="font-bold text-ink-main font-mono">{totalMin}</span> 分钟
         </div>
 
         <div className="space-y-2 pt-1">
           {SUBJECTS.map(subj => {
-            const mins = state.records.filter(r => r.subject === subj).reduce((sum, r) => sum + r.minutes, 0);
+            const mins = displayedRecords.filter(r => r.subject === subj).reduce((sum, r) => sum + r.minutes, 0);
             const pct = totalMin > 0 ? ((mins / totalMin) * 100).toFixed(1) : '0.0';
             return (
               <div key={subj} className="flex items-center justify-between p-2.5 bg-cream/40 rounded-xl border border-line/60 text-xs">

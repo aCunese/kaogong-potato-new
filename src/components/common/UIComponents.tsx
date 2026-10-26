@@ -1,5 +1,38 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+
+const modalBackStack: { close: () => void }[] = [];
+
+export function closeTopModal(): boolean {
+  const top = modalBackStack[modalBackStack.length - 1];
+  if (!top) return false;
+  top.close();
+  return true;
+}
+
+function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false) {
+  const closeRef = useRef(onClose);
+  const disabledRef = useRef(closeDisabled);
+  closeRef.current = onClose;
+  disabledRef.current = closeDisabled;
+  useEffect(() => {
+    if (!isOpen) return;
+    const entry = { close: () => { if (!disabledRef.current) closeRef.current(); } };
+    modalBackStack.push(entry);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && modalBackStack[modalBackStack.length - 1] === entry) {
+        event.preventDefault();
+        entry.close();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      const index = modalBackStack.indexOf(entry);
+      if (index >= 0) modalBackStack.splice(index, 1);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen]);
+}
 
 /* =========================================================================
    Button
@@ -147,14 +180,19 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  closeDisabled?: boolean;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false }) => {
+  useModalBack(isOpen, onClose, closeDisabled);
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="bg-paper border border-line w-full max-w-lg rounded-2xl p-5 shadow-modal max-h-[90vh] overflow-y-auto flex flex-col"
         onClick={e => e.stopPropagation()}
       >
@@ -162,6 +200,8 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
           <h3 className="text-lg font-bold text-ink-main">{title}</h3>
           <button
             onClick={onClose}
+            disabled={closeDisabled}
+            aria-label="关闭弹窗"
             className="p-1 rounded-lg text-ink-muted hover:text-ink-main hover:bg-black/5"
           >
             <X size={20} />
@@ -186,7 +226,7 @@ interface ConfirmModalProps {
   confirmText?: string;
   cancelText?: string;
   danger?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => unknown | Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -201,11 +241,36 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onConfirm,
   onCancel,
 }) => {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const pendingRef = useRef(false);
+  useModalBack(isOpen, onCancel, pending);
+  useEffect(() => {
+    if (isOpen) setError('');
+  }, [isOpen, title]);
   if (!isOpen) return null;
+
+  const handleConfirm = async () => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setError('');
+    try {
+      const result = await onConfirm();
+      if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
+        setError('message' in result ? String(result.message) : '操作失败，请重试');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '操作失败，请重试');
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-paper border border-line w-full max-w-sm rounded-2xl p-5 shadow-modal">
+      <div role="dialog" aria-modal="true" aria-label={title} className="bg-paper border border-line w-full max-w-sm rounded-2xl p-5 shadow-modal max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center gap-3 mb-3">
           <div className={`p-2.5 rounded-full ${danger ? 'bg-alarm-light text-alarm' : 'bg-sage-light text-sage'}`}>
             <AlertTriangle size={22} />
@@ -220,12 +285,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             {impactText}
           </div>
         )}
+        {error && <p role="alert" className="text-xs text-alarm mb-3">{error}</p>}
         <div className="flex gap-2.5">
-          <Button variant="secondary" fullWidth onClick={onCancel}>
+          <Button variant="secondary" fullWidth onClick={onCancel} disabled={pending}>
             {cancelText}
           </Button>
-          <Button variant={danger ? 'danger' : 'primary'} fullWidth onClick={onConfirm}>
-            {confirmText}
+          <Button variant={danger ? 'danger' : 'primary'} fullWidth onClick={handleConfirm} disabled={pending}>
+            {pending ? '处理中…' : confirmText}
           </Button>
         </div>
       </div>

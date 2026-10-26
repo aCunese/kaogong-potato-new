@@ -1,0 +1,2656 @@
+diff --git a/scripts/verify-screens.ts b/scripts/verify-screens.ts
+index 5ee01c1..5f29f89 100644
+--- a/scripts/verify-screens.ts
++++ b/scripts/verify-screens.ts
+@@ -1,134 +1,234 @@
+-import { chromium } from 'playwright';
+-import { spawn } from 'child_process';
+-import path from 'path';
+-import fs from 'fs';
+-
+-const OUT_DIR = path.resolve(process.cwd(), 'verification-screens-round2');
+-if (!fs.existsSync(OUT_DIR)) {
+-  fs.mkdirSync(OUT_DIR, { recursive: true });
++import { chromium, type Page } from 'playwright';
++import { spawn } from 'node:child_process';
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import assert from 'node:assert/strict';
++import { ALL_50_SCREENS } from '../src/components/views/ScreenInspectorModal';
++import { BLANK_STATE, DEMO_STATE } from '../src/constants/initialData';
++
++// Use an isolated browser profile. No data from the user's browser is read or changed.
++const outputDir = path.resolve(process.env.VERIFY_OUTPUT_DIR || '/tmp/potato-latest-audit/verified-screens');
++const suppliedUrl = process.env.VERIFY_URL;
++const baseUrl = suppliedUrl || 'http://127.0.0.1:4186';
++const viewports = [{ width: 412, height: 915 }, { width: 393, height: 873 }, { width: 360, height: 800 }];
++const screenText: Record<string, string | RegExp> = {
++  today: '今日已累计学习', library: '事项库', books: /共\s*14\s*本题本/, courses: /共\s*7\s*门网课/,
++  wrong: '错题照片复盘', overall: '八科时间投入分布', monthly: '月度报表', settings: '编辑资料',
++  focus: /正向计时中|计时已暂停/, 'add-plan': '从事项库挑选加入今天', 'complete-book': '刷题登记',
++  'complete-course': '网课登记', 'complete-custom': '事项登记', 'complete-success': '登记成功',
++  'book-edit': '修改题本数据', 'course-edit': '修改网课信息', 'custom-add': '添加自定义备考事项',
++  'photo-import': '从相册上传错题照片', 'wrong-detail': '错题复盘大图详情', countdown: '考试日期',
++  guest: /未登录|离线/, login: '登录学员专属空间', register: '注册新备考账号', sync: '云端同步管理',
++  backup: '数据备份与恢复', profile: '编辑个人资料', 'today-empty': '今天还没有日程',
++  'delete-confirm': '移除这项日程', 'book-add': '添加新题本', 'course-add': '添加新网课',
++  'today-multi': '暂停', 'focus-paused': '计时已暂停', 'complete-course-success': '登记成功',
++  'complete-custom-success': '登记成功', 'states-empty': '今天还没有安排日程',
++  'states-sync': '正在同步最新学情', 'states-form': '校验', 'confirm-book': '删除题本确认',
++  'confirm-course': '删除网课确认', 'confirm-photo': '删除错题照片确认', 'confirm-reset': '恢复初始数据危险确认',
++  'confirm-import': '导入备份覆盖确认', 'confirm-upload': '上传本机数据覆盖云端',
++  'confirm-pull': '从云端拉取覆盖本机', 'confirm-logout': '退出账号登录确认',
++  'download-apk': '专属 Android 安装包', 'month-picker': '选择分析月份', 'overall-legend': '八科投入时间与图例详情',
++  'focus-course': '听网课', 'focus-custom': '自定义事项',
++};
++const modalScreens = new Set(ALL_50_SCREENS.filter(s => !['today', 'library', 'books', 'courses', 'wrong', 'overall', 'monthly', 'settings', 'guest', 'today-empty', 'today-multi', 'states-empty', 'states-sync', 'states-form'].includes(s.id)).map(s => s.id));
++const results: { name: string; passed: boolean; detail?: string }[] = [];
++async function check(name: string, work: () => Promise<void>) {
++  try { await work(); results.push({ name, passed: true }); }
++  catch (error) { results.push({ name, passed: false, detail: String(error) }); console.error(`FAIL ${name}: ${error}`); }
+ }
+-
+-async function waitServerReady(url: string, timeoutMs = 15000): Promise<boolean> {
+-  const start = Date.now();
+-  while (Date.now() - start < timeoutMs) {
+-    try {
+-      const res = await fetch(url);
+-      if (res.ok) return true;
+-    } catch {}
+-    await new Promise(r => setTimeout(r, 300));
+-  }
+-  return false;
++async function seed(page: Page, source: typeof BLANK_STATE) {
++  await page.goto(baseUrl, { waitUntil: 'networkidle' });
++  await page.evaluate(async state => {
++    await new Promise<void>((resolve, reject) => {
++      const req = indexedDB.open('kaogong_potato_v3', 1);
++      req.onupgradeneeded = () => {
++        for (const [name, keyPath] of [['snapshots', 'key'], ['media', 'id'], ['damaged_cache', 'id']]) {
++          if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath });
++        }
++      };
++      req.onerror = () => reject(req.error);
++      req.onsuccess = () => {
++        const db = req.result;
++        const tx = db.transaction(['snapshots', 'media'], 'readwrite');
++        tx.objectStore('snapshots').put({ key: 'latest', state, version: 3, revision: 1, migratedFromV2: true, updatedAt: new Date().toISOString() });
++        tx.objectStore('media').clear();
++        tx.oncomplete = () => { db.close(); resolve(); };
++        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
++      };
++    });
++  }, source);
++  await page.reload({ waitUntil: 'networkidle' });
+ }
+-
+-async function runVerification() {
+-  console.log('🚀 Starting Vite preview server...');
+-  const server = spawn('bun', ['run', 'preview', '--port', '4175'], {
+-    stdio: 'pipe',
++async function snapshot(page: Page) {
++  return page.evaluate(async () => new Promise<any>((resolve, reject) => {
++    const req = indexedDB.open('kaogong_potato_v3', 1);
++    req.onerror = () => reject(req.error);
++    req.onsuccess = () => {
++      const db = req.result, tx = db.transaction('snapshots');
++      const get = tx.objectStore('snapshots').get('latest');
++      get.onsuccess = () => { resolve(get.result); db.close(); };
++      get.onerror = () => reject(get.error);
++    };
++  }));
++}
++async function jump(page: Page, id: string) {
++  await page.getByRole('button', { name: '50屏矩阵', exact: true }).click();
++  await page.locator(`[data-screen-id="${id}"]`).click();
++  await page.getByRole('heading', { name: '50 画面全矩阵导航与验收直达' }).waitFor({ state: 'hidden' });
++}
++async function metrics(page: Page) {
++  return page.evaluate(() => {
++    const main = document.querySelector('main')!.getBoundingClientRect();
++    const nav = document.querySelector('nav')!.getBoundingClientRect();
++    const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].map(el => {
++      const rect = el.getBoundingClientRect();
++      return { title: el.getAttribute('aria-label'), top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
++    });
++    return { width: innerWidth, height: innerHeight, documentWidth: document.documentElement.scrollWidth,
++      mainHeight: main.height, navBottom: nav.bottom, navTop: nav.top, dialogs };
+   });
++}
+ 
+-  const previewUrl = 'http://localhost:4175';
+-  const ready = await waitServerReady(previewUrl);
+-  if (!ready) {
+-    console.error('❌ Failed to start preview server on ' + previewUrl);
+-    server.kill();
+-    process.exit(1);
++await fs.mkdir(outputDir, { recursive: true });
++let server: ReturnType<typeof spawn> | undefined;
++let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
++try {
++  if (!suppliedUrl) {
++    server = spawn('bun', ['run', 'preview', '--host', '127.0.0.1', '--port', '4186', '--strictPort'], { stdio: 'pipe' });
++    let exited = false;
++    server.on('exit', () => { exited = true; });
++    let ready = false;
++    for (let i = 0; i < 100; i++) {
++      if (exited) throw new Error('Isolated preview server exited; check port 4186');
++      try { if ((await fetch(baseUrl)).ok) { ready = true; break; } } catch {}
++      await new Promise(resolve => setTimeout(resolve, 100));
++    }
++    assert(ready, 'Isolated preview server must start');
+   }
+-  console.log('✅ Preview server ready on ' + previewUrl);
+-
+-  const browser = await chromium.launch({ headless: true });
+-
+-  const viewports = [
+-    { name: 'pixel-412x915', width: 412, height: 915 },
+-    { name: 'iphone-393x873', width: 393, height: 873 },
+-    { name: 'compact-360x800', width: 360, height: 800 },
+-  ];
+-
+-  const results: any[] = [];
+-
+-  for (const vp of viewports) {
+-    console.log(`\n📱 Testing Viewport: ${vp.name} (${vp.width}x${vp.height})...`);
+-    const page = await browser.newPage({
+-      viewport: { width: vp.width, height: vp.height },
+-      deviceScaleFactor: 2,
++  browser = await chromium.launch({ headless: true });
++  for (const viewport of viewports) {
++    const context = await browser.newContext({ viewport, timezoneId: 'Asia/Tokyo' });
++    const page = await context.newPage();
++    const errors: string[] = [];
++    page.on('pageerror', error => errors.push(String(error)));
++    await check(`normal viewport ${viewport.width}x${viewport.height}`, async () => {
++      await page.goto(baseUrl, { waitUntil: 'networkidle' });
++      assert.equal(await page.getByRole('button', { name: '50屏矩阵', exact: true }).count(), 0);
++      assert.match(await page.locator('body').innerText(), /今天还没有日程/);
++      const m = await metrics(page);
++      assert.equal(m.mainHeight, viewport.height);
++      assert(m.documentWidth <= viewport.width && m.navBottom <= viewport.height && m.navTop >= 0);
++      await page.screenshot({ path: path.join(outputDir, `normal-${viewport.width}.png`) });
+     });
++    for (const screen of ALL_50_SCREENS) {
++      await check(`${viewport.width} ${screen.id}`, async () => {
++        await page.goto(`${baseUrl}/?preview=1`, { waitUntil: 'networkidle' });
++        await jump(page, screen.id);
++        const expected = screenText[screen.id];
++        await page.getByText(expected).first().waitFor({ state: 'visible', timeout: 5000 });
++        if (modalScreens.has(screen.id)) assert(await page.locator('[role="dialog"]').count() > 0, `${screen.id} must activate a dialog`);
++        const m = await metrics(page);
++        assert(m.documentWidth <= viewport.width, 'page must not overflow horizontally');
++        assert(m.navBottom <= viewport.height + 1, 'navigation must fit viewport');
++        for (const dialog of m.dialogs) assert(dialog.top >= -1 && dialog.bottom <= viewport.height + 1 && dialog.left >= -1 && dialog.right <= viewport.width + 1, `${screen.id} dialog must fit: ${JSON.stringify(dialog)}`);
++        const broken = await page.locator('img').evaluateAll(images => images.filter(img => img.complete && img.naturalWidth === 0).map(img => img.src));
++        assert.equal(broken.length, 0, 'images must load');
++        await page.screenshot({ path: path.join(outputDir, `${viewport.width}-${screen.id}.png`) });
++        const scrollables = page.locator('.overflow-y-auto');
++        for (const element of await scrollables.all()) await element.evaluate(el => { el.scrollTop = el.scrollHeight; });
++        if (modalScreens.has(screen.id)) {
++          const lastButton = page.locator('[role="dialog"]').last().getByRole('button').last();
++          if (await lastButton.count()) { await lastButton.scrollIntoViewIfNeeded(); const box = await lastButton.boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= viewport.height + 1, 'final modal action must be reachable'); }
++        }
++      });
++    }
++    await check(`no page errors ${viewport.width}`, async () => assert.deepEqual(errors, []));
++    await context.close();
++    console.log(`Checked 50 screens at ${viewport.width}x${viewport.height}`);
++  }
+ 
+-    await page.goto(previewUrl, { waitUntil: 'networkidle' });
+-    await page.waitForTimeout(500);
+-
+-    // Measure viewport bounds & container
+-    const metrics = await page.evaluate(() => {
+-      const container = document.querySelector('.bg-bg') as HTMLElement || document.body;
+-      const nav = document.querySelector('nav') as HTMLElement;
+-      const scrollHeight = document.documentElement.scrollHeight;
+-      const innerHeight = window.innerHeight;
+-      const innerWidth = window.innerWidth;
+-      const scrollWidth = document.documentElement.scrollWidth;
+-
+-      const navRect = nav ? nav.getBoundingClientRect() : null;
+-      const containerRect = container ? container.getBoundingClientRect() : null;
+-
+-      return {
+-        innerWidth,
+-        innerHeight,
+-        scrollWidth,
+-        scrollHeight,
+-        navVisible: !!nav && navRect !== null && navRect.top < innerHeight && navRect.bottom <= innerHeight + 5,
+-        navBottom: navRect ? Math.round(navRect.bottom) : null,
+-        navTop: navRect ? Math.round(navRect.top) : null,
+-        containerHeight: containerRect ? Math.round(containerRect.height) : null,
+-        hasHorizontalOverflow: scrollWidth > innerWidth,
++  const context = await browser.newContext({ viewport: { width: 360, height: 800 }, timezoneId: 'Asia/Tokyo', acceptDownloads: true });
++  const page = await context.newPage();
++  page.on('dialog', dialog => dialog.dismiss());
++  await check('orphan photo remains deletable and cancel preserves it', async () => {
++    const state = structuredClone(BLANK_STATE);
++    state.wrong = [{ id: 'orphan-audit', date: '2026-10-26', bookId: 'deleted-book', note: 'orphan audit', image: '' }];
++    await seed(page, state);
++    await page.getByRole('button', { name: '错题', exact: true }).click();
++    await page.getByTitle('删除错题照片').click();
++    await page.getByRole('button', { name: '取消', exact: true }).click();
++    assert.equal((await snapshot(page)).state.wrong.length, 1);
++    await page.getByTitle('删除错题照片').click();
++    await page.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
++    await page.getByText('暂无错题照片', { exact: true }).waitFor();
++    assert.equal((await snapshot(page)).state.wrong.length, 0);
++  });
++  await check('preview changes do not change normal snapshot', async () => {
++    await seed(page, structuredClone(DEMO_STATE));
++    const before = await snapshot(page);
++    await page.goto(`${baseUrl}/?preview=1`, { waitUntil: 'networkidle' });
++    await jump(page, 'book-add');
++    await page.locator('input[type="text"]').fill('PREVIEW ONLY');
++    await page.getByRole('button', { name: '保存题本数据', exact: true }).click();
++    await page.getByRole('heading', { name: '添加新题本' }).waitFor({ state: 'hidden' });
++    assert.deepEqual(await snapshot(page), before);
++    await page.goto(baseUrl, { waitUntil: 'networkidle' });
++    assert.equal((await snapshot(page)).state.books.length, 14);
++  });
++  await check('save failure keeps book draft and shows no success', async () => {
++    await seed(page, structuredClone(BLANK_STATE));
++    await page.getByRole('button', { name: '学习', exact: true }).click();
++    await page.getByRole('button', { name: '添加题本', exact: true }).click();
++    await page.locator('input[type="text"]').fill('FAILURE DRAFT');
++    await page.evaluate(() => {
++      const original = IDBDatabase.prototype.transaction;
++      (window as any).restoreAuditTransaction = () => { IDBDatabase.prototype.transaction = original; };
++      IDBDatabase.prototype.transaction = function (...args: any[]) {
++        if (args[1] === 'readwrite') throw new DOMException('AUDIT_WRITE_FAILED', 'QuotaExceededError');
++        return (original as any).apply(this, args);
+       };
+     });
+-
+-    console.log(`   - Window: ${metrics.innerWidth}x${metrics.innerHeight}`);
+-    console.log(`   - Container Height: ${metrics.containerHeight}px`);
+-    console.log(`   - Navigation Visible: ${metrics.navVisible ? '✅' : '❌'} (bottom at ${metrics.navBottom}px)`);
+-    console.log(`   - Horizontal Overflow: ${metrics.hasHorizontalOverflow ? '❌ YES' : '✅ NO'}`);
+-
+-    const screenshotPath = path.join(OUT_DIR, `${vp.name}.png`);
+-    await page.screenshot({ path: screenshotPath, fullPage: false });
+-    console.log(`   📸 Saved screenshot: ${screenshotPath}`);
+-
+-    results.push({
+-      viewport: vp.name,
+-      dimensions: `${vp.width}x${vp.height}`,
+-      ...metrics,
+-      passed: metrics.navVisible && !metrics.hasHorizontalOverflow,
+-    });
+-
+-    await page.close();
+-  }
+-
+-  // 50-Screen Assertions
+-  console.log('\n🔍 Testing 50-Screen Registry Navigation & State Isolation...');
+-  const testPage = await browser.newPage({
+-    viewport: { width: 412, height: 915 },
++    await page.getByRole('button', { name: '保存题本数据', exact: true }).click();
++    await page.getByText(/AUDIT_WRITE_FAILED|空间不足|保存失败/).first().waitFor();
++    assert.equal(await page.locator('input[type="text"]').inputValue(), 'FAILURE DRAFT');
++    assert.equal((await snapshot(page)).state.books.length, 0);
++    assert(!/题本已创建/.test(await page.locator('body').innerText()));
++    await page.evaluate(() => (window as any).restoreAuditTransaction());
++    await page.getByRole('button', { name: '保存题本数据', exact: true }).click();
++    await page.getByRole('heading', { name: '添加新题本' }).waitFor({ state: 'hidden' });
++    assert.equal((await snapshot(page)).state.books.length, 1);
+   });
+-
+-  await testPage.goto(previewUrl, { waitUntil: 'networkidle' });
+-  await testPage.waitForTimeout(500);
+-
+-  // Check window.handleBack
+-  const hasBackContract = await testPage.evaluate(() => {
+-    return typeof (window as any).handleBack === 'function';
++  await check('running plan completion pauses latest timer and uses recorded summary', async () => {
++    const state = structuredClone(DEMO_STATE);
++    const today = await page.evaluate(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; });
++    const plan = state.plans.find(p => p.type === 'book' && !p.done)!;
++    assert(plan);
++    state.plans = [{ ...plan, date: today, accumulatedMs: 45000, actualMinutes: 0, timerStart: Date.now() - 90000, done: false }];
++    state.records = [];
++    await seed(page, state);
++    await page.getByRole('button', { name: '完成打卡', exact: true }).click();
++    const minutes = page.locator('form input[type="number"]').last();
++    await minutes.waitFor();
++    await page.waitForFunction(() => [...document.querySelectorAll<HTMLInputElement>('form input[type="number"]')].at(-1)?.value === '2');
++    assert.equal(await page.locator('form input[type="number"]').first().inputValue(), '0');
++    assert.equal((await snapshot(page)).state.plans[0].timerStart, 0);
++    await page.locator('form input[type="number"]').first().fill('13');
++    await page.locator('form input[type="number"]').nth(1).fill('2');
++    await page.locator('form button[type="submit"]').click();
++    await page.getByText('登记成功', { exact: true }).waitFor();
++    assert.match(await page.locator('body').innerText(), /13 题.*2 道/);
++    assert.equal((await snapshot(page)).state.records.length, 1);
++    await page.getByRole('button', { name: '返回今日工作台', exact: true }).click();
++    await page.getByRole('button', { name: /查看.*总结|查看.*记录/ }).click();
++    await page.getByText('登记成功', { exact: true }).waitFor();
++    assert.match(await page.locator('body').innerText(), /13 题.*2 道/);
++    assert.equal(await page.locator('form button[type="submit"]').count(), 0);
+   });
+-  console.log(`   - window.handleBack available: ${hasBackContract ? '✅' : '❌'}`);
+-
+-  await browser.close();
+-  server.kill();
+-
+-  console.log('\n📊 Viewport Verification Summary:');
+-  console.table(results);
+-
+-  const allPassed = results.every(r => r.passed);
+-  if (!allPassed) {
+-    console.error('❌ Viewport verification failed!');
+-    process.exit(1);
+-  }
+-  console.log('🎉 All 3 viewports passed visual and navigation bounds validation!');
++  await context.close();
++} finally {
++  await browser?.close();
++  server?.kill();
++  await fs.writeFile(path.join(outputDir, 'results.json'), JSON.stringify({ baseUrl, checkedAt: new Date().toISOString(), total: results.length, passed: results.filter(r => r.passed).length, failed: results.filter(r => !r.passed).length, results }, null, 2));
+ }
+-
+-runVerification().catch(err => {
+-  console.error('Fatal error during verification:', err);
+-  process.exit(1);
+-});
++console.log(JSON.stringify({ total: results.length, passed: results.filter(r => r.passed).length, failed: results.filter(r => !r.passed) }, null, 2));
++if (results.some(result => !result.passed)) process.exitCode = 1;
+diff --git a/src/App.tsx b/src/App.tsx
+index 154f09e..aa0473f 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -26,7 +26,7 @@ import {
+ import { StatesPreviewView } from './components/views/StatesPreviewView';
+ import { ConfirmModalsView } from './components/views/ConfirmModalsView';
+ import { ScreenInspectorModal, ALL_50_SCREENS, ScreenSize } from './components/views/ScreenInspectorModal';
+-import { ConfirmModal, Tag } from './components/common/UIComponents';
++import { ConfirmModal, closeTopModal } from './components/common/UIComponents';
+ import { getLocalMonthString } from './constants/initialData';
+ import {
+   Calendar,
+@@ -41,7 +41,7 @@ import {
+   Info,
+   AlertCircle,
+ } from 'lucide-react';
+-import { MainTab, Plan, Book, Course, WrongRecord, LearningSubTab, AnalysisSubTab } from './types';
++import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult } from './types';
+ 
+ declare global {
+   interface Window {
+@@ -49,14 +49,14 @@ declare global {
+   }
+ }
+ 
+-export const App: React.FC = () => {
++export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
+   const {
+     state,
+     activeDate,
+     corruptedRaw,
+     clearCorruptedRaw,
+     resetState,
+-    exportBackup,
++    isLoading,
+     deletePlan,
+     deleteBook,
+     deleteCourse,
+@@ -95,6 +95,8 @@ export const App: React.FC = () => {
+   const [authModal, setAuthModal] = useState<{ open: boolean; mode: 'login' | 'register' }>({ open: false, mode: 'login' });
+   const [downloadApkOpen, setDownloadApkOpen] = useState(false);
+   const [legendOpen, setLegendOpen] = useState(false);
++  const [legendRecords, setLegendRecords] = useState<StudyRecord[] | undefined>();
++  const [legendRangeLabel, setLegendRangeLabel] = useState<string | undefined>();
+ 
+   // Dedicated Modals (Fixes A07, A11, A09)
+   const [monthPickerOpen, setMonthPickerOpen] = useState<boolean>(false);
+@@ -109,7 +111,7 @@ export const App: React.FC = () => {
+     message: string;
+     impactText?: string;
+     danger?: boolean;
+-    onConfirm: () => void;
++    onConfirm: () => void | Promise<void>;
+   }>({
+     open: false,
+     title: '',
+@@ -133,8 +135,16 @@ export const App: React.FC = () => {
+     }, 2400);
+   };
+ 
++  const confirmMutation = async (action: () => Promise<MutationResult<unknown>>, successMessage: string) => {
++    const result = await action();
++    if (!result.ok) throw new Error(result.message);
++    showToast(successMessage);
++    setConfirmConfig(prev => ({ ...prev, open: false }));
++  };
++
+   // Jump to any of the 50 screens (Fixes A07: all 19 misrouted screens properly resolved)
+   const handleJumpToScreen = (screenId: string) => {
++    if (!preview) return;
+     // Reset special states
+     setShowStatesPreview(false);
+     setShowConfirmModalsView(false);
+@@ -200,37 +210,37 @@ export const App: React.FC = () => {
+         break;
+       case 'focus':
+         setActiveTab('today');
+-        setFocusPlan(state.plans[0] || null);
++        setFocusPlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
+         setFocusVariantOverride('normal');
+         break;
+       case 'focus-paused':
+         setActiveTab('today');
+-        setFocusPlan(state.plans[0] || null);
++        setFocusPlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
+         setFocusVariantOverride('paused');
+         break;
+       case 'focus-course':
+         setActiveTab('today');
+-        setFocusPlan(state.plans.find(p => p.type === 'course') || state.plans[0]);
++        setFocusPlan(state.plans.find(p => p.type === 'course' && !p.done) || null);
+         setFocusVariantOverride('course');
+         break;
+       case 'focus-custom':
+         setActiveTab('today');
+-        setFocusPlan(state.plans.find(p => p.type === 'custom') || state.plans[0]);
++        setFocusPlan(state.plans.find(p => p.type === 'custom' && !p.done) || null);
+         setFocusVariantOverride('custom');
+         break;
+       case 'add-plan':
+         setAddPlanOpen(true);
+         break;
+       case 'complete-book':
+-        setCompletePlan(state.plans.find(p => p.type === 'book') || state.plans[0]);
++        setCompletePlan(state.plans.find(p => p.type === 'book' && !p.done) || null);
+         setCompletionInitialSuccess(false);
+         break;
+       case 'complete-course':
+-        setCompletePlan(state.plans.find(p => p.type === 'course') || state.plans[0]);
++        setCompletePlan(state.plans.find(p => p.type === 'course' && !p.done) || null);
+         setCompletionInitialSuccess(false);
+         break;
+       case 'complete-custom':
+-        setCompletePlan(state.plans.find(p => p.type === 'custom') || state.plans[0]);
++        setCompletePlan(state.plans.find(p => p.type === 'custom' && !p.done) || null);
+         setCompletionInitialSuccess(false);
+         break;
+       case 'complete-success':
+@@ -282,6 +292,8 @@ export const App: React.FC = () => {
+         setDownloadApkOpen(true);
+         break;
+       case 'overall-legend':
++        setLegendRecords(undefined);
++        setLegendRangeLabel(undefined);
+         setLegendOpen(true);
+         break;
+       case 'month-picker':
+@@ -315,11 +327,7 @@ export const App: React.FC = () => {
+             message: `将「${targetPlan.name}」从今日计划中移除。`,
+             impactText: '已经登记的学习记录和题本累计进度会安全保留。',
+             danger: true,
+-            onConfirm: () => {
+-              deletePlan(targetPlan.id);
+-              showToast('已从今日日程中移除');
+-              setConfirmConfig(prev => ({ ...prev, open: false }));
+-            },
++            onConfirm: () => confirmMutation(() => deletePlan(targetPlan.id), '已从今日日程中移除'),
+           });
+         }
+         break;
+@@ -363,6 +371,7 @@ export const App: React.FC = () => {
+   // Android / Browser Back Button Contract
+   useEffect(() => {
+     window.handleBack = (): boolean => {
++      if (closeTopModal()) return true;
+       // 1. If any modal is open, close the topmost modal and return true
+       if (confirmConfig.open) {
+         setConfirmConfig(prev => ({ ...prev, open: false }));
+@@ -487,7 +496,7 @@ export const App: React.FC = () => {
+   return (
+     <div className={`w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-0 ${screenSize === 'full' ? '' : 'lg:py-6'} text-ink-main selection:bg-sage-light overflow-x-hidden`}>
+       {/* 桌面端外围工具条（当 screenSize !== 'full' 时在桌面端呈现） */}
+-      {screenSize !== 'full' && (
++      {preview && screenSize !== 'full' && (
+         <header className="w-full max-w-2xl px-4 py-2 hidden lg:flex items-center justify-between text-xs text-ink-muted mb-2">
+           <div className="flex items-center gap-2">
+             <span className="font-bold text-ink-main flex items-center gap-1.5">
+@@ -495,7 +504,7 @@ export const App: React.FC = () => {
+               考公工作台 · 土豆陪伴新版
+             </span>
+             <span className="text-[11px] text-sage font-medium bg-sage-light px-2 py-0.5 rounded-md">
+-              React+TS+Vite 1:1还原版
++              独立演示预览
+             </span>
+           </div>
+ 
+@@ -554,7 +563,7 @@ export const App: React.FC = () => {
+         className={`${getContainerClasses()} transition-all duration-300`}
+       >
+         {/* 顶部移动端小工具条（屏幕宽度较小时提供轻量直达入口） */}
+-        <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
++        {preview && <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
+           <span className="font-bold text-ink-main flex items-center gap-1">
+             <span className="w-2 h-2 rounded-full bg-potato inline-block" />
+             土豆考公工作台
+@@ -566,7 +575,7 @@ export const App: React.FC = () => {
+             <Layers size={11} />
+             <span>50屏矩阵</span>
+           </button>
+-        </div>
++        </div>}
+ 
+         {/* 视图主体内容区：独立平滑内部滚动，底部留出足够 padding 防止导航遮挡 */}
+         <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 pt-3 pb-4">
+@@ -587,7 +596,9 @@ export const App: React.FC = () => {
+               </button>
+             </div>
+           )}
+-          {showStatesPreview ? (
++          {isLoading ? (
++            <div role="status" className="py-16 text-center text-sm text-ink-muted">正在载入本地工作台…</div>
++          ) : showStatesPreview ? (
+             <StatesPreviewView
+               initialTab={statesPreviewTab}
+               onBack={() => setShowStatesPreview(false)}
+@@ -619,11 +630,7 @@ export const App: React.FC = () => {
+                   message: `确定从今日计划中移除「${plan.name}」吗？`,
+                   impactText: '已经登记的学习记录和题本累计进度会安全保留。',
+                   danger: true,
+-                  onConfirm: () => {
+-                    deletePlan(plan.id);
+-                    showToast('已从今日日程中移除');
+-                    setConfirmConfig(prev => ({ ...prev, open: false }));
+-                  },
++                  onConfirm: () => confirmMutation(() => deletePlan(plan.id), '已从今日日程中移除'),
+                 });
+               }}
+             />
+@@ -645,13 +652,10 @@ export const App: React.FC = () => {
+                       ? '移除该网课及其事项库对应条目，历史听课记录仍会保留。'
+                       : '将从自定义事项库中移除该项。',
+                   danger: true,
+-                  onConfirm: () => {
+-                    if (type === 'book') deleteBook(id);
+-                    else if (type === 'course') deleteCourse(id);
+-                    else deleteCustomItem(id);
+-                    showToast('已安全删除并同步更新事项库');
+-                    setConfirmConfig(prev => ({ ...prev, open: false }));
+-                  },
++                  onConfirm: () => confirmMutation(
++                    () => type === 'book' ? deleteBook(id) : type === 'course' ? deleteCourse(id) : deleteCustomItem(id),
++                    '已安全删除并同步更新事项库'
++                  ),
+                 });
+               }}
+               onToast={showToast}
+@@ -667,11 +671,7 @@ export const App: React.FC = () => {
+                   message: `确定从“${bookName}”中删除该错题照片吗？`,
+                   impactText: '注意：删除照片仅移除图片记录与笔记，不会擅自减少题本中累计统计的错题总数。',
+                   danger: true,
+-                  onConfirm: () => {
+-                    deleteWrongRecord(recId);
+-                    showToast('已删除错题照片记录');
+-                    setConfirmConfig(prev => ({ ...prev, open: false }));
+-                  },
++                  onConfirm: () => confirmMutation(() => deleteWrongRecord(recId), '已删除错题照片记录'),
+                 });
+               }}
+             />
+@@ -680,7 +680,11 @@ export const App: React.FC = () => {
+               initialSubTab={analysisSubTab}
+               selectedMonth={selectedMonth}
+               onOpenMonthPicker={() => setMonthPickerOpen(true)}
+-              onOpenLegendDetail={() => setLegendOpen(true)}
++              onOpenLegendDetail={(records, rangeLabel) => {
++                setLegendRecords(records);
++                setLegendRangeLabel(rangeLabel);
++                setLegendOpen(true);
++              }}
+             />
+           ) : (
+             <SettingsView
+@@ -694,14 +698,10 @@ export const App: React.FC = () => {
+                 setConfirmConfig({
+                   open: true,
+                   title: '恢复初始数据危险确认',
+-                  message: '确定要将工作台恢复为全新初始预设吗？',
+-                  impactText: '重要提示：当前添加的自定义题本、新日程和错题照片将被重置！建议先点击“导出备份”。',
++                  message: '确定清空当前工作台并恢复空白状态吗？',
++                  impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
+                   danger: true,
+-                  onConfirm: () => {
+-                    resetState();
+-                    showToast('已恢复初始演示基准数据');
+-                    setConfirmConfig(prev => ({ ...prev, open: false }));
+-                  },
++                  onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
+                 });
+               }}
+               onOpenLogoutConfirm={() => {
+@@ -712,7 +712,7 @@ export const App: React.FC = () => {
+                   impactText: '退出后转为单机离线模式，本地数据不会丢失，随时可重新登录接续。',
+                   danger: true,
+                   onConfirm: () => {
+-                    showToast('已退出账号，当前处于单机离线模式');
++                    showToast('当前为离线模式，未连接云端账号');
+                     setConfirmConfig(prev => ({ ...prev, open: false }));
+                   },
+                 });
+@@ -724,7 +724,7 @@ export const App: React.FC = () => {
+         </div>
+ 
+         {/* 底部固定 5 大入口导航栏：flex-none sticky bottom-0 z-30 */}
+-        <nav className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
++        <nav aria-label="主导航" className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+           {[
+             { id: 'today', label: '今日', icon: Calendar },
+             { id: 'learning', label: '学习', icon: BookOpen },
+@@ -737,9 +737,12 @@ export const App: React.FC = () => {
+             return (
+               <button
+                 key={tab.id}
++                disabled={isLoading}
+                 onClick={() => {
+                   setShowStatesPreview(false);
+                   setShowConfirmModalsView(false);
++                  setTodayForcedMode('normal');
++                  setForcedGuestMode(false);
+                   setActiveTab(tab.id as MainTab);
+                 }}
+                 className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+@@ -846,6 +849,8 @@ export const App: React.FC = () => {
+ 
+         <OverallLegendModal
+           isOpen={legendOpen}
++          records={legendRecords}
++          rangeLabel={legendRangeLabel}
+           onClose={() => setLegendOpen(false)}
+         />
+ 
+@@ -871,7 +876,7 @@ export const App: React.FC = () => {
+               impactText: '上传后云端旧数据将被本机记录完全覆盖。',
+               danger: false,
+               onConfirm: () => {
+-                showToast('已上传并覆盖云端存档');
++                showToast('云端服务尚未接入，无法上传');
+                 setConfirmConfig(prev => ({ ...prev, open: false }));
+               },
+             });
+@@ -884,7 +889,7 @@ export const App: React.FC = () => {
+               impactText: '拉取后本机未同步的改动将被云端记录覆盖。',
+               danger: true,
+               onConfirm: () => {
+-                showToast('已从云端拉取最新记录并覆盖本机');
++                showToast('云端服务尚未接入，无法拉取');
+                 setConfirmConfig(prev => ({ ...prev, open: false }));
+               },
+             });
+@@ -899,14 +904,10 @@ export const App: React.FC = () => {
+             setConfirmConfig({
+               open: true,
+               title: '恢复初始数据危险确认',
+-              message: '确定要将工作台恢复为全新初始预设吗？',
+-              impactText: '重要提示：当前添加的自定义题本、新日程和错题照片将被重置！建议先点击“导出备份”。',
++              message: '确定清空当前工作台并恢复空白状态吗？',
++              impactText: '题本、网课、日程、学习记录、错题照片与个人资料将被清空。建议先导出备份。',
+               danger: true,
+-              onConfirm: () => {
+-                resetState();
+-                showToast('已恢复初始演示基准数据');
+-                setConfirmConfig(prev => ({ ...prev, open: false }));
+-              },
++              onConfirm: () => confirmMutation(resetState, '已清空工作台数据'),
+             });
+           }}
+           onToast={showToast}
+diff --git a/src/components/common/UIComponents.tsx b/src/components/common/UIComponents.tsx
+index b09d466..247234f 100644
+--- a/src/components/common/UIComponents.tsx
++++ b/src/components/common/UIComponents.tsx
+@@ -1,6 +1,39 @@
+-import React, { ReactNode } from 'react';
++import React, { ReactNode, useEffect, useRef, useState } from 'react';
+ import { X, AlertTriangle } from 'lucide-react';
+ 
++const modalBackStack: { close: () => void }[] = [];
++
++export function closeTopModal(): boolean {
++  const top = modalBackStack[modalBackStack.length - 1];
++  if (!top) return false;
++  top.close();
++  return true;
++}
++
++function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false) {
++  const closeRef = useRef(onClose);
++  const disabledRef = useRef(closeDisabled);
++  closeRef.current = onClose;
++  disabledRef.current = closeDisabled;
++  useEffect(() => {
++    if (!isOpen) return;
++    const entry = { close: () => { if (!disabledRef.current) closeRef.current(); } };
++    modalBackStack.push(entry);
++    const onKeyDown = (event: KeyboardEvent) => {
++      if (event.key === 'Escape' && modalBackStack[modalBackStack.length - 1] === entry) {
++        event.preventDefault();
++        entry.close();
++      }
++    };
++    window.addEventListener('keydown', onKeyDown);
++    return () => {
++      const index = modalBackStack.indexOf(entry);
++      if (index >= 0) modalBackStack.splice(index, 1);
++      window.removeEventListener('keydown', onKeyDown);
++    };
++  }, [isOpen]);
++}
++
+ /* =========================================================================
+    Button
+    ========================================================================= */
+@@ -147,14 +180,19 @@ interface ModalProps {
+   onClose: () => void;
+   title: string;
+   children: ReactNode;
++  closeDisabled?: boolean;
+ }
+ 
+-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
++export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false }) => {
++  useModalBack(isOpen, onClose, closeDisabled);
+   if (!isOpen) return null;
+ 
+   return (
+     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+       <div
++        role="dialog"
++        aria-modal="true"
++        aria-label={title}
+         className="bg-paper border border-line w-full max-w-lg rounded-2xl p-5 shadow-modal max-h-[90vh] overflow-y-auto flex flex-col"
+         onClick={e => e.stopPropagation()}
+       >
+@@ -162,6 +200,8 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
+           <h3 className="text-lg font-bold text-ink-main">{title}</h3>
+           <button
+             onClick={onClose}
++            disabled={closeDisabled}
++            aria-label="关闭弹窗"
+             className="p-1 rounded-lg text-ink-muted hover:text-ink-main hover:bg-black/5"
+           >
+             <X size={20} />
+@@ -186,7 +226,7 @@ interface ConfirmModalProps {
+   confirmText?: string;
+   cancelText?: string;
+   danger?: boolean;
+-  onConfirm: () => void;
++  onConfirm: () => unknown | Promise<unknown>;
+   onCancel: () => void;
+ }
+ 
+@@ -201,11 +241,36 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
+   onConfirm,
+   onCancel,
+ }) => {
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState('');
++  const pendingRef = useRef(false);
++  useModalBack(isOpen, onCancel, pending);
++  useEffect(() => {
++    if (isOpen) setError('');
++  }, [isOpen, title]);
+   if (!isOpen) return null;
+ 
++  const handleConfirm = async () => {
++    if (pendingRef.current) return;
++    pendingRef.current = true;
++    setPending(true);
++    setError('');
++    try {
++      const result = await onConfirm();
++      if (result && typeof result === 'object' && 'ok' in result && result.ok === false) {
++        setError('message' in result ? String(result.message) : '操作失败，请重试');
++      }
++    } catch (err) {
++      setError(err instanceof Error ? err.message : '操作失败，请重试');
++    } finally {
++      pendingRef.current = false;
++      setPending(false);
++    }
++  };
++
+   return (
+     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+-      <div className="bg-paper border border-line w-full max-w-sm rounded-2xl p-5 shadow-modal">
++      <div role="dialog" aria-modal="true" aria-label={title} className="bg-paper border border-line w-full max-w-sm rounded-2xl p-5 shadow-modal max-h-[90dvh] overflow-y-auto">
+         <div className="flex items-center gap-3 mb-3">
+           <div className={`p-2.5 rounded-full ${danger ? 'bg-alarm-light text-alarm' : 'bg-sage-light text-sage'}`}>
+             <AlertTriangle size={22} />
+@@ -220,12 +285,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
+             {impactText}
+           </div>
+         )}
++        {error && <p role="alert" className="text-xs text-alarm mb-3">{error}</p>}
+         <div className="flex gap-2.5">
+-          <Button variant="secondary" fullWidth onClick={onCancel}>
++          <Button variant="secondary" fullWidth onClick={onCancel} disabled={pending}>
+             {cancelText}
+           </Button>
+-          <Button variant={danger ? 'danger' : 'primary'} fullWidth onClick={onConfirm}>
+-            {confirmText}
++          <Button variant={danger ? 'danger' : 'primary'} fullWidth onClick={handleConfirm} disabled={pending}>
++            {pending ? '处理中…' : confirmText}
+           </Button>
+         </div>
+       </div>
+diff --git a/src/components/views/AnalysisView.tsx b/src/components/views/AnalysisView.tsx
+index de348b0..32f4581 100644
+--- a/src/components/views/AnalysisView.tsx
++++ b/src/components/views/AnalysisView.tsx
+@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
+ import { useApp } from '../../context/AppContext';
+ import { PotatoSprite } from '../common/PotatoSprite';
+ import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
+-import { SUBJECTS, Subject, AnalysisSubTab } from '../../types';
++import { SUBJECTS, Subject, AnalysisSubTab, StudyRecord } from '../../types';
++import { filterAnalysisRecords } from '../../utils/workflowPresentation';
+ import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
+ 
+ const SUBJECT_COLORS: Record<Subject, string> = {
+@@ -20,7 +21,7 @@ interface AnalysisViewProps {
+   initialSubTab?: AnalysisSubTab;
+   selectedMonth?: string;
+   onOpenMonthPicker: () => void;
+-  onOpenLegendDetail: () => void;
++  onOpenLegendDetail: (records?: StudyRecord[], rangeLabel?: string) => void;
+ }
+ 
+ export const AnalysisView: React.FC<AnalysisViewProps> = ({
+@@ -43,17 +44,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
+     }
+   }, [initialSubTab]);
+ 
+-  // Filter records by range for overall with dynamic current timestamp (Fixes A09)
+-  const getOverallRecords = () => {
+-    if (range === 'all') return state.records;
+-    const now = new Date();
+-    const days = parseInt(range, 10);
+-    const startDate = new Date(now.getTime() - (days - 1) * 24 * 3600 * 1000);
+-    const startStr = startDate.toISOString().slice(0, 10);
+-    return state.records.filter(r => r.date >= startStr);
+-  };
+-
+-  const overallRecords = getOverallRecords();
++  const overallRecords = filterAnalysisRecords(state.records, range, activeDate);
+   const overallTotalMinutes = overallRecords.reduce((sum, r) => sum + r.minutes, 0);
+ 
+   // Calculate subject minutes for overall
+@@ -173,7 +164,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
+                 八科时间投入分布
+               </div>
+               <button
+-                onClick={onOpenLegendDetail}
++                onClick={() => onOpenLegendDetail(overallRecords, range === 'all' ? '全部记录' : `近${range}天`)}
+                 className="text-xs text-sage flex items-center gap-0.5 hover:underline"
+               >
+                 <span>图例与明细</span>
+diff --git a/src/components/views/BackupModal.tsx b/src/components/views/BackupModal.tsx
+index 5ac3451..30f65f0 100644
+--- a/src/components/views/BackupModal.tsx
++++ b/src/components/views/BackupModal.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState, useRef } from 'react';
++import React, { useState, useRef, useEffect } from 'react';
+ import { Modal, Button, Card, Tag, ConfirmModal } from '../common/UIComponents';
+ import { Download, Upload, ShieldCheck, CheckCircle2, AlertTriangle, FileText, Database } from 'lucide-react';
+ import { PotatoSprite } from '../common/PotatoSprite';
+@@ -21,6 +21,27 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+   const { state, exportBackup, importBackup } = useApp();
+   const fileInputRef = useRef<HTMLInputElement>(null);
+   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
++  const [exporting, setExporting] = useState(false);
++  const [error, setError] = useState('');
++  const openRef = useRef(isOpen);
++  openRef.current = isOpen;
++  useEffect(() => {
++    if (!isOpen) setPendingBackup(null);
++    setError('');
++  }, [isOpen]);
++
++  const handleExport = async () => {
++    if (exporting) return;
++    setExporting(true);
++    setError('');
++    try {
++      const result = await exportBackup();
++      if (!result.ok) { setError(result.message); return; }
++      onToast('备份文件已成功生成并下载！');
++    } catch (err) {
++      setError(err instanceof Error ? err.message : '备份导出失败');
++    } finally { setExporting(false); }
++  };
+ 
+   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+@@ -28,15 +49,17 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+ 
+     const reader = new FileReader();
+     reader.onload = () => {
++      if (!openRef.current) return;
+       const content = reader.result as string;
+       const validation = validateAndMigrateBackup(content);
+       if (!validation.valid || !validation.summary) {
+         onToast(`备份文件校验失败: ${validation.error || '格式不正确'}`);
+-        alert(`导入被拒绝：\n${validation.error || '无法解析的备份文件'}`);
++        setError(validation.error || '无法解析的备份文件');
+         return;
+       }
+       setPendingBackup({ content, validation });
+     };
++    reader.onerror = () => { if (openRef.current) setError('读取备份文件失败，请重新选择'); };
+     reader.readAsText(file);
+     e.target.value = '';
+   };
+@@ -49,7 +72,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+       setPendingBackup(null);
+       onClose();
+     } else {
+-      onToast(`导入失败: ${res.message}`);
++      return res;
+     }
+   };
+ 
+@@ -83,13 +106,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+               variant="primary"
+               size="md"
+               fullWidth
+-              onClick={() => {
+-                exportBackup();
+-                onToast('备份文件已成功生成并下载！');
+-              }}
++              onClick={handleExport}
++              disabled={exporting}
+             >
+               <Download size={16} />
+-              导出 JSON 备份
++              {exporting ? '生成备份中…' : '导出 JSON 备份'}
+             </Button>
+ 
+             <Button
+@@ -102,6 +123,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+               导入恢复备份
+             </Button>
+           </div>
++          {error && <p role="alert" className="text-xs text-alarm">{error}</p>}
+ 
+           {/* 资产统计 */}
+           <div className="bg-cream/70 rounded-xl p-3 text-xs space-y-1.5 border border-line">
+@@ -128,7 +150,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
+ 
+           {/* 重置引导 */}
+           <div className="pt-2 border-t border-line/60 flex items-center justify-between text-xs">
+-            <span className="text-ink-muted">需要清空并恢复默认数据？</span>
++            <span className="text-ink-muted">需要清空当前学习数据？</span>
+             <button
+               onClick={() => {
+                 onClose();
+diff --git a/src/components/views/CompletionModal.tsx b/src/components/views/CompletionModal.tsx
+index ef6e3ca..0d91d93 100644
+--- a/src/components/views/CompletionModal.tsx
++++ b/src/components/views/CompletionModal.tsx
+@@ -4,6 +4,7 @@ import { PotatoSprite } from '../common/PotatoSprite';
+ import { Button, Tag } from '../common/UIComponents';
+ import { X, CheckCircle2, Award, ArrowRight, AlertCircle } from 'lucide-react';
+ import { Plan } from '../../types';
++import { getCompletionMinutes, getCompletionSummary } from '../../utils/workflowPresentation';
+ 
+ interface CompletionModalProps {
+   plan: Plan | null;
+@@ -20,14 +21,18 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+   onToast,
+   initialSuccess = false,
+ }) => {
+-  const { completePlan, activeDate } = useApp();
++  const { state, completePlan, pauseTimer, activeDate } = useApp();
++  const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
+ 
+   // Form states with dynamic per-task reset (Fixes A12)
+-  const [questions, setQuestions] = useState<number>(30);
++  const [questions, setQuestions] = useState<number>(0);
+   const [errors, setErrors] = useState<number>(0);
+-  const [actualMinutes, setActualMinutes] = useState<number>(30);
++  const [actualMinutes, setActualMinutes] = useState<number>(0);
+   const [lessons, setLessons] = useState<number>(1);
+   const [errorMsg, setErrorMsg] = useState<string>('');
++  const [preparedPlanId, setPreparedPlanId] = useState('');
++  const [prepareAttempt, setPrepareAttempt] = useState(0);
++  const [isSubmitting, setIsSubmitting] = useState(false);
+ 
+   // Success view state
+   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+@@ -39,37 +44,46 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+     summary: string;
+   } | null>(null);
+ 
+-  // Sync form inputs to current plan on open to eliminate cross-task residue (Fixes A12)
++  // Pause before preparing the form; wait for the persisted live plan before deriving minutes.
+   useEffect(() => {
+-    if (!isOpen || !plan) return;
++    if (!isOpen || !livePlan) return;
++    let cancelled = false;
++    setPreparedPlanId('');
++    setIsSubmitting(false);
++    setErrorMsg('');
++    setQuestions(0);
++    setErrors(0);
++    setLessons(1);
++    setActualMinutes(0);
++    setIsSuccess(false);
+ 
+-    if (initialSuccess) {
+-      setIsSuccess(true);
++    if (livePlan.done || initialSuccess) {
++      const record = state.records.find(item => item.id === livePlan.recordId)
++        || state.records.find(item => item.planId === livePlan.id);
+       setLastCompletedData({
+-        name: plan.name,
+-        type: plan.type,
+-        subject: plan.subject,
+-        minutes: plan.actualMinutes || plan.plannedMinutes || 40,
+-        summary: plan.type === 'book'
+-          ? '完成 30 题 · 错题 6 道 · 正确率 80%'
+-          : plan.type === 'course'
+-          ? '完成 1 讲课时 · 重点笔记已标记'
+-          : '今日自定义事项已完成 · 投入专注 30 分钟',
++        name: livePlan.name,
++        type: livePlan.type,
++        subject: record?.subject || livePlan.subject,
++        minutes: record?.minutes ?? livePlan.actualMinutes,
++        summary: record ? getCompletionSummary(record) : '该计划未关联可用的学习记录',
+       });
++      setIsSuccess(true);
+       return;
+     }
+ 
+-    const defaultMins = (plan.accumulatedMs && plan.accumulatedMs > 0)
+-      ? Math.max(1, Math.round(plan.accumulatedMs / 60000))
+-      : (plan.actualMinutes > 0 ? plan.actualMinutes : (plan.plannedMinutes || 30));
++    if (livePlan.timerStart > 0) {
++      pauseTimer(livePlan.id).then(result => {
++        if (!cancelled && !result.ok) setErrorMsg(result.message);
++      });
++    }
++    return () => { cancelled = true; };
++  }, [isOpen, plan?.id, initialSuccess, prepareAttempt]);
+ 
+-    setActualMinutes(defaultMins);
+-    setQuestions(plan.type === 'book' ? 20 : 0);
+-    setErrors(0);
+-    setLessons(1);
+-    setIsSuccess(false);
+-    setErrorMsg('');
+-  }, [isOpen, plan?.id, initialSuccess]);
++  useEffect(() => {
++    if (!isOpen || !livePlan || livePlan.done || initialSuccess || livePlan.timerStart > 0 || preparedPlanId === livePlan.id) return;
++    setActualMinutes(getCompletionMinutes(livePlan));
++    setPreparedPlanId(livePlan.id);
++  }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
+ 
+   if (!isOpen || !plan) return null;
+ 
+@@ -81,7 +95,12 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+ 
+   const handleSubmit = async (e: React.FormEvent) => {
+     e.preventDefault();
++    if (isSubmitting || preparedPlanId !== plan.id || livePlan?.timerStart || livePlan?.done) return;
+     setErrorMsg('');
++    if (!Number.isSafeInteger(actualMinutes) || actualMinutes <= 0) {
++      setErrorMsg('学习用时必须为大于0的整数分钟');
++      return;
++    }
+ 
+     let res;
+ 
+@@ -94,6 +113,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+         setErrorMsg('错题数不能大于本次做题总数');
+         return;
+       }
++      setIsSubmitting(true);
+       res = await completePlan({
+         type: 'book',
+         planId: plan.id,
+@@ -106,6 +126,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+         setErrorMsg('课时数必须大于0，用时不能为负数');
+         return;
+       }
++      setIsSubmitting(true);
+       res = await completePlan({
+         type: 'course',
+         planId: plan.id,
+@@ -117,6 +138,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+         setErrorMsg('学习用时不能为负数');
+         return;
+       }
++      setIsSubmitting(true);
+       res = await completePlan({
+         type: 'custom',
+         planId: plan.id,
+@@ -124,6 +146,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+       });
+     }
+ 
++    setIsSubmitting(false);
+     if (!res.ok) {
+       setErrorMsg(res.message);
+       return;
+@@ -135,11 +158,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+       type: plan.type,
+       subject: plan.subject,
+       minutes: record.minutes,
+-      summary: plan.type === 'book'
+-        ? `完成 ${record.questions} 题 · 错题 ${record.errors} 道 · 正确率 ${record.questions > 0 ? Math.round(((record.questions - record.errors) / record.questions) * 100) : 0}%`
+-        : plan.type === 'course'
+-        ? `听完 ${record.lessons ?? lessons} 讲课时 · 用时 ${record.minutes} 分钟`
+-        : `完成自定义事项 · 累计投入 ${record.minutes} 分钟`,
++      summary: getCompletionSummary(record),
+     });
+     setIsSuccess(true);
+     onToast(plan.type === 'book' ? '刷题登记已保存！' : plan.type === 'course' ? '网课登记已保存！' : '自定义事项已登记！');
+@@ -311,7 +330,12 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
+             )}
+ 
+             <div className="pt-2">
+-              <Button variant="primary" size="md" fullWidth type="submit">
++              {errorMsg && livePlan?.timerStart ? (
++                <Button variant="secondary" size="md" fullWidth onClick={() => setPrepareAttempt(value => value + 1)}>
++                  重试暂停计时
++                </Button>
++              ) : null}
++              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart)}>
+                 <CheckCircle2 size={16} />
+                 保存并完成
+               </Button>
+diff --git a/src/components/views/ConfirmModalsView.tsx b/src/components/views/ConfirmModalsView.tsx
+index d9c1604..7c714d9 100644
+--- a/src/components/views/ConfirmModalsView.tsx
++++ b/src/components/views/ConfirmModalsView.tsx
+@@ -119,7 +119,7 @@ export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({
+         <div>
+           <h1 className="text-xl font-bold text-ink-main">8 类危险确认弹窗系统</h1>
+           <p className="text-xs text-ink-muted mt-0.5">
+-            严格按照设计规范建立独立影响提示与二次确认机制
++            演示预览：确认操作仅关闭弹窗，不修改学习数据
+           </p>
+         </div>
+         <Button variant="secondary" size="sm" onClick={onBack}>
+@@ -168,7 +168,6 @@ export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({
+           confirmText="确认执行"
+           cancelText="取消返回"
+           onConfirm={() => {
+-            alert(`已确认操作：${currentItem.title}`);
+             handleClose();
+           }}
+           onCancel={handleClose}
+diff --git a/src/components/views/EditModals.tsx b/src/components/views/EditModals.tsx
+index f5709c7..c02baee 100644
+--- a/src/components/views/EditModals.tsx
++++ b/src/components/views/EditModals.tsx
+@@ -1,11 +1,36 @@
+ import React, { useState, useEffect } from 'react';
+ import { useApp } from '../../context/AppContext';
+ import { Modal, Button, Tag } from '../common/UIComponents';
+-import { SUBJECTS, Subject, Book, Course, WrongRecord } from '../../types';
++import { SUBJECTS, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
+ import { PotatoSprite } from '../common/PotatoSprite';
+ import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
+ import { compressImage } from '../../utils/imageCompressor';
+ 
++function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
++  const [isSaving, setIsSaving] = useState(false);
++  const [errorMsg, setErrorMsg] = useState('');
++  const save = async (action: () => Promise<MutationResult<unknown>>, message: string) => {
++    if (isSaving) return;
++    setIsSaving(true);
++    setErrorMsg('');
++    try {
++      const result = await action();
++      if (!result.ok) { setErrorMsg(result.message); return; }
++      onToast(message);
++      onClose();
++    } catch (error) {
++      setErrorMsg(error instanceof Error ? error.message : '保存失败，请重试');
++    } finally {
++      setIsSaving(false);
++    }
++  };
++  return { save, isSaving, errorMsg, setErrorMsg };
++}
++
++const FormError: React.FC<{ message: string }> = ({ message }) => message ? (
++  <div role="alert" className="p-2.5 bg-alarm-light text-alarm rounded-xl text-xs">{message}</div>
++) : null;
++
+ /* =========================================================================
+    1. Add Plan Modal (add-plan: 12:1867)
+    ========================================================================= */
+@@ -15,13 +40,14 @@ export const AddPlanModal: React.FC<{
+   onToast: (msg: string) => void;
+ }> = ({ isOpen, onClose, onToast }) => {
+   const { state, addPlan } = useApp();
++  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
+   const [selectedLibId, setSelectedLibId] = useState<string>(state.library[0]?.id || '');
+   const [minutes, setMinutes] = useState<number>(30);
+ 
+   useEffect(() => {
+-    if (state.library.length > 0 && !selectedLibId) {
+-      setSelectedLibId(state.library[0].id);
+-      setMinutes(state.library[0].defaultMinutes);
++    if (!state.library.some(item => item.id === selectedLibId)) {
++      setSelectedLibId(state.library[0]?.id || '');
++      setMinutes(state.library[0]?.defaultMinutes || 30);
+     }
+   }, [state.library, selectedLibId]);
+ 
+@@ -33,15 +59,14 @@ export const AddPlanModal: React.FC<{
+ 
+   const handleSubmit = (e: React.FormEvent) => {
+     e.preventDefault();
+-    if (!selectedLibId) return;
+-    addPlan(selectedLibId, minutes);
+-    onToast('已成功添加到今日日程！');
+-    onClose();
++    if (!selectedLibId) { setErrorMsg('请先添加题本、网课或自定义事项'); return; }
++    void save(() => addPlan(selectedLibId, minutes), '已成功添加到今日日程！');
+   };
+ 
+   return (
+     <Modal isOpen={isOpen} onClose={onClose} title="从事项库挑选加入今天">
+       <form onSubmit={handleSubmit} className="space-y-4">
++        <FormError message={errorMsg} />
+         <div>
+           <label className="block text-xs text-ink-muted font-medium mb-1.5">选择事项</label>
+           <select
+@@ -68,7 +93,7 @@ export const AddPlanModal: React.FC<{
+           />
+         </div>
+ 
+-        <Button variant="primary" size="md" fullWidth type="submit">
++        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !selectedLibId}>
+           确认加入今日日程
+         </Button>
+       </form>
+@@ -94,7 +119,7 @@ export const BookEditModal: React.FC<{
+   const [done, setDone] = useState(0);
+   const [errors, setErrors] = useState(0);
+   const [minutes, setMinutes] = useState(0);
+-  const [errorMsg, setErrorMsg] = useState('');
++  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
+ 
+   useEffect(() => {
+     if (book) {
+@@ -129,13 +154,10 @@ export const BookEditModal: React.FC<{
+     }
+ 
+     if (book) {
+-      editBook(book.id, { name: name.trim(), subject, total, pages, done, errors, minutes });
+-      onToast('题本数据已更新！');
++      void save(() => editBook(book.id, { name: name.trim(), subject, total, pages, done, errors, minutes }), '题本数据已更新！');
+     } else {
+-      addBook({ name: name.trim(), subject, total, pages, done, errors, minutes });
+-      onToast('题本已创建，并自动生成同名事项！');
++      void save(() => addBook({ name: name.trim(), subject, total, pages, done, errors, minutes }), '题本已创建，并自动生成同名事项！');
+     }
+-    onClose();
+   };
+ 
+   return (
+@@ -231,7 +253,7 @@ export const BookEditModal: React.FC<{
+         </p>
+ 
+         <div className="pt-2">
+-          <Button variant="primary" size="md" fullWidth type="submit">
++          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
+             保存题本数据
+           </Button>
+         </div>
+@@ -257,7 +279,7 @@ export const CourseEditModal: React.FC<{
+   const [completedLessons, setCompletedLessons] = useState(0);
+   const [minutes, setMinutes] = useState(0);
+   const [url, setUrl] = useState('');
+-  const [errorMsg, setErrorMsg] = useState('');
++  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
+ 
+   useEffect(() => {
+     if (course) {
+@@ -290,13 +312,10 @@ export const CourseEditModal: React.FC<{
+     }
+ 
+     if (course) {
+-      editCourse(course.id, { name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() });
+-      onToast('网课数据已更新！');
++      void save(() => editCourse(course.id, { name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课数据已更新！');
+     } else {
+-      addCourse({ name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() });
+-      onToast('网课已添加，并自动生成同名事项！');
++      void save(() => addCourse({ name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课已添加，并自动生成同名事项！');
+     }
+-    onClose();
+   };
+ 
+   return (
+@@ -376,7 +395,7 @@ export const CourseEditModal: React.FC<{
+         </div>
+ 
+         <div className="pt-2">
+-          <Button variant="primary" size="md" fullWidth type="submit">
++          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
+             保存网课数据
+           </Button>
+         </div>
+@@ -394,21 +413,21 @@ export const CustomAddModal: React.FC<{
+   onToast: (msg: string) => void;
+ }> = ({ isOpen, onClose, onToast }) => {
+   const { addCustomItem } = useApp();
++  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
+   const [name, setName] = useState('');
+   const [subject, setSubject] = useState<Subject>('申论');
+   const [defaultMinutes, setDefaultMinutes] = useState(30);
+ 
+   const handleSubmit = (e: React.FormEvent) => {
+     e.preventDefault();
+-    if (!name.trim()) return;
+-    addCustomItem(name.trim(), subject, defaultMinutes);
+-    onToast('已添加自定义学习事项！');
+-    onClose();
++    if (!name.trim()) { setErrorMsg('请填写事项名称'); return; }
++    void save(() => addCustomItem(name.trim(), subject, defaultMinutes), '已添加自定义学习事项！');
+   };
+ 
+   return (
+     <Modal isOpen={isOpen} onClose={onClose} title="添加自定义备考事项">
+       <form onSubmit={handleSubmit} className="space-y-3">
++        <FormError message={errorMsg} />
+         <div>
+           <label className="block text-xs text-ink-muted font-medium mb-1">事项名称</label>
+           <input
+@@ -443,7 +462,7 @@ export const CustomAddModal: React.FC<{
+         </div>
+ 
+         <div className="pt-2">
+-          <Button variant="primary" size="md" fullWidth type="submit">
++          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
+             添加到事项库
+           </Button>
+         </div>
+@@ -462,6 +481,7 @@ export const CountdownModal: React.FC<{
+   onToast: (msg: string) => void;
+ }> = ({ isOpen, cdIndex, onClose, onToast }) => {
+   const { state, updateCountdown } = useApp();
++  const { save, isSaving, errorMsg } = useSaveMutation(onClose, onToast);
+   const cd = state.countdowns[cdIndex];
+   const [date, setDate] = useState('');
+ 
+@@ -472,14 +492,13 @@ export const CountdownModal: React.FC<{
+   if (!cd) return null;
+ 
+   const handleSave = () => {
+-    updateCountdown(cd.id, date);
+-    onToast(`已更新${cd.name}考试日期！`);
+-    onClose();
++    void save(() => updateCountdown(cd.id, date), `已更新${cd.name}考试日期！`);
+   };
+ 
+   return (
+     <Modal isOpen={isOpen} onClose={onClose} title={`设置${cd.name}考试日期`}>
+       <div className="space-y-4">
++        <FormError message={errorMsg} />
+         <div>
+           <label className="block text-xs text-ink-muted font-medium mb-1">考试日期</label>
+           <input
+@@ -492,7 +511,7 @@ export const CountdownModal: React.FC<{
+         <p className="text-xs text-ink-muted leading-relaxed">
+           考试类型固定为「国考、省考、事业编」三大考程，修改后首页即时展示剩余备考天数。
+         </p>
+-        <Button variant="primary" size="md" fullWidth onClick={handleSave}>
++        <Button variant="primary" size="md" fullWidth onClick={handleSave} disabled={isSaving}>
+           保存考试日期
+         </Button>
+       </div>
+@@ -698,7 +717,6 @@ export const AuthModal: React.FC<{
+   onClose: () => void;
+   onToast: (msg: string) => void;
+ }> = ({ isOpen, mode, onClose, onToast }) => {
+-  const { updateProfile } = useApp();
+   const [username, setUsername] = useState('potato_01');
+   const [password, setPassword] = useState('1234');
+   const [errorMsg, setErrorMsg] = useState('');
+@@ -717,10 +735,7 @@ export const AuthModal: React.FC<{
+       return;
+     }
+ 
+-    // Update profile in isolated state
+-    updateProfile('土豆备考空间', undefined);
+-    onToast(mode === 'login' ? `欢迎回来，${cleanUser}！已连接云端状态。` : `注册成功，欢迎开启备考，${cleanUser}！`);
+-    onClose();
++    setErrorMsg('当前为本地离线版本，尚未接入账号服务，无法登录或注册。');
+   };
+ 
+   return (
+@@ -754,7 +769,7 @@ export const AuthModal: React.FC<{
+         </div>
+ 
+         <p className="text-[11px] text-ink-muted leading-relaxed">
+-          适配独立 Node 服务端的用户名与密码鉴权接口规范（/api/auth/*）。
++          账号服务尚未接入，当前学习数据仅保存在本机。
+         </p>
+ 
+         <Button variant="primary" size="md" fullWidth type="submit">
+@@ -776,20 +791,23 @@ export { DownloadApkModal } from './DownloadApkModal';
+ export const OverallLegendModal: React.FC<{
+   isOpen: boolean;
+   onClose: () => void;
+-}> = ({ isOpen, onClose }) => {
++  records?: StudyRecord[];
++  rangeLabel?: string;
++}> = ({ isOpen, onClose, records, rangeLabel = '全部记录' }) => {
+   const { state } = useApp();
+-  const totalMin = state.records.reduce((sum, r) => sum + r.minutes, 0);
++  const displayedRecords = records || state.records;
++  const totalMin = displayedRecords.reduce((sum, r) => sum + r.minutes, 0);
+ 
+   return (
+     <Modal isOpen={isOpen} onClose={onClose} title="八科投入时间与图例详情">
+       <div className="space-y-3">
+         <div className="text-xs text-ink-muted">
+-          已登记全部累计投入：<span className="font-bold text-ink-main font-mono">{totalMin}</span> 分钟
++          {rangeLabel}已登记投入：<span className="font-bold text-ink-main font-mono">{totalMin}</span> 分钟
+         </div>
+ 
+         <div className="space-y-2 pt-1">
+           {SUBJECTS.map(subj => {
+-            const mins = state.records.filter(r => r.subject === subj).reduce((sum, r) => sum + r.minutes, 0);
++            const mins = displayedRecords.filter(r => r.subject === subj).reduce((sum, r) => sum + r.minutes, 0);
+             const pct = totalMin > 0 ? ((mins / totalMin) * 100).toFixed(1) : '0.0';
+             return (
+               <div key={subj} className="flex items-center justify-between p-2.5 bg-cream/40 rounded-xl border border-line/60 text-xs">
+diff --git a/src/components/views/FocusModal.tsx b/src/components/views/FocusModal.tsx
+index 7d16e47..20eb52a 100644
+--- a/src/components/views/FocusModal.tsx
++++ b/src/components/views/FocusModal.tsx
+@@ -3,7 +3,8 @@ import { useApp } from '../../context/AppContext';
+ import { PotatoSprite } from '../common/PotatoSprite';
+ import { Button, Tag } from '../common/UIComponents';
+ import { Play, Pause, CheckCircle2, X, Clock, Sparkles } from 'lucide-react';
+-import { Plan } from '../../types';
++import { Plan, MutationResult } from '../../types';
++import { getPlanElapsedMs } from '../../utils/workflowPresentation';
+ 
+ interface FocusModalProps {
+   plan: Plan | null;
+@@ -22,9 +23,12 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+ }) => {
+   const { state, startTimer, pauseTimer } = useApp();
+   const [, setTick] = useState(0);
++  const [errorMsg, setErrorMsg] = useState('');
++  const [isSaving, setIsSaving] = useState(false);
+ 
+   useEffect(() => {
+     if (!isOpen) return;
++    setErrorMsg('');
+     const interval = setInterval(() => setTick(t => t + 1), 1000);
+     return () => clearInterval(interval);
+   }, [isOpen]);
+@@ -37,7 +41,16 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+   const isActuallyRunning = livePlan.timerStart > 0 && variantOverride !== 'paused';
+   const isPaused = livePlan.timerStart === 0 || variantOverride === 'paused';
+ 
+-  const totalElapsedMs = (livePlan.accumulatedMs || 0) + (isActuallyRunning ? Math.max(0, Date.now() - livePlan.timerStart) : 0);
++  const totalElapsedMs = getPlanElapsedMs(isActuallyRunning ? livePlan : { ...livePlan, timerStart: 0 });
++  const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
++    if (isSaving) return false;
++    setIsSaving(true);
++    setErrorMsg('');
++    const result = await action();
++    setIsSaving(false);
++    if (!result.ok) { setErrorMsg(result.message); return false; }
++    return true;
++  };
+   const totalSeconds = Math.floor(totalElapsedMs / 1000);
+   const displayMinutes = Math.floor(totalSeconds / 60);
+   const displaySeconds = totalSeconds % 60;
+@@ -106,6 +119,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+           </div>
+         </div>
+ 
++        {errorMsg && <div role="alert" className="text-xs text-alarm mt-2">{errorMsg}</div>}
++
+         {/* 操作按钮组 */}
+         <div className="w-full grid grid-cols-2 gap-3 mt-6">
+           {isActuallyRunning ? (
+@@ -113,7 +128,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+               variant="secondary"
+               size="lg"
+               fullWidth
+-              onClick={() => pauseTimer(livePlan.id)}
++              disabled={isSaving}
++              onClick={() => runTimerAction(() => pauseTimer(livePlan.id))}
+             >
+               <Pause size={18} className="text-sage" />
+               暂停
+@@ -123,7 +139,8 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+               variant="primary"
+               size="lg"
+               fullWidth
+-              onClick={() => startTimer(livePlan.id)}
++              disabled={isSaving}
++              onClick={() => runTimerAction(() => startTimer(livePlan.id))}
+             >
+               <Play size={18} />
+               继续计时
+@@ -134,18 +151,10 @@ export const FocusModal: React.FC<FocusModalProps> = ({
+             variant="primary"
+             size="lg"
+             fullWidth
++            disabled={isSaving}
+             onClick={async () => {
+-              let finalPlan = livePlan;
+-              if (isActuallyRunning) {
+-                await pauseTimer(livePlan.id);
+-                finalPlan = {
+-                  ...livePlan,
+-                  timerStart: 0,
+-                  accumulatedMs: totalElapsedMs,
+-                  actualMinutes: Math.floor(totalElapsedMs / 60000),
+-                };
+-              }
+-              onComplete(finalPlan);
++              if (isActuallyRunning && !await runTimerAction(() => pauseTimer(livePlan.id))) return;
++              onComplete(livePlan);
+             }}
+           >
+             <CheckCircle2 size={18} />
+diff --git a/src/components/views/LearningView.tsx b/src/components/views/LearningView.tsx
+index 13fd87b..7698eaf 100644
+--- a/src/components/views/LearningView.tsx
++++ b/src/components/views/LearningView.tsx
+@@ -23,6 +23,13 @@ export const LearningView: React.FC<LearningViewProps> = ({
+   onToast,
+ }) => {
+   const { state, updateLibraryMinutes, quickAddPlan } = useApp();
++  const [errorMsg, setErrorMsg] = useState('');
++  const [pendingAddId, setPendingAddId] = useState('');
++  const updateMinutes = async (id: string, minutes: number) => {
++    setErrorMsg('');
++    const result = await updateLibraryMinutes(id, minutes);
++    if (!result.ok) setErrorMsg(result.message);
++  };
+   const [subTab, setSubTab] = useState<LearningSubTab>(initialSubTab);
+ 
+   // Sync internal subTab whenever parent initialSubTab changes (Fixes A14)
+@@ -40,6 +47,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
+ 
+   return (
+     <div className="space-y-4 pb-24">
++      {errorMsg && <div role="alert" className="p-3 text-xs text-alarm bg-alarm-light rounded-xl">{errorMsg}</div>}
+       {/* 头部与吉祥物 */}
+       <div className="flex items-center justify-between pt-1">
+         <div>
+@@ -259,7 +267,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
+                       type="number"
+                       min={1}
+                       value={item.defaultMinutes}
+-                      onChange={e => updateLibraryMinutes(item.id, parseInt(e.target.value) || 1)}
++                      onChange={e => updateMinutes(item.id, parseInt(e.target.value) || 1)}
+                       className="w-14 px-1.5 py-0.5 bg-cream/70 border border-line rounded text-xs text-center font-mono"
+                     />
+                     <span>分钟</span>
+@@ -270,8 +278,14 @@ export const LearningView: React.FC<LearningViewProps> = ({
+                   <Button
+                     variant="light"
+                     size="sm"
+-                    onClick={() => {
+-                      quickAddPlan(item.id);
++                    disabled={Boolean(pendingAddId)}
++                    onClick={async () => {
++                      if (pendingAddId) return;
++                      setPendingAddId(item.id);
++                      setErrorMsg('');
++                      const result = await quickAddPlan(item.id);
++                      setPendingAddId('');
++                      if (!result.ok) { setErrorMsg(result.message); return; }
+                       onToast(`已将“${item.name}”加入今日日程`);
+                     }}
+                   >
+diff --git a/src/components/views/ProfileEditModal.tsx b/src/components/views/ProfileEditModal.tsx
+index ba48101..c05d603 100644
+--- a/src/components/views/ProfileEditModal.tsx
++++ b/src/components/views/ProfileEditModal.tsx
+@@ -21,16 +21,24 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+   const [name, setName] = useState(state.profile.name || '土豆的备考空间');
+   const [selectedAvatar, setSelectedAvatar] = useState<string>(state.profile.avatar || 'pose-0');
+   const fileInputRef = useRef<HTMLInputElement>(null);
++  const [saving, setSaving] = useState(false);
++  const [processingImage, setProcessingImage] = useState(false);
++  const [error, setError] = useState('');
++  const savingRef = useRef(false);
++  const imageRequest = useRef(0);
+ 
+   // Initialize and synchronize draft on open/profile change so uncommitted drafts are NEVER retained
+   useEffect(() => {
+     if (isOpen) {
++      setError('');
+       setName(state.profile.name || '土豆的备考空间');
+       setSelectedAvatar(state.profile.avatar || 'pose-0');
+     }
++    return () => { imageRequest.current += 1; };
+   }, [isOpen, state.profile]);
+ 
+   const handleCancel = () => {
++    if (savingRef.current || processingImage) return;
+     setName(state.profile.name || '土豆的备考空间');
+     setSelectedAvatar(state.profile.avatar || 'pose-0');
+     onClose();
+@@ -51,34 +59,53 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+   const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     if (!file) return;
+-
++    const requestId = ++imageRequest.current;
++    setProcessingImage(true);
++    setError('');
+     try {
+       const dataUrl = await compressImage(file, {
+         maxWidth: 320,
+         maxHeight: 320,
+         quality: 0.75,
+       });
++      if (requestId !== imageRequest.current) return;
+       setSelectedAvatar(dataUrl);
+       onToast('头像已上传就绪，点击下方保存即可应用');
+     } catch (err) {
+-      onToast(err instanceof Error ? err.message : '相册头像处理失败');
++      if (requestId === imageRequest.current) setError(err instanceof Error ? err.message : '相册头像处理失败');
+     } finally {
++      if (requestId === imageRequest.current) setProcessingImage(false);
+       e.target.value = '';
+     }
+   };
+ 
+-  const handleSave = () => {
++  const handleSave = async () => {
++    if (savingRef.current || processingImage) return;
+     if (!name.trim()) {
+-      alert('请输入空间昵称');
++      setError('请输入空间昵称');
+       return;
+     }
+-    updateProfile(name.trim(), selectedAvatar);
+-    onToast('备考资料已保存更新！');
+-    onClose();
++    savingRef.current = true;
++    setSaving(true);
++    setError('');
++    try {
++      const result = await updateProfile(name.trim(), selectedAvatar);
++      if (!result.ok) {
++        setError(result.message);
++        return;
++      }
++      onToast('备考资料已保存更新！');
++      onClose();
++    } catch (err) {
++      setError(err instanceof Error ? err.message : '资料保存失败，请重试');
++    } finally {
++      savingRef.current = false;
++      setSaving(false);
++    }
+   };
+ 
+   return (
+-    <Modal isOpen={isOpen} onClose={handleCancel} title="编辑个人资料 (13:1231)">
++    <Modal isOpen={isOpen} onClose={handleCancel} closeDisabled={saving || processingImage} title="编辑个人资料 (13:1231)">
+       <div className="space-y-4">
+         {/* 大头像展示与相册上传 */}
+         <div className="flex flex-col items-center justify-center pt-1 pb-2">
+@@ -86,6 +113,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+             <Avatar avatar={selectedAvatar} size={76} />
+             <button
+               type="button"
++              disabled={saving || processingImage}
+               onClick={() => fileInputRef.current?.click()}
+               className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-sage text-white flex items-center justify-center shadow-md hover:bg-sage-dark active:scale-95 transition-all"
+               title="上传相册头像"
+@@ -101,11 +129,13 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+             accept="image/*"
+             className="hidden"
+             onChange={handleAvatarFile}
++            disabled={saving || processingImage}
+           />
+ 
+           <Button
+             type="button"
+             variant="secondary"
++            disabled={saving || processingImage}
+             size="sm"
+             className="mt-2.5 text-xs text-sage"
+             onClick={() => fileInputRef.current?.click()}
+@@ -125,6 +155,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+                 <button
+                   key={opt.id}
+                   type="button"
++                  disabled={saving || processingImage}
+                   onClick={() => setSelectedAvatar(opt.id)}
+                   className={`p-2 rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                     active
+@@ -154,13 +185,14 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
+         </div>
+ 
+         {/* 提交按钮 */}
++        {error && <p role="alert" className="text-xs text-alarm">{error}</p>}
+         <div className="flex gap-2.5 pt-2">
+-          <Button variant="secondary" size="md" fullWidth onClick={handleCancel}>
++          <Button variant="secondary" size="md" fullWidth onClick={handleCancel} disabled={saving || processingImage}>
+             取消
+           </Button>
+-          <Button variant="primary" size="md" fullWidth onClick={handleSave}>
++          <Button variant="primary" size="md" fullWidth onClick={handleSave} disabled={saving || processingImage}>
+             <Check size={16} />
+-            保存资料
++            {processingImage ? '处理头像中…' : saving ? '保存中…' : '保存资料'}
+           </Button>
+         </div>
+       </div>
+diff --git a/src/components/views/ScreenInspectorModal.tsx b/src/components/views/ScreenInspectorModal.tsx
+index 4ef0818..d3949ed 100644
+--- a/src/components/views/ScreenInspectorModal.tsx
++++ b/src/components/views/ScreenInspectorModal.tsx
+@@ -181,6 +181,7 @@ export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
+               </div>
+ 
+               <Button
++                data-screen-id={s.id}
+                 variant="primary"
+                 size="sm"
+                 className="shrink-0 text-xs py-1 px-2.5 h-7"
+diff --git a/src/components/views/SettingsView.tsx b/src/components/views/SettingsView.tsx
+index 8f460ec..a13ce3b 100644
+--- a/src/components/views/SettingsView.tsx
++++ b/src/components/views/SettingsView.tsx
+@@ -34,10 +34,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+   const { state, exportBackup, importBackup, selfCheck, storageError, clearStorageError } = useApp();
+   const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string; details: string[] } | null>(null);
+   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
++  const [importing, setImporting] = useState(false);
++  const [exporting, setExporting] = useState(false);
++  const [operationError, setOperationError] = useState('');
++  const importingRef = React.useRef(false);
+   const fileInputRef = React.useRef<HTMLInputElement>(null);
+ 
+   // Check login status (supports forcedGuestMode for A07 guest matrix inspection)
+-  const isGuest = forcedGuestMode || !state.profile.username || state.profile.username === 'guest';
++  const isGuest = true;
++
++  const handleExport = async () => {
++    if (exporting) return;
++    setExporting(true);
++    setOperationError('');
++    try {
++      const result = await exportBackup();
++      if (!result.ok) { setOperationError(result.message); return; }
++      onToast('备份文件已成功生成并下载！');
++    } catch (err) {
++      setOperationError(err instanceof Error ? err.message : '备份导出失败');
++    } finally { setExporting(false); }
++  };
+ 
+   const handleSelfCheck = () => {
+     const res = selfCheck();
+@@ -55,25 +72,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+       const validation = validateAndMigrateBackup(content);
+       if (!validation.valid || !validation.summary) {
+         onToast(`备份文件校验失败: ${validation.error || '格式不正确'}`);
+-        alert(`导入被拒绝：\n${validation.error || '无法解析的备份文件'}`);
++        setOperationError(validation.error || '无法解析的备份文件');
+         return;
+       }
+ 
+       // Open explicit confirmation modal before overwriting user state
+       setPendingBackup({ content, validation });
+     };
++    reader.onerror = () => setOperationError('读取备份文件失败，请重新选择');
+     reader.readAsText(file);
+     e.target.value = '';
+   };
+ 
+   const handleConfirmImport = async () => {
+-    if (!pendingBackup) return;
+-    const res = await importBackup(pendingBackup.content);
+-    if (res.ok) {
+-      onToast('备份导入成功，已完整恢复数据！');
+-      setPendingBackup(null);
+-    } else {
+-      onToast(`导入失败: ${res.message}`);
++    if (!pendingBackup || importingRef.current) return;
++    importingRef.current = true;
++    setImporting(true);
++    setOperationError('');
++    try {
++      const res = await importBackup(pendingBackup.content);
++      if (res.ok) {
++        onToast('备份导入成功，已完整恢复数据！');
++        setPendingBackup(null);
++      } else { setOperationError(res.message); }
++    } catch (err) {
++      setOperationError(err instanceof Error ? err.message : '备份导入失败');
++    } finally {
++      importingRef.current = false;
++      setImporting(false);
+     }
+   };
+ 
+@@ -152,7 +178,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+ 
+         <p className="text-xs text-ink-muted leading-relaxed">
+           {isGuest
+-            ? '当前为离线模式。登录或注册专属备考账号，可将做题数据与复盘进度自动备份至服务端。'
++            ? '当前为离线模式，云端登录、注册与同步服务尚未接入。请使用本地 JSON 备份保存进度。'
+             : `当前已登录账号：${state.profile.username}。可进行手动数据上传或从云端拉取覆盖。`}
+         </p>
+ 
+@@ -198,9 +224,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+         </p>
+ 
+         <div className="flex gap-2 pt-1">
+-          <Button variant="secondary" size="sm" fullWidth onClick={exportBackup}>
++          <Button variant="secondary" size="sm" fullWidth onClick={handleExport} disabled={exporting}>
+             <Download size={14} />
+-            导出备份 (JSON)
++            {exporting ? '生成备份中…' : '导出备份 (JSON)'}
+           </Button>
+           <Button
+             variant="secondary"
+@@ -219,6 +245,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+             onChange={handleFileInput}
+           />
+         </div>
++        {operationError && !pendingBackup && <p role="alert" className="text-xs text-alarm">{operationError}</p>}
+       </Card>
+ 
+       {/* 4. 数据一致性自检 */}
+@@ -259,7 +286,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+           <h3 className="text-sm font-bold">恢复初始工作台数据</h3>
+         </div>
+         <p className="text-xs text-ink-muted leading-relaxed">
+-          恢复为初始示例数据（含14本题本、7门网课、1260分钟学情基准）。请确保在重置前已导出备份。
++          清空题本、网课、日程、学习记录和错题照片，恢复空白工作台。请确保在重置前已导出备份。
+         </p>
+         <Button variant="danger" size="sm" onClick={onOpenResetConfirm}>
+           恢复初始数据
+@@ -271,6 +298,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+         <Modal
+           isOpen={true}
+           onClose={() => setPendingBackup(null)}
++          closeDisabled={importing}
+           title="用这份备份恢复？"
+         >
+           <div className="space-y-4 text-center">
+@@ -317,11 +345,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+             </div>
+ 
+             <div className="flex gap-2.5 pt-2">
++              {operationError && <p role="alert" className="text-xs text-alarm">{operationError}</p>}
+               <Button
+                 variant="secondary"
+                 size="md"
+                 fullWidth
+                 onClick={() => setPendingBackup(null)}
++                disabled={importing}
+               >
+                 再想想
+               </Button>
+@@ -330,8 +360,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
+                 size="md"
+                 fullWidth
+                 onClick={handleConfirmImport}
++                disabled={importing}
+               >
+-                确认导入覆盖
++                {importing ? '导入中…' : '确认导入覆盖'}
+               </Button>
+             </div>
+           </div>
+diff --git a/src/components/views/TodayView.tsx b/src/components/views/TodayView.tsx
+index 542606f..243e367 100644
+--- a/src/components/views/TodayView.tsx
++++ b/src/components/views/TodayView.tsx
+@@ -4,7 +4,8 @@ import { PotatoSprite } from '../common/PotatoSprite';
+ import { Avatar } from '../common/Avatar';
+ import { Card, Button, Tag } from '../common/UIComponents';
+ import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
+-import { Plan } from '../../types';
++import { Plan, MutationResult } from '../../types';
++import { getPlanElapsedMs } from '../../utils/workflowPresentation';
+ 
+ interface TodayViewProps {
+   forcedMode?: 'normal' | 'empty' | 'multi';
+@@ -29,6 +30,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
+ }) => {
+   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
+   const [, setTick] = useState(0);
++  const [errorMsg, setErrorMsg] = useState('');
++  const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
++    setErrorMsg('');
++    const result = await action();
++    if (!result.ok) setErrorMsg(result.message);
++  };
+ 
+   // Keep live timer tick
+   useEffect(() => {
+@@ -62,7 +69,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+ 
+   const doneCount = displayedPlans.filter(p => p.done).length;
+   const totalElapsedMs = displayedPlans.reduce((sum, p) => {
+-    const elapsed = (p.accumulatedMs || 0) + (p.timerStart > 0 ? Math.max(0, Date.now() - p.timerStart) : 0);
++    const elapsed = getPlanElapsedMs(p);
+     return sum + elapsed;
+   }, 0);
+   const totalMinutes = Math.floor(totalElapsedMs / 60000);
+@@ -87,6 +94,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+ 
+   return (
+     <div className="space-y-4 pb-24">
++      {errorMsg && <div role="alert" className="p-3 text-xs text-alarm bg-alarm-light rounded-xl">{errorMsg}</div>}
+       {/* 顶部个人状态条（如开启展示） */}
+       {showProfileBar && (
+         <div className="flex items-center justify-between px-1 py-0.5">
+@@ -241,7 +249,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+                 <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
+                   <span>计划 {plan.plannedMinutes} 分钟</span>
+                   <span>·</span>
+-                  <span>已累计 {Math.floor(((plan.accumulatedMs || 0) + (isRunning ? Math.max(0, Date.now() - plan.timerStart) : 0)) / 60000)} 分钟</span>
++                  <span>已累计 {Math.floor(getPlanElapsedMs(plan) / 60000)} 分钟</span>
+                 </div>
+ 
+                 {/* 正在计时状态：原版大数字行展示 (Fixes A08) */}
+@@ -255,7 +263,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+                       <span>正在专注进行中</span>
+                     </div>
+                     <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
+-                      {formatTimer(plan.timerStart, plan.accumulatedMs || 0)}
++                      {formatTimer(plan.timerStart, plan.accumulatedMs ?? plan.actualMinutes * 60000)}
+                     </div>
+                   </div>
+                 )}
+@@ -268,7 +276,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+                         variant="secondary"
+                         size="md"
+                         fullWidth
+-                        onClick={() => pauseTimer(plan.id)}
++                        onClick={() => runTimerAction(() => pauseTimer(plan.id))}
+                       >
+                         <Pause size={16} className="text-sage" />
+                         暂停计时
+@@ -278,7 +286,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
+                         variant="secondary"
+                         size="md"
+                         fullWidth
+-                        onClick={() => startTimer(plan.id)}
++                        onClick={() => runTimerAction(() => startTimer(plan.id))}
+                       >
+                         <Play size={16} className="text-sage" />
+                         开始计时
+diff --git a/src/components/views/WrongView.tsx b/src/components/views/WrongView.tsx
+index 2fd103c..e5226f9 100644
+--- a/src/components/views/WrongView.tsx
++++ b/src/components/views/WrongView.tsx
+@@ -165,6 +165,22 @@ export const WrongView: React.FC<WrongViewProps> = ({
+                       )}
+                     </div>
+                     <div className="mt-2 text-xs text-ink-muted truncate">{record.note || '无复盘原因'}</div>
++                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-line/50 text-xs">
++                      <button
++                        onClick={() => onOpenDetailModal(record)}
++                        className="text-sage font-medium flex items-center gap-1 hover:underline"
++                      >
++                        <Eye size={12} />
++                        查看详情
++                      </button>
++                      <button
++                        onClick={() => onOpenDeleteConfirm(record.id, '原题本已删除归属')}
++                        className="text-ink-muted hover:text-alarm p-1"
++                        title="删除错题照片"
++                      >
++                        <Trash2 size={13} />
++                      </button>
++                    </div>
+                   </Card>
+                 ))}
+               </div>
+diff --git a/src/context/AppContext.tsx b/src/context/AppContext.tsx
+index ed7015b..e72608c 100644
+--- a/src/context/AppContext.tsx
++++ b/src/context/AppContext.tsx
+@@ -1,4 +1,4 @@
+-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
++import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+ import {
+   AppState,
+   Book,
+@@ -12,12 +12,13 @@ import {
+   MutationResult,
+   CompletionInput,
+ } from '../types';
+-import { INITIAL_STATE, BLANK_STATE, getLocalDateString } from '../constants/initialData';
++import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
+ import { validateAndMigrateBackup } from '../utils/backupValidator';
+ import {
+   loadLatestState,
+   commitMutation,
+   resetDatabase,
++  createPortableBackupState,
+ } from '../utils/db';
+ import {
+   applyStartTimer,
+@@ -94,21 +95,37 @@ export interface AppContextType {
+ 
+   // System
+   resetState: () => Promise<MutationResult<void>>;
+-  exportBackup: () => void;
++  exportBackup: () => Promise<MutationResult<void>>;
+   importBackup: (jsonContent: string) => Promise<MutationResult<{ summary: string }>>;
+   selfCheck: () => { ok: boolean; message: string; details: string[] };
+ }
+ 
+ const AppContext = createContext<AppContextType | null>(null);
+ 
+-export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+-  const [state, setState] = useState<AppState>(INITIAL_STATE);
+-  const [isLoading, setIsLoading] = useState<boolean>(true);
++function createPreviewState(): AppState {
++  const demo = structuredClone(DEMO_STATE);
++  const course = demo.library.find(item => item.type === 'course');
++  if (course && !demo.plans.some(plan => plan.type === 'course' && !plan.done)) {
++    demo.plans.push({
++      id: 'preview-course-plan', date: '2026-10-25', libraryId: course.id,
++      name: course.name, type: course.type, sourceId: course.sourceId, subject: course.subject,
++      plannedMinutes: course.defaultMinutes, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: 0,
++    });
++  }
++  return demo;
++}
++
++export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> = ({ children, preview = false }) => {
++  const [state, setState] = useState<AppState>(() => preview ? createPreviewState() : INITIAL_STATE);
++  const [isLoading, setIsLoading] = useState<boolean>(!preview);
++  const readyRef = useRef(preview);
++  const previewStateRef = useRef(state);
++  const previewQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+   const [corruptedRaw, setCorruptedRaw] = useState<string | null>(null);
+   const [storageError, setStorageError] = useState<string | null>(null);
+ 
+   // Local Date Management: Initialize with getLocalDateString()
+-  const [activeDate, setActiveDate] = useState<string>(() => getLocalDateString());
++  const [activeDate, setActiveDate] = useState<string>(() => preview ? '2026-10-25' : getLocalDateString());
+ 
+   const clearStorageError = useCallback(() => {
+     setStorageError(null);
+@@ -120,10 +137,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+ 
+   // 1. Initial State Load from IndexedDB (loadLatestState)
+   useEffect(() => {
++    if (preview) return;
+     let mounted = true;
+     loadLatestState()
+       .then(res => {
+         if (!mounted) return;
++        readyRef.current = true;
+         setState(res.state);
+         if (res.corruptedRaw) {
+           setCorruptedRaw(res.corruptedRaw);
+@@ -133,7 +152,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+       })
+       .catch(err => {
+         console.error('加载本地数据库异常:', err);
+-        if (mounted) setIsLoading(false);
++        if (mounted) {
++          readyRef.current = false;
++          setStorageError('加载本地数据失败，已暂停保存以保护原数据。请刷新页面重试。');
++          setIsLoading(false);
++        }
+       });
+ 
+     return () => {
+@@ -143,6 +166,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+ 
+   // 2. Cross-day and Midnight Rollover Listener
+   useEffect(() => {
++    if (preview) return;
+     const checkMidnightRollover = () => {
+       const today = getLocalDateString();
+       setActiveDate(prev => {
+@@ -174,6 +198,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+     async <T,>(
+       mutator: (draft: AppState) => Promise<MutatorReturn<T>> | MutatorReturn<T>
+     ): Promise<MutationResult<T>> => {
++      if (!readyRef.current) {
++        return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，已阻止保存。请刷新页面重试。' };
++      }
++      if (preview) {
++        const task = previewQueueRef.current.then(async (): Promise<MutationResult<T>> => {
++          try {
++            const result = await mutator(structuredClone(previewStateRef.current));
++            if ('error' in result) return { ok: false, ...result.error };
++            previewStateRef.current = result.nextState;
++            setState(result.nextState);
++            return { ok: true, value: result.value };
++          } catch (err) {
++            return { ok: false, code: 'COMMIT_FAILED', message: err instanceof Error ? err.message : String(err) };
++          }
++        });
++        previewQueueRef.current = task.catch(() => {});
++        return task;
++      }
+       let appliedNextState: AppState | null = null;
+       const result = await commitMutation<T>(async draft => {
+         const res = await mutator(draft);
+@@ -185,10 +227,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+ 
+       if (result.ok && appliedNextState) {
+         setState(appliedNextState);
++      } else if (!result.ok && (result.code === 'COMMIT_FAILED' || result.code === 'REVISION_CONFLICT')) {
++        setStorageError(result.message);
++        if (result.code === 'REVISION_CONFLICT') {
++          try { setState((await loadLatestState()).state); } catch { readyRef.current = false; }
++        }
+       }
+       return result;
+     },
+-    []
++    [preview]
+   );
+ 
+   // ----------------------------------------------------------------------
+@@ -394,9 +441,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+   // System: Reset, Backup, Import
+   // ----------------------------------------------------------------------
+   const resetState = useCallback(async (): Promise<MutationResult<void>> => {
++    if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法重置。' };
++    if (preview) return executeMutation(() => ({ nextState: createPreviewState(), value: undefined }));
+     try {
+-      await resetDatabase();
+-      setState(BLANK_STATE);
++      const reset = await resetDatabase();
++      if (!reset) throw new Error('重置未成功，原数据已保留。');
++      setState(structuredClone(BLANK_STATE));
+       return { ok: true, value: undefined };
+     } catch (err) {
+       return {
+@@ -405,23 +455,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+         message: err instanceof Error ? err.message : String(err),
+       };
+     }
+-  }, []);
++  }, [preview, executeMutation]);
+ 
+-  const exportBackup = useCallback(() => {
+-    const backupObj = {
+-      app: '考公工作台·土豆新版',
+-      version: 3,
+-      exportedAt: new Date().toISOString(),
+-      state,
+-    };
+-    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+-    const url = URL.createObjectURL(blob);
+-    const a = document.createElement('a');
+-    a.href = url;
+-    a.download = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
+-    a.click();
+-    URL.revokeObjectURL(url);
+-  }, [state]);
++  const exportBackup = useCallback(async (): Promise<MutationResult<void>> => {
++    if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法导出备份。' };
++    try {
++      const latest = preview ? previewStateRef.current : (await loadLatestState()).state;
++      const portable = await createPortableBackupState(latest);
++      const backupObj = {
++        app: '考公工作台·土豆新版',
++        version: 3,
++        exportedAt: new Date().toISOString(),
++        state: portable,
++      };
++      const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
++      const url = URL.createObjectURL(blob);
++      const a = document.createElement('a');
++      a.href = url;
++      a.download = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
++      a.click();
++      setTimeout(() => URL.revokeObjectURL(url), 0);
++      return { ok: true, value: undefined };
++    } catch (err) {
++      const message = err instanceof Error ? err.message : String(err);
++      setStorageError(message);
++      return { ok: false, code: 'EXPORT_FAILED', message };
++    }
++  }, [preview]);
+ 
+   const importBackup = useCallback(
+     async (jsonContent: string): Promise<MutationResult<{ summary: string }>> => {
+diff --git a/src/main.tsx b/src/main.tsx
+index a6fcfbf..b30be94 100644
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -4,10 +4,12 @@ import { App } from './App';
+ import { AppProvider } from './context/AppContext';
+ import './index.css';
+ 
++const preview = new URLSearchParams(window.location.search).get('preview') === '1';
++
+ ReactDOM.createRoot(document.getElementById('root')!).render(
+   <React.StrictMode>
+-    <AppProvider>
+-      <App />
++    <AppProvider preview={preview}>
++      <App preview={preview} />
+     </AppProvider>
+   </React.StrictMode>
+ );
+diff --git a/src/utils/backupValidator.ts b/src/utils/backupValidator.ts
+index e8ced97..296625e 100644
+--- a/src/utils/backupValidator.ts
++++ b/src/utils/backupValidator.ts
+@@ -1,4 +1,4 @@
+-import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, SUBJECTS, Subject, PlanType } from '../types';
++import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, Subject, PlanType } from '../types';
+ import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
+ 
+ export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+@@ -27,7 +27,7 @@ function isValidDateString(str: any): boolean {
+ }
+ 
+ function isNonNegativeNumber(val: any): boolean {
+-  return typeof val === 'number' && !isNaN(val) && val >= 0;
++  return typeof val === 'number' && Number.isFinite(val) && val >= 0;
+ }
+ 
+ /**
+@@ -49,7 +49,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+     return { valid: false, error: '备份文件内容为空或不是字符串' };
+   }
+ 
+-  if (jsonString.length > MAX_BACKUP_SIZE_BYTES) {
++  if (jsonString.length > MAX_BACKUP_SIZE_BYTES || new TextEncoder().encode(jsonString).byteLength > MAX_BACKUP_SIZE_BYTES) {
+     return { valid: false, error: '备份文件大小超过 50MB 限制' };
+   }
+ 
+@@ -67,16 +67,13 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+   // Handle both { version: N, state: { ... } } and direct AppState
+   const target = raw.state && typeof raw.state === 'object' && !Array.isArray(raw.state) ? raw.state : raw;
+ 
+-  // Version check: reject unknown versions > 3
+-  const versionCandidate = typeof raw.version === 'number'
+-    ? raw.version
+-    : typeof target.version === 'number'
+-    ? target.version
+-    : undefined;
+-
+-  if (versionCandidate !== undefined) {
+-    if (typeof versionCandidate !== 'number' || isNaN(versionCandidate) || versionCandidate < 1 || versionCandidate > 3) {
+-      return { valid: false, error: `不支持的备份版本 (v${versionCandidate})，当前最高支持 v3` };
++  // A declared version must be one of the supported integer schema versions.
++  for (const candidate of [raw, target]) {
++    if (Object.prototype.hasOwnProperty.call(candidate, 'version')) {
++      const version = candidate.version;
++      if (!Number.isInteger(version) || version < 1 || version > 3) {
++        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v3` };
++      }
+     }
+   }
+ 
+@@ -251,12 +248,18 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+       return { valid: false, error: `学习计划 "${p.name}" 实际用时必须为非负数字` };
+     }
+ 
++    for (const field of ['accumulatedMs', 'timerStart']) {
++      if (p[field] !== undefined && !isNonNegativeNumber(p[field])) {
++        return { valid: false, error: `学习计划 "${p.name}" 的 ${field} 必须为有限非负数字` };
++      }
++    }
++
+     // CRITICAL: Preserve accumulatedMs if valid number, otherwise derive from (actualMinutes || 0) * 60000
+-    const accumulatedMs = (typeof p.accumulatedMs === 'number' && !isNaN(p.accumulatedMs) && p.accumulatedMs >= 0)
++    const accumulatedMs = (isNonNegativeNumber(p.accumulatedMs))
+       ? p.accumulatedMs
+       : Math.round((p.actualMinutes || 0) * 60000);
+ 
+-    const timerStart = (typeof p.timerStart === 'number' && !isNaN(p.timerStart) && p.timerStart >= 0)
++    const timerStart = (isNonNegativeNumber(p.timerStart))
+       ? p.timerStart
+       : 0;
+ 
+@@ -300,7 +303,10 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+       return { valid: false, error: `学习记录中第 ${i + 1} 项错题数必须为非负数字` };
+     }
+ 
+-    const lessons = (typeof r.lessons === 'number' && !isNaN(r.lessons) && r.lessons >= 0)
++    if (r.lessons !== undefined && !isNonNegativeNumber(r.lessons)) {
++      return { valid: false, error: `学习记录中第 ${i + 1} 项讲数必须为有限非负数字` };
++    }
++    const lessons = (isNonNegativeNumber(r.lessons))
+       ? Math.round(r.lessons)
+       : undefined;
+ 
+@@ -326,13 +332,19 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+       return { valid: false, error: `错题记录中第 ${i + 1} 项的日期格式无效: ${w.date}` };
+     }
+ 
++    if (w.image && (typeof w.image !== 'string' || !/^(data:image\/|https?:\/\/)/i.test(w.image))) {
++      return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的本地图片引用，请重新导出完整备份` };
++    }
++    if (w.storagePath && !w.image) {
++      return { valid: false, error: `错题记录中第 ${i + 1} 项缺少图片附件内容` };
++    }
+     wrong.push({
+       id: typeof w.id === 'string' && w.id.trim() ? w.id.trim() : `wrong-${Date.now()}-${i}`,
+       date: w.date.trim(),
+       bookId: typeof w.bookId === 'string' ? w.bookId.trim() : '',
+       note: typeof w.note === 'string' ? w.note : '',
+       image: typeof w.image === 'string' ? w.image : '',
+-      storagePath: typeof w.storagePath === 'string' ? w.storagePath : undefined,
++
+     });
+   }
+ 
+@@ -345,7 +357,21 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
+   };
+ 
+   // Reconcile library from sources
+-  const existingLib = Array.isArray(target.library) ? target.library : [];
++  if (target.library !== undefined && !Array.isArray(target.library)) {
++    return { valid: false, error: '事项库 library 必须为数组' };
++  }
++  const existingLib: LibraryItem[] = [];
++  for (const [index, item] of (target.library ?? []).entries()) {
++    if (!item || typeof item !== 'object' || Array.isArray(item)
++      || typeof item.id !== 'string' || !item.id.trim()
++      || typeof item.name !== 'string' || !item.name.trim()
++      || !VALID_PLAN_TYPES.has(item.type) || !VALID_SUBJECT_SET.has(item.subject)
++      || typeof item.sourceId !== 'string'
++      || !isNonNegativeNumber(item.defaultMinutes) || item.defaultMinutes <= 0) {
++      return { valid: false, error: `事项库中第 ${index + 1} 项数据无效` };
++    }
++    existingLib.push({ id: item.id.trim(), name: item.name.trim(), type: item.type, sourceId: item.sourceId.trim(), subject: item.subject, defaultMinutes: item.defaultMinutes });
++  }
+   const library = buildLibraryFromSources(books, courses, existingLib);
+ 
+   const migratedState: AppState = {
+diff --git a/src/utils/db.ts b/src/utils/db.ts
+index a43b297..940b66c 100644
+--- a/src/utils/db.ts
++++ b/src/utils/db.ts
+@@ -118,71 +118,65 @@ async function getSnapshotFromDB(): Promise<SnapshotRecord | null> {
+   });
+ }
+ 
+-async function putSnapshotToDB(snapshot: SnapshotRecord): Promise<void> {
+-  if (typeof indexedDB === 'undefined') {
+-    memoryStore.snapshots.set('latest', JSON.parse(JSON.stringify(snapshot)));
+-    return;
++class RevisionConflictError extends Error {
++  constructor() {
++    super('其他页面已更新本地数据，请检查最新内容后重试。');
+   }
++}
+ 
+-  const db = await initDatabase();
+-  return new Promise<void>((resolve, reject) => {
+-    const tx = db.transaction('snapshots', 'readwrite');
+-    const store = tx.objectStore('snapshots');
+-    const request = store.put(snapshot);
+-
+-    request.onsuccess = () => resolve();
+-    request.onerror = () => reject(request.error || new Error('写入快照失败'));
+-  });
++async function putSnapshotToDB(snapshot: SnapshotRecord, expectedRevision: number): Promise<void> {
++  return writeMutationToDB(snapshot, undefined, undefined, expectedRevision);
+ }
+ 
+ async function writeMutationToDB(
+   snapshot: SnapshotRecord,
+   newMedia?: MediaRecord[],
+-  deletedMediaIds?: string[]
++  deletedMediaIds?: string[],
++  expectedRevision: number = snapshot.revision - 1
+ ): Promise<void> {
+   if (typeof indexedDB === 'undefined') {
+-    memoryStore.snapshots.set('latest', JSON.parse(JSON.stringify(snapshot)));
+-    if (newMedia) {
+-      for (const m of newMedia) {
+-        memoryStore.media.set(m.id, JSON.parse(JSON.stringify(m)));
+-      }
+-    }
+-    if (deletedMediaIds) {
+-      for (const id of deletedMediaIds) {
+-        memoryStore.media.delete(id);
+-      }
++    if ((memoryStore.snapshots.get('latest')?.revision ?? 0) !== expectedRevision) {
++      throw new RevisionConflictError();
+     }
++    const mediaCopies = newMedia?.map(m => structuredClone(m));
++    memoryStore.snapshots.set('latest', structuredClone(snapshot));
++    for (const m of mediaCopies ?? []) memoryStore.media.set(m.id, m);
++    for (const id of deletedMediaIds ?? []) memoryStore.media.delete(id);
+     return;
+   }
+ 
+   const db = await initDatabase();
+   const storeNames = ['snapshots'];
+-  if ((newMedia && newMedia.length > 0) || (deletedMediaIds && deletedMediaIds.length > 0)) {
+-    storeNames.push('media');
+-  }
++  if (newMedia?.length || deletedMediaIds?.length) storeNames.push('media');
+ 
+   return new Promise<void>((resolve, reject) => {
+     const tx = db.transaction(storeNames, 'readwrite');
+-    const snapshotsStore = tx.objectStore('snapshots');
+-    snapshotsStore.put(snapshot);
++    let failure: Error | null = null;
++    tx.oncomplete = () => resolve();
++    tx.onerror = () => reject(failure || tx.error || new Error('写入事务失败'));
++    tx.onabort = () => reject(failure || tx.error || new Error('写入事务已中止'));
+ 
+-    if (storeNames.includes('media')) {
+-      const mediaStore = tx.objectStore('media');
+-      if (newMedia) {
+-        for (const m of newMedia) {
+-          mediaStore.put(m);
+-        }
++    const snapshotsStore = tx.objectStore('snapshots');
++    const request = snapshotsStore.get('latest');
++    request.onsuccess = () => {
++      // Compare and write under the same IndexedDB lock, shared by all tabs.
++      if ((request.result?.revision ?? 0) !== expectedRevision) {
++        failure = new RevisionConflictError();
++        tx.abort();
++        return;
+       }
+-      if (deletedMediaIds) {
+-        for (const id of deletedMediaIds) {
+-          mediaStore.delete(id);
++      try {
++        snapshotsStore.put(snapshot);
++        if (storeNames.includes('media')) {
++          const mediaStore = tx.objectStore('media');
++          for (const m of newMedia ?? []) mediaStore.put(m);
++          for (const id of deletedMediaIds ?? []) mediaStore.delete(id);
+         }
++      } catch (err) {
++        failure = err instanceof Error ? err : new Error(String(err));
++        tx.abort();
+       }
+-    }
+-
+-    tx.oncomplete = () => resolve();
+-    tx.onerror = () => reject(tx.error || new Error('写入事务失败'));
+-    tx.onabort = () => reject(tx.error || new Error('写入事务已中止'));
++    };
+   });
+ }
+ 
+@@ -241,7 +235,7 @@ export async function loadLatestState(): Promise<LoadStateResult> {
+           migratedFromV2: true,
+           updatedAt: new Date().toISOString(),
+         };
+-        await putSnapshotToDB(initialSnapshot);
++        await putSnapshotToDB(initialSnapshot, 0);
+ 
+         return {
+           state: validated.migratedState,
+@@ -328,7 +322,7 @@ export async function commitMutation<T>(
+     } catch (err) {
+       return {
+         ok: false,
+-        code: 'COMMIT_FAILED',
++        code: err instanceof RevisionConflictError ? 'REVISION_CONFLICT' : 'COMMIT_FAILED',
+         message: err instanceof Error ? err.message : String(err),
+       };
+     }
+@@ -356,10 +350,10 @@ export async function saveDamagedCache(raw: string, reason: string): Promise<str
+   return new Promise<string>((resolve, reject) => {
+     const tx = db.transaction('damaged_cache', 'readwrite');
+     const store = tx.objectStore('damaged_cache');
+-    const req = store.put(record);
+-
+-    req.onsuccess = () => resolve(id);
+-    req.onerror = () => reject(req.error || new Error('保存受损缓存失败'));
++    tx.oncomplete = () => resolve(id);
++    tx.onerror = () => reject(tx.error || new Error('保存受损缓存失败'));
++    tx.onabort = () => reject(tx.error || new Error('保存受损缓存事务已中止'));
++    store.put(record);
+   });
+ }
+ 
+@@ -388,7 +382,7 @@ export async function getDamagedCaches(): Promise<DamagedCacheRecord[]> {
+ export async function getMedia(id: string): Promise<MediaRecord | null> {
+   if (typeof indexedDB === 'undefined') {
+     const item = memoryStore.media.get(id);
+-    return item ? JSON.parse(JSON.stringify(item)) : null;
++    return item ? structuredClone(item) : null;
+   }
+ 
+   const db = await initDatabase();
+@@ -407,7 +401,7 @@ export async function getMedia(id: string): Promise<MediaRecord | null> {
+  */
+ export async function saveMedia(record: MediaRecord): Promise<boolean> {
+   if (typeof indexedDB === 'undefined') {
+-    memoryStore.media.set(record.id, JSON.parse(JSON.stringify(record)));
++    memoryStore.media.set(record.id, structuredClone(record));
+     return true;
+   }
+ 
+@@ -415,10 +409,10 @@ export async function saveMedia(record: MediaRecord): Promise<boolean> {
+   return new Promise<boolean>((resolve, reject) => {
+     const tx = db.transaction('media', 'readwrite');
+     const store = tx.objectStore('media');
+-    const req = store.put(record);
+-
+-    req.onsuccess = () => resolve(true);
+-    req.onerror = () => reject(req.error || new Error('保存媒体记录失败'));
++    tx.oncomplete = () => resolve(true);
++    tx.onerror = () => reject(tx.error || new Error('保存媒体记录失败'));
++    tx.onabort = () => reject(tx.error || new Error('保存媒体事务已中止'));
++    store.put(record);
+   });
+ }
+ 
+@@ -435,10 +429,10 @@ export async function deleteMedia(id: string): Promise<boolean> {
+   return new Promise<boolean>((resolve, reject) => {
+     const tx = db.transaction('media', 'readwrite');
+     const store = tx.objectStore('media');
+-    const req = store.delete(id);
+-
+-    req.onsuccess = () => resolve(true);
+-    req.onerror = () => reject(req.error || new Error(`删除媒体记录 (${id}) 失败`));
++    tx.oncomplete = () => resolve(true);
++    tx.onerror = () => reject(tx.error || new Error(`删除媒体记录 (${id}) 失败`));
++    tx.onabort = () => reject(tx.error || new Error('删除媒体事务已中止'));
++    store.delete(id);
+   });
+ }
+ 
+@@ -458,7 +452,37 @@ export async function resetDatabase(): Promise<boolean> {
+       migratedFromV2: true, // Mark migratedFromV2 so localStorage is never re-migrated
+       updatedAt: new Date().toISOString(),
+     };
+-    await putSnapshotToDB(resetSnapshot);
++    await putSnapshotToDB(resetSnapshot, current?.revision ?? 0);
+     return true;
+   });
+ }
++
++/** Resolve local attachment references before generating a portable JSON backup. */
++export async function createPortableBackupState(state: AppState): Promise<AppState> {
++  const portable = structuredClone(state);
++  const asDataURL = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
++    const reader = new FileReader();
++    reader.onload = () => resolve(String(reader.result));
++    reader.onerror = () => reject(reader.error || new Error('读取备份图片失败'));
++    reader.readAsDataURL(blob);
++  });
++  const resolveImage = async (image: string, storagePath?: string): Promise<string> => {
++    if (!storagePath && (!image || /^(data:image\/|https?:\/\/)/i.test(image))) return image;
++    if (!storagePath && image.startsWith('blob:')) {
++      const response = await fetch(image);
++      if (!response.ok) throw new Error('无法读取本地错题图片');
++      return asDataURL(await response.blob());
++    }
++    const media = await getMedia(storagePath || image);
++    if (!media) throw new Error('备份图片附件缺失，已停止导出，请检查错题照片。');
++    if (media.blob instanceof Blob) return asDataURL(media.blob);
++    if (typeof media.blob === 'string' && media.blob.startsWith('data:image/')) return media.blob;
++    throw new Error('备份图片附件格式无效，已停止导出。');
++  };
++  for (const wrong of portable.wrong) {
++    wrong.image = await resolveImage(wrong.image, wrong.storagePath);
++    delete wrong.storagePath;
++  }
++  portable.profile.avatar = await resolveImage(portable.profile.avatar);
++  return portable;
++}
+diff --git a/src/utils/workflowMutators.ts b/src/utils/workflowMutators.ts
+index 87a3cfb..0354a90 100644
+--- a/src/utils/workflowMutators.ts
++++ b/src/utils/workflowMutators.ts
+@@ -87,13 +87,16 @@ export function applyCompletePlan(
+     return { error: { code: 'NOT_FOUND', message: '计划未找到或已完成' } };
+   }
+ 
+-  if (input.minutes < 0) {
+-    return { error: { code: 'INVALID_INPUT', message: '用时不能为负数' } };
++  if (input.type !== plan.type) {
++    return { error: { code: 'INVALID_INPUT', message: '登记类型与计划类型不一致' } };
++  }
++  if (!Number.isSafeInteger(input.minutes) || input.minutes <= 0) {
++    return { error: { code: 'INVALID_INPUT', message: '用时必须为大于0的整数分钟' } };
+   }
+ 
+   if (input.type === 'book') {
+-    if (input.questions < 0 || input.errors < 0) {
+-      return { error: { code: 'INVALID_INPUT', message: '做题数和错题数不能为负数' } };
++    if (!Number.isSafeInteger(input.questions) || !Number.isSafeInteger(input.errors) || input.questions < 0 || input.errors < 0) {
++      return { error: { code: 'INVALID_INPUT', message: '做题数和错题数必须为非负整数' } };
+     }
+     const sourceBook = draft.books.find(b => b.id === plan.sourceId);
+     if (!sourceBook) {
+@@ -112,8 +115,8 @@ export function applyCompletePlan(
+     sourceBook.errors += input.errors;
+     sourceBook.minutes += input.minutes;
+   } else if (input.type === 'course') {
+-    if (input.lessons <= 0) {
+-      return { error: { code: 'INVALID_INPUT', message: '完成课时数必须大于0' } };
++    if (!Number.isSafeInteger(input.lessons) || input.lessons <= 0) {
++      return { error: { code: 'INVALID_INPUT', message: '完成课时数必须为大于0的整数' } };
+     }
+     const sourceCourse = draft.courses.find(c => c.id === plan.sourceId);
+     if (!sourceCourse) {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
   AppState,
   Book,
@@ -12,12 +12,13 @@ import {
   MutationResult,
   CompletionInput,
 } from '../types';
-import { INITIAL_STATE, BLANK_STATE, getLocalDateString } from '../constants/initialData';
+import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup } from '../utils/backupValidator';
 import {
   loadLatestState,
   commitMutation,
   resetDatabase,
+  createPortableBackupState,
 } from '../utils/db';
 import {
   applyStartTimer,
@@ -94,21 +95,37 @@ export interface AppContextType {
 
   // System
   resetState: () => Promise<MutationResult<void>>;
-  exportBackup: () => void;
+  exportBackup: () => Promise<MutationResult<void>>;
   importBackup: (jsonContent: string) => Promise<MutationResult<{ summary: string }>>;
   selfCheck: () => { ok: boolean; message: string; details: string[] };
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
-export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<AppState>(INITIAL_STATE);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+function createPreviewState(): AppState {
+  const demo = structuredClone(DEMO_STATE);
+  const course = demo.library.find(item => item.type === 'course');
+  if (course && !demo.plans.some(plan => plan.type === 'course' && !plan.done)) {
+    demo.plans.push({
+      id: 'preview-course-plan', date: '2026-10-25', libraryId: course.id,
+      name: course.name, type: course.type, sourceId: course.sourceId, subject: course.subject,
+      plannedMinutes: course.defaultMinutes, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: 0,
+    });
+  }
+  return demo;
+}
+
+export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> = ({ children, preview = false }) => {
+  const [state, setState] = useState<AppState>(() => preview ? createPreviewState() : INITIAL_STATE);
+  const [isLoading, setIsLoading] = useState<boolean>(!preview);
+  const readyRef = useRef(preview);
+  const previewStateRef = useRef(state);
+  const previewQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [corruptedRaw, setCorruptedRaw] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
   // Local Date Management: Initialize with getLocalDateString()
-  const [activeDate, setActiveDate] = useState<string>(() => getLocalDateString());
+  const [activeDate, setActiveDate] = useState<string>(() => preview ? '2026-10-25' : getLocalDateString());
 
   const clearStorageError = useCallback(() => {
     setStorageError(null);
@@ -120,10 +137,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // 1. Initial State Load from IndexedDB (loadLatestState)
   useEffect(() => {
+    if (preview) return;
     let mounted = true;
     loadLatestState()
       .then(res => {
         if (!mounted) return;
+        readyRef.current = true;
         setState(res.state);
         if (res.corruptedRaw) {
           setCorruptedRaw(res.corruptedRaw);
@@ -133,7 +152,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       .catch(err => {
         console.error('加载本地数据库异常:', err);
-        if (mounted) setIsLoading(false);
+        if (mounted) {
+          readyRef.current = false;
+          setStorageError('加载本地数据失败，已暂停保存以保护原数据。请刷新页面重试。');
+          setIsLoading(false);
+        }
       });
 
     return () => {
@@ -143,6 +166,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // 2. Cross-day and Midnight Rollover Listener
   useEffect(() => {
+    if (preview) return;
     const checkMidnightRollover = () => {
       const today = getLocalDateString();
       setActiveDate(prev => {
@@ -174,6 +198,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     async <T,>(
       mutator: (draft: AppState) => Promise<MutatorReturn<T>> | MutatorReturn<T>
     ): Promise<MutationResult<T>> => {
+      if (!readyRef.current) {
+        return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，已阻止保存。请刷新页面重试。' };
+      }
+      if (preview) {
+        const task = previewQueueRef.current.then(async (): Promise<MutationResult<T>> => {
+          try {
+            const result = await mutator(structuredClone(previewStateRef.current));
+            if ('error' in result) return { ok: false, ...result.error };
+            previewStateRef.current = result.nextState;
+            setState(result.nextState);
+            return { ok: true, value: result.value };
+          } catch (err) {
+            return { ok: false, code: 'COMMIT_FAILED', message: err instanceof Error ? err.message : String(err) };
+          }
+        });
+        previewQueueRef.current = task.catch(() => {});
+        return task;
+      }
       let appliedNextState: AppState | null = null;
       const result = await commitMutation<T>(async draft => {
         const res = await mutator(draft);
@@ -185,10 +227,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       if (result.ok && appliedNextState) {
         setState(appliedNextState);
+      } else if (!result.ok && (result.code === 'COMMIT_FAILED' || result.code === 'REVISION_CONFLICT')) {
+        setStorageError(result.message);
+        if (result.code === 'REVISION_CONFLICT') {
+          try { setState((await loadLatestState()).state); } catch { readyRef.current = false; }
+        }
       }
       return result;
     },
-    []
+    [preview]
   );
 
   // ----------------------------------------------------------------------
@@ -394,9 +441,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // System: Reset, Backup, Import
   // ----------------------------------------------------------------------
   const resetState = useCallback(async (): Promise<MutationResult<void>> => {
+    if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法重置。' };
+    if (preview) return executeMutation(() => ({ nextState: createPreviewState(), value: undefined }));
     try {
-      await resetDatabase();
-      setState(BLANK_STATE);
+      const reset = await resetDatabase();
+      if (!reset) throw new Error('重置未成功，原数据已保留。');
+      setState(structuredClone(BLANK_STATE));
       return { ok: true, value: undefined };
     } catch (err) {
       return {
@@ -405,23 +455,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         message: err instanceof Error ? err.message : String(err),
       };
     }
-  }, []);
+  }, [preview, executeMutation]);
 
-  const exportBackup = useCallback(() => {
-    const backupObj = {
-      app: '考公工作台·土豆新版',
-      version: 3,
-      exportedAt: new Date().toISOString(),
-      state,
-    };
-    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state]);
+  const exportBackup = useCallback(async (): Promise<MutationResult<void>> => {
+    if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法导出备份。' };
+    try {
+      const latest = preview ? previewStateRef.current : (await loadLatestState()).state;
+      const portable = await createPortableBackupState(latest, { isPreview: preview });
+      const backupObj = {
+        app: '考公工作台·土豆新版',
+        version: 3,
+        exportedAt: new Date().toISOString(),
+        state: portable,
+      };
+      const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      return { ok: true, value: undefined };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStorageError(message);
+      return { ok: false, code: 'EXPORT_FAILED', message };
+    }
+  }, [preview]);
 
   const importBackup = useCallback(
     async (jsonContent: string): Promise<MutationResult<{ summary: string }>> => {
