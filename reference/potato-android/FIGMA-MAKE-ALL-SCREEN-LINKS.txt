@@ -1,0 +1,162 @@
+文件中确实有50个独立界面/状态画板。之前附加的是首页和视觉总览，因此只读到少量示例。
+
+全部50个画板都在同一个页面「01 全部界面与交互原型」：
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=4-264
+
+请先读取这个页面的子节点，列出50个 Screen/* Frame，再按Frame分别读取并实现。主模块8个、操作流程20个、补充画面与状态22个。
+如果工具不支持读取PAGE，请使用下面已经核对的50个Frame直达链接；不要以总览中的示例数量推断文件只有6屏。可以分批读取和实现，并明确记录尚未读取的项。
+
+01. Screen/today
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=8-26
+
+02. Screen/library
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-42
+
+03. Screen/books
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-271
+
+04. Screen/courses
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-564
+
+05. Screen/wrong
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-833
+
+06. Screen/overall
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1075
+
+07. Screen/monthly
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1315
+
+08. Screen/settings
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1579
+
+09. Screen/focus
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1773
+
+10. Screen/add-plan
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1867
+
+11. Screen/complete-book
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-1993
+
+12. Screen/complete-course
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2103
+
+13. Screen/complete-custom
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2196
+
+14. Screen/complete-success
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2293
+
+15. Screen/book-edit
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2365
+
+16. Screen/course-edit
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2496
+
+17. Screen/custom-add
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=12-2624
+
+18. Screen/photo-import
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-158
+
+19. Screen/wrong-detail
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-340
+
+20. Screen/countdown
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-447
+
+21. Screen/guest
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-616
+
+22. Screen/login
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-779
+
+23. Screen/register
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-879
+
+24. Screen/sync
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-976
+
+25. Screen/backup
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1095
+
+26. Screen/profile
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1231
+
+27. Screen/today-empty
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1312
+
+28. Screen/delete-confirm
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1459
+
+29. Screen/book-add
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1656
+
+30. Screen/course-add
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1791
+
+31. Screen/today-multi
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-1924
+
+32. Screen/focus-paused
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2191
+
+33. Screen/complete-course-success
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2294
+
+34. Screen/complete-custom-success
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2378
+
+35. Screen/states-empty
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2470
+
+36. Screen/states-sync
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2700
+
+37. Screen/states-form
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-2847
+
+38. Screen/confirm-book
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3182
+
+39. Screen/confirm-course
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3249
+
+40. Screen/confirm-photo
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3316
+
+41. Screen/confirm-reset
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3383
+
+42. Screen/confirm-import
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3453
+
+43. Screen/confirm-upload
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3523
+
+44. Screen/confirm-pull
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3593
+
+45. Screen/confirm-logout
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3663
+
+46. Screen/download-apk
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3730
+
+47. Screen/month-picker
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3828
+
+48. Screen/overall-legend
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-3931
+
+49. Screen/focus-course
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-4135
+
+50. Screen/focus-custom
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=13-4220
+
+完整功能需求（文字说明Frame，不是App页面）：
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-1015
+
+请在当前新副本中继续，以已读取设计和完整需求为依据开发。先列实际读取清单，随后直接实施；任何节点读取失败请给具体节点和失败原因。

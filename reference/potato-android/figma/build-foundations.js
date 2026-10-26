@@ -1,0 +1,36 @@
+const page=await figma.getNodeByIdAsync('0:1'); await figma.setCurrentPageAsync(page);
+page.name='00 设计规范与组件';
+await Promise.all(['Regular','Medium','Bold'].flatMap(style=>['Noto Sans SC','Roboto'].map(family=>figma.loadFontAsync({family,style}))));
+const made=[],mutated=[page.id],track=n=>(made.push(n.id),n);
+const rgb=hex=>({r:parseInt(hex.slice(1,3),16)/255,g:parseInt(hex.slice(3,5),16)/255,b:parseInt(hex.slice(5,7),16)/255});
+const prim=await createVariableCollection('Potato / Primitives',['Light']);
+const sem=await createVariableCollection('Potato / Semantic',['Light']);
+const palette={bg:'#F4F3EB',paper:'#FFFDF8',primary:'#61794F',ink:'#343C2F',muted:'#697160',line:'#E4E6D9',soft:'#E7EDDF',gold:'#E6B957',danger:'#B56053',white:'#FFFFFF',success:'#4B6240',chart1:'#61794F',chart2:'#9AAE80',chart3:'#B7BE99',chart4:'#D0B477',chart5:'#9AAFA7',chart6:'#B4B7BE',chart7:'#C3ADA1',chart8:'#D6C9AC'};
+const vars={},variableIds=[];
+for(const [name,hex] of Object.entries(palette)){
+ const p=figma.variables.createVariable('raw/'+name,prim.collection,'COLOR');p.scopes=[];p.setValueForMode(prim.modeIds.Light,{...rgb(hex),a:1});variableIds.push(p.id);
+ const v=figma.variables.createVariable('color/'+name,sem.collection,'COLOR');v.scopes=['FRAME_FILL','SHAPE_FILL','TEXT_FILL','STROKE_COLOR'];v.setValueForMode(sem.modeIds.Light,{type:'VARIABLE_ALIAS',id:p.id});v.setVariableCodeSyntax('WEB','var(--'+name+')');v.setVariableCodeSyntax('ANDROID','PotatoColors.'+name);vars[name]=v;variableIds.push(v.id);
+}
+for(const [scope,values] of [['space',[4,8,12,16,20,24,32]],['radius',[12,16,18,20,24]]])for(const value of values){const v=figma.variables.createVariable(scope+'/'+value,sem.collection,'FLOAT');v.scopes=scope==='space'?['GAP']:['CORNER_RADIUS'];v.setValueForMode(sem.modeIds.Light,value);v.setVariableCodeSyntax('WEB','var(--'+scope+'-'+value+')');v.setVariableCodeSyntax('ANDROID','Potato'+scope+'.'+value);vars[scope+value]=v;variableIds.push(v.id);}
+const paint=(name)=>figma.variables.setBoundVariableForPaint({type:'SOLID',color:rgb(palette[name])},'color',vars[name]);
+const styles={};
+for(const [name,size,line,font,weight] of [['Title',25,34,'Noto Sans SC','Bold'],['Heading',18,26,'Noto Sans SC','Bold'],['Body',14,22,'Noto Sans SC','Regular'],['BodyLarge',16,24,'Noto Sans SC','Regular'],['Label',12,18,'Noto Sans SC','Medium'],['Caption',11,17,'Noto Sans SC','Regular'],['Metric',28,35,'Roboto','Medium'],['Timer',48,60,'Roboto','Medium']]){const s=figma.createTextStyle();s.name='Potato/'+name;s.fontName={family:font,style:weight};s.fontSize=size;s.lineHeight={unit:'PIXELS',value:line};styles[name]=s.id;}
+function txt(parent,value,size=14,color='ink',weight='Regular'){const t=track(figma.createText());parent.appendChild(t);t.fontName={family:'Noto Sans SC',style:weight};t.fontSize=size;t.lineHeight={unit:'PIXELS',value:size*1.5};t.characters=value;t.fills=[paint(color)];t.textAutoResize='WIDTH_AND_HEIGHT';return t;}
+const cover=track(figma.createAutoLayout('VERTICAL'));page.appendChild(cover);cover.name='品牌与设计规范';cover.x=1200;cover.y=80;cover.resize(1100,160);cover.layoutSizingVertical='HUG';cover.paddingTop=28;cover.paddingBottom=28;cover.paddingLeft=32;cover.paddingRight=32;cover.itemSpacing=8;cover.fills=[paint('bg')];txt(cover,'考公工作台 · 土豆陪伴版',28,'ink','Bold');txt(cover,'Android 412 × 915 / 奶油白 · 鼠尾草绿 / 8 个原模块与完整功能状态',14,'muted');
+const colors=track(figma.createAutoLayout('HORIZONTAL'));page.appendChild(colors);colors.name='语义颜色变量';colors.x=1200;colors.y=280;colors.itemSpacing=12;colors.fills=[];
+for(const name of ['bg','paper','primary','ink','muted','line','soft','gold']){const sw=track(figma.createAutoLayout('VERTICAL'));colors.appendChild(sw);sw.resize(125,100);sw.primaryAxisSizingMode='FIXED';sw.counterAxisSizingMode='FIXED';sw.paddingLeft=12;sw.paddingRight=12;sw.paddingTop=24;sw.cornerRadius=14;sw.fills=[paint(name)];txt(sw,name,13,['primary','ink','muted'].includes(name)?'white':'ink');txt(sw,palette[name],11,['primary','ink','muted'].includes(name)?'white':'muted');}
+const icons={};let ix=0;
+for(const [name,path]of Object.entries(ICON_PATHS)){const c=track(figma.createComponent());page.appendChild(c);c.name='Icon/'+name;c.description='来自工作台代码的24dp线性图标';c.resize(24,24);c.x=1200+(ix%18)*44;c.y=440+Math.floor(ix/18)*48;c.fills=[];const svg=track(figma.createNodeFromSvg(`<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${path}" fill="none" stroke="#61794F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`));c.appendChild(svg);svg.x=0;svg.y=0;icons[name]=c.id;ix++;}
+const mascots={};for(let i=0;i<8;i++){const c=track(figma.createComponent());page.appendChild(c);c.name='Potato/'+['挥手','读书','听课','查错','图表','电脑','庆祝','笔记'][i];c.description='土豆角色独立内容插画，可按场景缩放使用';c.resize(92,100.35);c.x=1200+i*130;c.y=580;c.fills=[{type:'IMAGE',imageHash:'eb2c6a36a04f12f4e3363b96caab9edfb5cdbe35',scaleMode:'CROP',imageTransform:[[0.25,0,(i%4)*.25],[0,.5,Math.floor(i/4)*.5]]}];mascots[i]=c.id;}
+const buttonComps={},variants=[];
+for(const kind of ['primary','secondary','ghost','danger'])for(const state of ['Default','Pressed','Disabled']){
+ const c=track(figma.createComponent());page.appendChild(c);c.name='Kind='+kind+', State='+state;c.description='通用按钮；Label、Icon和ShowIcon可覆盖';c.resize(180,48);c.layoutMode='HORIZONTAL';c.primaryAxisSizingMode='FIXED';c.counterAxisSizingMode='FIXED';c.primaryAxisAlignItems='CENTER';c.counterAxisAlignItems='CENTER';c.itemSpacing=7;c.paddingLeft=12;c.paddingRight=12;c.cornerRadius=13;c.fills=kind==='ghost'?[]:[paint(kind==='primary'?'primary':kind==='danger'?'paper':'soft')];if(kind==='ghost'){c.strokes=[paint('line')];c.strokeWeight=1;}c.opacity=state==='Disabled'?.45:state==='Pressed'?.85:1;
+ const icon=(await figma.getNodeByIdAsync(icons.plus)).createInstance();track(icon);c.appendChild(icon);icon.resize(18,18);
+ const label=txt(c,'加入今天',14,kind==='primary'?'white':'primary','Medium');
+ const lp=c.addComponentProperty('Label','TEXT','加入今天');label.componentPropertyReferences={characters:lp};const sp=c.addComponentProperty('ShowIcon','BOOLEAN',true);const ip=c.addComponentProperty('Icon','INSTANCE_SWAP',icons.plus);icon.componentPropertyReferences={visible:sp,mainComponent:ip};
+ if(kind==='primary')for(const v of icon.findAllWithCriteria({types:['VECTOR']})){v.strokes=v.strokes.map(p=>p.type==='SOLID'?paint('white'):p);mutated.push(v.id);}
+ variants.push(c);buttonComps[kind+':'+state]=c.id;
+}
+const bs=track(figma.combineAsVariants(variants,page));bs.name='Button';bs.description='工作台按钮：4种样式 × 3种状态';bs.x=1200;bs.y=760;variants.forEach((v,i)=>{v.x=(i%3)*200;v.y=Math.floor(i/3)*70});bs.resize(600,280);
+const pages={foundations:page.id};for(const [key,name]of [['core','01 八个核心板块'],['flows','02 关键操作流程'],['states','03 补充功能与状态'],['spec','04 完整功能与复刻Prompt'],['assets','05 土豆角色素材']]){const p=track(figma.createPage());p.name=name;pages[key]=p.id;}
+return {createdNodeIds:made,mutatedNodeIds:mutated,pages,variables:Object.fromEntries(Object.entries(vars).map(([k,v])=>[k,v.id])),variableCount:variableIds.length,variableIds,collections:[prim.collection.id,sem.collection.id],styles,icons,mascots,buttonComps,buttonSet:bs.id,counts:{iconComponents:35,mascotComponents:8,buttonVariants:12}};

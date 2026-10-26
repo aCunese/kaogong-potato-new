@@ -1,0 +1,65 @@
+我选A。Section已经整理好，请直接读取：
+https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=29-420
+
+fileKey: qRhJ6ENSWrQZFIrK6y7PZy
+Section nodeId: 29:420
+Section名称：Android · 全部50个界面与状态
+其中有50个 Screen/* Frame，原有画板ID保持不变。请先列出子Frame，再分批读取并在当前副本继续实现。
+
+为避免Section遍历受限，下面同时给出全部50个已经核实的Frame节点ID。必要时使用同一fileKey，按各节点ID直接读取，无需再让我手动复制链接：
+today = 8:26
+library = 12:42
+books = 12:271
+courses = 12:564
+wrong = 12:833
+overall = 12:1075
+monthly = 12:1315
+settings = 12:1579
+focus = 12:1773
+add-plan = 12:1867
+complete-book = 12:1993
+complete-course = 12:2103
+complete-custom = 12:2196
+complete-success = 12:2293
+book-edit = 12:2365
+course-edit = 12:2496
+custom-add = 12:2624
+photo-import = 13:158
+wrong-detail = 13:340
+countdown = 13:447
+guest = 13:616
+login = 13:779
+register = 13:879
+sync = 13:976
+backup = 13:1095
+profile = 13:1231
+today-empty = 13:1312
+delete-confirm = 13:1459
+book-add = 13:1656
+course-add = 13:1791
+today-multi = 13:1924
+focus-paused = 13:2191
+complete-course-success = 13:2294
+complete-custom-success = 13:2378
+states-empty = 13:2470
+states-sync = 13:2700
+states-form = 13:2847
+confirm-book = 13:3182
+confirm-course = 13:3249
+confirm-photo = 13:3316
+confirm-reset = 13:3383
+confirm-import = 13:3453
+confirm-upload = 13:3523
+confirm-pull = 13:3593
+confirm-logout = 13:3663
+download-apk = 13:3730
+month-picker = 13:3828
+overall-legend = 13:3931
+focus-course = 13:4135
+focus-custom = 13:4220
+
+单个Frame链接格式：https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=节点ID（把冒号改成横线）
+例如 today：https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=8-26
+
+完整功能需求Frame：https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-1015
+请继续开发。工具无法读取的节点要具体列出，可分批执行；不要再把参考总览中的6个示例当成完整画板清单。

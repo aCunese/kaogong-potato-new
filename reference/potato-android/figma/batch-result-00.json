@@ -1,0 +1,15 @@
+{
+  "createdNodeIds": [],
+  "mutatedNodeIds": [
+    "4:264"
+  ],
+  "screens": [
+    {
+      "screen": "today",
+      "id": "8:26",
+      "existing": true
+    }
+  ],
+  "navLinks": [],
+  "warnings": []
+}

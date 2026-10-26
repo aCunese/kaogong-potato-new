@@ -1,0 +1,287 @@
+{
+  "product": "考公工作台",
+  "visual_direction": "奶油白 / 鼠尾草绿 / 土豆陪伴",
+  "logical_canvas": [
+    412,
+    915
+  ],
+  "export_scale": 2,
+  "main_screens": [
+    {
+      "id": "today",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 23,
+      "invalidLinks": [],
+      "filename": "01-today.png"
+    },
+    {
+      "id": "library",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 54,
+      "invalidLinks": [],
+      "filename": "02-library.png"
+    },
+    {
+      "id": "books",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 99,
+      "invalidLinks": [],
+      "filename": "03-books.png"
+    },
+    {
+      "id": "courses",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 99,
+      "invalidLinks": [],
+      "filename": "04-courses.png"
+    },
+    {
+      "id": "wrong",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "05-wrong.png"
+    },
+    {
+      "id": "overall",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "06-overall.png"
+    },
+    {
+      "id": "monthly",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "07-monthly.png"
+    },
+    {
+      "id": "settings",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "08-settings.png"
+    }
+  ],
+  "supporting_screens": [
+    {
+      "id": "focus",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "09-focus.png"
+    },
+    {
+      "id": "add-plan",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "10-add-plan.png"
+    },
+    {
+      "id": "complete-book",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "11-complete-book.png"
+    },
+    {
+      "id": "complete-course",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "12-complete-course.png"
+    },
+    {
+      "id": "complete-custom",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "13-complete-custom.png"
+    },
+    {
+      "id": "complete-success",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "14-complete-success.png"
+    },
+    {
+      "id": "book-edit",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "15-book-edit.png"
+    },
+    {
+      "id": "course-edit",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "16-course-edit.png"
+    },
+    {
+      "id": "custom-add",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "17-custom-add.png"
+    },
+    {
+      "id": "photo-import",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "18-photo-import.png"
+    },
+    {
+      "id": "wrong-detail",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "19-wrong-detail.png"
+    },
+    {
+      "id": "countdown",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "20-countdown.png"
+    },
+    {
+      "id": "guest",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "21-guest.png"
+    },
+    {
+      "id": "login",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "22-login.png"
+    },
+    {
+      "id": "register",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "23-register.png"
+    },
+    {
+      "id": "sync",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "24-sync.png"
+    },
+    {
+      "id": "backup",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "25-backup.png"
+    },
+    {
+      "id": "profile",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "26-profile.png"
+    },
+    {
+      "id": "today-empty",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "27-today-empty.png"
+    },
+    {
+      "id": "delete-confirm",
+      "width": 412,
+      "height": 915,
+      "horizontalOverflow": 0,
+      "verticalScroll": 0,
+      "invalidLinks": [],
+      "filename": "28-delete-confirm.png"
+    }
+  ],
+  "small_width_checks": [
+    {
+      "id": "today",
+      "viewport": "360x800",
+      "horizontalOverflow": 0
+    },
+    {
+      "id": "book-edit",
+      "viewport": "360x800",
+      "horizontalOverflow": 0
+    },
+    {
+      "id": "monthly",
+      "viewport": "360x800",
+      "horizontalOverflow": 0
+    },
+    {
+      "id": "login",
+      "viewport": "360x800",
+      "horizontalOverflow": 0
+    }
+  ]
+}

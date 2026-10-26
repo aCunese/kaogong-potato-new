@@ -1,0 +1,576 @@
+{
+  "runId": "potato-android-2026-10-26",
+  "fileKey": "qRhJ6ENSWrQZFIrK6y7PZy",
+  "url": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy",
+  "sessionId": "95438fb9-8b31-4e40-b9ef-04192b64daeb",
+  "scope": "28个主流程画面+补充功能状态+源码视觉tokens与复刻说明，原生可编辑图层",
+  "pages": {
+    "foundations": "0:1"
+  },
+  "discovery": {
+    "codeConnect": "none",
+    "existingScreens": "empty file",
+    "availableFont": "Noto Sans SC Regular/Medium/Bold; Roboto Regular/Medium/Bold",
+    "localAssets": "none",
+    "captureId": "2a829b9f-e6a9-4d67-a7cb-c178efa0acb6"
+  },
+  "handoff": {
+    "fileKey": "qRhJ6ENSWrQZFIrK6y7PZy",
+    "fileUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy",
+    "overviewUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-26",
+    "screensUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=4-264",
+    "promptUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-1018",
+    "pages": [
+      {
+        "id": "0:1",
+        "name": "00 设计规范与组件",
+        "children": 46
+      },
+      {
+        "id": "4:264",
+        "name": "01 全部界面与交互原型",
+        "children": 100
+      },
+      {
+        "id": "4:265",
+        "name": "02 首页列表表单图表弹窗总览",
+        "children": 1
+      },
+      {
+        "id": "4:266",
+        "name": "03 功能覆盖与状态清单",
+        "children": 1
+      },
+      {
+        "id": "4:267",
+        "name": "04 完整复刻Prompt",
+        "children": 1
+      },
+      {
+        "id": "4:268",
+        "name": "05 土豆角色素材",
+        "children": 1
+      }
+    ],
+    "screenCount": 50,
+    "linkedNodes": 242,
+    "mainSize": {
+      "width": 412,
+      "height": 915
+    },
+    "longStateBoards": [
+      "states-empty",
+      "states-sync",
+      "states-form",
+      "overall-legend"
+    ],
+    "visualReview": [
+      "overview",
+      "focus",
+      "assets"
+    ],
+    "productionCodeChanged": false
+  },
+  "screens": {
+    "today": {
+      "screen": "today",
+      "id": "8:26",
+      "width": 412,
+      "height": 915,
+      "textCount": 39,
+      "instanceCount": 10,
+      "layerCount": 226,
+      "group": "core"
+    },
+    "library": {
+      "screen": "library",
+      "id": "12:42",
+      "width": 412,
+      "height": 915,
+      "textCount": 43,
+      "instanceCount": 9,
+      "layerCount": 219,
+      "group": "core"
+    },
+    "books": {
+      "screen": "books",
+      "id": "12:271",
+      "width": 412,
+      "height": 915,
+      "textCount": 49,
+      "instanceCount": 15,
+      "layerCount": 277,
+      "group": "core"
+    },
+    "courses": {
+      "screen": "courses",
+      "id": "12:564",
+      "width": 412,
+      "height": 915,
+      "textCount": 43,
+      "instanceCount": 11,
+      "layerCount": 257,
+      "group": "core"
+    },
+    "wrong": {
+      "screen": "wrong",
+      "id": "12:833",
+      "width": 412,
+      "height": 915,
+      "textCount": 64,
+      "instanceCount": 3,
+      "layerCount": 227,
+      "group": "core"
+    },
+    "overall": {
+      "screen": "overall",
+      "id": "12:1075",
+      "width": 412,
+      "height": 915,
+      "textCount": 51,
+      "instanceCount": 1,
+      "layerCount": 237,
+      "group": "core"
+    },
+    "monthly": {
+      "screen": "monthly",
+      "id": "12:1315",
+      "width": 412,
+      "height": 915,
+      "textCount": 51,
+      "instanceCount": 1,
+      "layerCount": 262,
+      "group": "core"
+    },
+    "settings": {
+      "screen": "settings",
+      "id": "12:1579",
+      "width": 412,
+      "height": 915,
+      "textCount": 26,
+      "instanceCount": 6,
+      "layerCount": 188,
+      "group": "core"
+    },
+    "focus": {
+      "screen": "focus",
+      "id": "12:1773",
+      "width": 412,
+      "height": 915,
+      "textCount": 15,
+      "instanceCount": 5,
+      "layerCount": 88,
+      "group": "flow"
+    },
+    "add-plan": {
+      "screen": "add-plan",
+      "id": "12:1867",
+      "width": 412,
+      "height": 915,
+      "textCount": 19,
+      "instanceCount": 3,
+      "layerCount": 122,
+      "group": "flow"
+    },
+    "complete-book": {
+      "screen": "complete-book",
+      "id": "12:1993",
+      "width": 412,
+      "height": 915,
+      "textCount": 19,
+      "instanceCount": 3,
+      "layerCount": 106,
+      "group": "flow"
+    },
+    "complete-course": {
+      "screen": "complete-course",
+      "id": "12:2103",
+      "width": 412,
+      "height": 915,
+      "textCount": 14,
+      "instanceCount": 3,
+      "layerCount": 89,
+      "group": "flow"
+    },
+    "complete-custom": {
+      "screen": "complete-custom",
+      "id": "12:2196",
+      "width": 412,
+      "height": 915,
+      "textCount": 14,
+      "instanceCount": 3,
+      "layerCount": 93,
+      "group": "flow"
+    },
+    "complete-success": {
+      "screen": "complete-success",
+      "id": "12:2293",
+      "width": 412,
+      "height": 915,
+      "textCount": 11,
+      "instanceCount": 3,
+      "layerCount": 68,
+      "group": "flow"
+    },
+    "book-edit": {
+      "screen": "book-edit",
+      "id": "12:2365",
+      "width": 412,
+      "height": 915,
+      "textCount": 22,
+      "instanceCount": 2,
+      "layerCount": 127,
+      "group": "flow"
+    },
+    "course-edit": {
+      "screen": "course-edit",
+      "id": "12:2496",
+      "width": 412,
+      "height": 915,
+      "textCount": 21,
+      "instanceCount": 2,
+      "layerCount": 124,
+      "group": "flow"
+    },
+    "custom-add": {
+      "screen": "custom-add",
+      "id": "12:2624",
+      "width": 412,
+      "height": 915,
+      "textCount": 16,
+      "instanceCount": 2,
+      "layerCount": 102,
+      "group": "flow"
+    },
+    "photo-import": {
+      "screen": "photo-import",
+      "id": "13:158",
+      "width": 412,
+      "height": 915,
+      "textCount": 56,
+      "instanceCount": 3,
+      "layerCount": 170,
+      "group": "flow"
+    },
+    "wrong-detail": {
+      "screen": "wrong-detail",
+      "id": "13:340",
+      "width": 412,
+      "height": 915,
+      "textCount": 29,
+      "instanceCount": 0,
+      "layerCount": 101,
+      "group": "flow"
+    },
+    "countdown": {
+      "screen": "countdown",
+      "id": "13:447",
+      "width": 412,
+      "height": 915,
+      "textCount": 53,
+      "instanceCount": 3,
+      "layerCount": 165,
+      "group": "flow"
+    },
+    "guest": {
+      "screen": "guest",
+      "id": "13:616",
+      "width": 412,
+      "height": 915,
+      "textCount": 23,
+      "instanceCount": 6,
+      "layerCount": 157,
+      "group": "flow"
+    },
+    "login": {
+      "screen": "login",
+      "id": "13:779",
+      "width": 412,
+      "height": 915,
+      "textCount": 18,
+      "instanceCount": 3,
+      "layerCount": 96,
+      "group": "flow"
+    },
+    "register": {
+      "screen": "register",
+      "id": "13:879",
+      "width": 412,
+      "height": 915,
+      "textCount": 16,
+      "instanceCount": 3,
+      "layerCount": 93,
+      "group": "flow"
+    },
+    "sync": {
+      "screen": "sync",
+      "id": "13:976",
+      "width": 412,
+      "height": 915,
+      "textCount": 17,
+      "instanceCount": 5,
+      "layerCount": 113,
+      "group": "flow"
+    },
+    "backup": {
+      "screen": "backup",
+      "id": "13:1095",
+      "width": 412,
+      "height": 915,
+      "textCount": 18,
+      "instanceCount": 9,
+      "layerCount": 126,
+      "group": "flow"
+    },
+    "profile": {
+      "screen": "profile",
+      "id": "13:1231",
+      "width": 412,
+      "height": 915,
+      "textCount": 10,
+      "instanceCount": 4,
+      "layerCount": 77,
+      "group": "flow"
+    },
+    "today-empty": {
+      "screen": "today-empty",
+      "id": "13:1312",
+      "width": 412,
+      "height": 915,
+      "textCount": 26,
+      "instanceCount": 5,
+      "layerCount": 143,
+      "group": "flow"
+    },
+    "delete-confirm": {
+      "screen": "delete-confirm",
+      "id": "13:1459",
+      "width": 412,
+      "height": 915,
+      "textCount": 33,
+      "instanceCount": 10,
+      "layerCount": 186,
+      "group": "flow"
+    },
+    "book-add": {
+      "screen": "book-add",
+      "id": "13:1656",
+      "width": 412,
+      "height": 915,
+      "textCount": 23,
+      "instanceCount": 3,
+      "layerCount": 131,
+      "group": "extra"
+    },
+    "course-add": {
+      "screen": "course-add",
+      "id": "13:1791",
+      "width": 412,
+      "height": 915,
+      "textCount": 22,
+      "instanceCount": 3,
+      "layerCount": 129,
+      "group": "extra"
+    },
+    "today-multi": {
+      "screen": "today-multi",
+      "id": "13:1924",
+      "width": 412,
+      "height": 915,
+      "textCount": 37,
+      "instanceCount": 14,
+      "layerCount": 253,
+      "group": "extra"
+    },
+    "focus-paused": {
+      "screen": "focus-paused",
+      "id": "13:2191",
+      "width": 412,
+      "height": 915,
+      "textCount": 16,
+      "instanceCount": 5,
+      "layerCount": 97,
+      "group": "extra"
+    },
+    "complete-course-success": {
+      "screen": "complete-course-success",
+      "id": "13:2294",
+      "width": 412,
+      "height": 915,
+      "textCount": 13,
+      "instanceCount": 3,
+      "layerCount": 80,
+      "group": "extra"
+    },
+    "complete-custom-success": {
+      "screen": "complete-custom-success",
+      "id": "13:2378",
+      "width": 412,
+      "height": 915,
+      "textCount": 14,
+      "instanceCount": 3,
+      "layerCount": 88,
+      "group": "extra"
+    },
+    "states-empty": {
+      "screen": "states-empty",
+      "id": "13:2470",
+      "width": 412,
+      "height": 2253,
+      "textCount": 46,
+      "instanceCount": 21,
+      "layerCount": 214,
+      "group": "extra"
+    },
+    "states-sync": {
+      "screen": "states-sync",
+      "id": "13:2700",
+      "width": 412,
+      "height": 987,
+      "textCount": 19,
+      "instanceCount": 9,
+      "layerCount": 137,
+      "group": "extra"
+    },
+    "states-form": {
+      "screen": "states-form",
+      "id": "13:2847",
+      "width": 412,
+      "height": 2429,
+      "textCount": 52,
+      "instanceCount": 15,
+      "layerCount": 319,
+      "group": "extra"
+    },
+    "confirm-book": {
+      "screen": "confirm-book",
+      "id": "13:3182",
+      "width": 412,
+      "height": 915,
+      "textCount": 7,
+      "instanceCount": 4,
+      "layerCount": 60,
+      "group": "extra"
+    },
+    "confirm-course": {
+      "screen": "confirm-course",
+      "id": "13:3249",
+      "width": 412,
+      "height": 915,
+      "textCount": 7,
+      "instanceCount": 4,
+      "layerCount": 60,
+      "group": "extra"
+    },
+    "confirm-photo": {
+      "screen": "confirm-photo",
+      "id": "13:3316",
+      "width": 412,
+      "height": 915,
+      "textCount": 7,
+      "instanceCount": 4,
+      "layerCount": 60,
+      "group": "extra"
+    },
+    "confirm-reset": {
+      "screen": "confirm-reset",
+      "id": "13:3383",
+      "width": 412,
+      "height": 915,
+      "textCount": 8,
+      "instanceCount": 4,
+      "layerCount": 63,
+      "group": "extra"
+    },
+    "confirm-import": {
+      "screen": "confirm-import",
+      "id": "13:3453",
+      "width": 412,
+      "height": 915,
+      "textCount": 8,
+      "instanceCount": 4,
+      "layerCount": 63,
+      "group": "extra"
+    },
+    "confirm-upload": {
+      "screen": "confirm-upload",
+      "id": "13:3523",
+      "width": 412,
+      "height": 915,
+      "textCount": 8,
+      "instanceCount": 4,
+      "layerCount": 63,
+      "group": "extra"
+    },
+    "confirm-pull": {
+      "screen": "confirm-pull",
+      "id": "13:3593",
+      "width": 412,
+      "height": 915,
+      "textCount": 8,
+      "instanceCount": 4,
+      "layerCount": 63,
+      "group": "extra"
+    },
+    "confirm-logout": {
+      "screen": "confirm-logout",
+      "id": "13:3663",
+      "width": 412,
+      "height": 915,
+      "textCount": 7,
+      "instanceCount": 4,
+      "layerCount": 60,
+      "group": "extra"
+    },
+    "download-apk": {
+      "screen": "download-apk",
+      "id": "13:3730",
+      "width": 412,
+      "height": 915,
+      "textCount": 13,
+      "instanceCount": 5,
+      "layerCount": 92,
+      "group": "extra"
+    },
+    "month-picker": {
+      "screen": "month-picker",
+      "id": "13:3828",
+      "width": 412,
+      "height": 915,
+      "textCount": 20,
+      "instanceCount": 3,
+      "layerCount": 99,
+      "group": "extra"
+    },
+    "overall-legend": {
+      "screen": "overall-legend",
+      "id": "13:3931",
+      "width": 412,
+      "height": 1178,
+      "textCount": 39,
+      "instanceCount": 3,
+      "layerCount": 198,
+      "group": "extra"
+    },
+    "focus-course": {
+      "screen": "focus-course",
+      "id": "13:4135",
+      "width": 412,
+      "height": 915,
+      "textCount": 14,
+      "instanceCount": 3,
+      "layerCount": 81,
+      "group": "extra"
+    },
+    "focus-custom": {
+      "screen": "focus-custom",
+      "id": "13:4220",
+      "width": 412,
+      "height": 915,
+      "textCount": 14,
+      "instanceCount": 3,
+      "layerCount": 81,
+      "group": "extra"
+    }
+  }
+}

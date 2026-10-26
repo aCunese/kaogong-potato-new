@@ -1,0 +1,60 @@
+{
+  "fileKey": "qRhJ6ENSWrQZFIrK6y7PZy",
+  "fileUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy",
+  "overviewUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-26",
+  "screensUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=4-264",
+  "promptUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=16-1018",
+  "pages": [
+    {
+      "id": "0:1",
+      "name": "00 设计规范与组件",
+      "children": 46
+    },
+    {
+      "id": "4:264",
+      "name": "01 全部界面与交互原型",
+      "children": 100
+    },
+    {
+      "id": "4:265",
+      "name": "02 首页列表表单图表弹窗总览",
+      "children": 1
+    },
+    {
+      "id": "4:266",
+      "name": "03 功能覆盖与状态清单",
+      "children": 1
+    },
+    {
+      "id": "4:267",
+      "name": "04 完整复刻Prompt",
+      "children": 1
+    },
+    {
+      "id": "4:268",
+      "name": "05 土豆角色素材",
+      "children": 1
+    }
+  ],
+  "screenCount": 50,
+  "linkedNodes": 242,
+  "mainSize": {
+    "width": 412,
+    "height": 915
+  },
+  "longStateBoards": [
+    "states-empty",
+    "states-sync",
+    "states-form",
+    "overall-legend"
+  ],
+  "visualReview": [
+    "overview",
+    "focus",
+    "assets"
+  ],
+  "productionCodeChanged": false,
+  "sectionId": "29:420",
+  "sectionUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=29-420",
+  "screensParent": "29:420"
+}

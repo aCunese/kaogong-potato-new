@@ -1,0 +1,336 @@
+{
+  "createdNodeIds": [
+    "29:420"
+  ],
+  "mutatedNodeIds": [
+    "8:26",
+    "8:261",
+    "12:42",
+    "12:270",
+    "12:271",
+    "12:563",
+    "12:564",
+    "12:832",
+    "12:833",
+    "12:1074",
+    "12:1075",
+    "12:1314",
+    "12:1315",
+    "12:1578",
+    "12:1579",
+    "12:1772",
+    "12:1773",
+    "12:1866",
+    "12:1867",
+    "12:1992",
+    "12:1993",
+    "12:2102",
+    "12:2103",
+    "12:2195",
+    "12:2196",
+    "12:2292",
+    "12:2293",
+    "12:2364",
+    "12:2365",
+    "12:2495",
+    "12:2496",
+    "12:2623",
+    "12:2624",
+    "12:2729",
+    "13:158",
+    "13:339",
+    "13:340",
+    "13:446",
+    "13:447",
+    "13:615",
+    "13:616",
+    "13:778",
+    "13:779",
+    "13:878",
+    "13:879",
+    "13:975",
+    "13:976",
+    "13:1094",
+    "13:1095",
+    "13:1230",
+    "13:1231",
+    "13:1311",
+    "13:1312",
+    "13:1458",
+    "13:1459",
+    "13:1655",
+    "13:1656",
+    "13:1790",
+    "13:1791",
+    "13:1923",
+    "13:1924",
+    "13:2190",
+    "13:2191",
+    "13:2293",
+    "13:2294",
+    "13:2377",
+    "13:2378",
+    "13:2469",
+    "13:2470",
+    "13:2699",
+    "13:2700",
+    "13:2846",
+    "13:2847",
+    "13:3181",
+    "13:3182",
+    "13:3248",
+    "13:3249",
+    "13:3315",
+    "13:3316",
+    "13:3382",
+    "13:3383",
+    "13:3452",
+    "13:3453",
+    "13:3522",
+    "13:3523",
+    "13:3592",
+    "13:3593",
+    "13:3662",
+    "13:3663",
+    "13:3729",
+    "13:3730",
+    "13:3827",
+    "13:3828",
+    "13:3930",
+    "13:3931",
+    "13:4134",
+    "13:4135",
+    "13:4219",
+    "13:4220",
+    "13:4304",
+    "4:264"
+  ],
+  "sectionId": "29:420",
+  "name": "Android · 全部50个界面与状态",
+  "sectionUrl": "https://www.figma.com/design/qRhJ6ENSWrQZFIrK6y7PZy?node-id=29-420",
+  "frameCount": 50,
+  "titleCount": 50,
+  "positionsPreserved": true,
+  "linkedNodes": 242,
+  "invalidDestinations": [],
+  "flowStartingPoints": [
+    {
+      "nodeId": "8:26",
+      "name": "土豆工作台 · 主流程"
+    },
+    {
+      "nodeId": "13:1924",
+      "name": "多任务计时"
+    },
+    {
+      "nodeId": "13:2470",
+      "name": "空态与异常"
+    },
+    {
+      "nodeId": "13:616",
+      "name": "账号与同步"
+    }
+  ],
+  "frames": [
+    {
+      "id": "8:26",
+      "name": "Screen/today"
+    },
+    {
+      "id": "12:42",
+      "name": "Screen/library"
+    },
+    {
+      "id": "12:271",
+      "name": "Screen/books"
+    },
+    {
+      "id": "12:564",
+      "name": "Screen/courses"
+    },
+    {
+      "id": "12:833",
+      "name": "Screen/wrong"
+    },
+    {
+      "id": "12:1075",
+      "name": "Screen/overall"
+    },
+    {
+      "id": "12:1315",
+      "name": "Screen/monthly"
+    },
+    {
+      "id": "12:1579",
+      "name": "Screen/settings"
+    },
+    {
+      "id": "12:1773",
+      "name": "Screen/focus"
+    },
+    {
+      "id": "12:1867",
+      "name": "Screen/add-plan"
+    },
+    {
+      "id": "12:1993",
+      "name": "Screen/complete-book"
+    },
+    {
+      "id": "12:2103",
+      "name": "Screen/complete-course"
+    },
+    {
+      "id": "12:2196",
+      "name": "Screen/complete-custom"
+    },
+    {
+      "id": "12:2293",
+      "name": "Screen/complete-success"
+    },
+    {
+      "id": "12:2365",
+      "name": "Screen/book-edit"
+    },
+    {
+      "id": "12:2496",
+      "name": "Screen/course-edit"
+    },
+    {
+      "id": "12:2624",
+      "name": "Screen/custom-add"
+    },
+    {
+      "id": "13:158",
+      "name": "Screen/photo-import"
+    },
+    {
+      "id": "13:340",
+      "name": "Screen/wrong-detail"
+    },
+    {
+      "id": "13:447",
+      "name": "Screen/countdown"
+    },
+    {
+      "id": "13:616",
+      "name": "Screen/guest"
+    },
+    {
+      "id": "13:779",
+      "name": "Screen/login"
+    },
+    {
+      "id": "13:879",
+      "name": "Screen/register"
+    },
+    {
+      "id": "13:976",
+      "name": "Screen/sync"
+    },
+    {
+      "id": "13:1095",
+      "name": "Screen/backup"
+    },
+    {
+      "id": "13:1231",
+      "name": "Screen/profile"
+    },
+    {
+      "id": "13:1312",
+      "name": "Screen/today-empty"
+    },
+    {
+      "id": "13:1459",
+      "name": "Screen/delete-confirm"
+    },
+    {
+      "id": "13:1656",
+      "name": "Screen/book-add"
+    },
+    {
+      "id": "13:1791",
+      "name": "Screen/course-add"
+    },
+    {
+      "id": "13:1924",
+      "name": "Screen/today-multi"
+    },
+    {
+      "id": "13:2191",
+      "name": "Screen/focus-paused"
+    },
+    {
+      "id": "13:2294",
+      "name": "Screen/complete-course-success"
+    },
+    {
+      "id": "13:2378",
+      "name": "Screen/complete-custom-success"
+    },
+    {
+      "id": "13:2470",
+      "name": "Screen/states-empty"
+    },
+    {
+      "id": "13:2700",
+      "name": "Screen/states-sync"
+    },
+    {
+      "id": "13:2847",
+      "name": "Screen/states-form"
+    },
+    {
+      "id": "13:3182",
+      "name": "Screen/confirm-book"
+    },
+    {
+      "id": "13:3249",
+      "name": "Screen/confirm-course"
+    },
+    {
+      "id": "13:3316",
+      "name": "Screen/confirm-photo"
+    },
+    {
+      "id": "13:3383",
+      "name": "Screen/confirm-reset"
+    },
+    {
+      "id": "13:3453",
+      "name": "Screen/confirm-import"
+    },
+    {
+      "id": "13:3523",
+      "name": "Screen/confirm-upload"
+    },
+    {
+      "id": "13:3593",
+      "name": "Screen/confirm-pull"
+    },
+    {
+      "id": "13:3663",
+      "name": "Screen/confirm-logout"
+    },
+    {
+      "id": "13:3730",
+      "name": "Screen/download-apk"
+    },
+    {
+      "id": "13:3828",
+      "name": "Screen/month-picker"
+    },
+    {
+      "id": "13:3931",
+      "name": "Screen/overall-legend"
+    },
+    {
+      "id": "13:4135",
+      "name": "Screen/focus-course"
+    },
+    {
+      "id": "13:4220",
+      "name": "Screen/focus-custom"
+    }
+  ]
+}
