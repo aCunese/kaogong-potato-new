@@ -411,18 +411,36 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     setConflictData(null);
   }, [clearRetryTimer]);
 
-  const scheduleRetry = useCallback((performSync: () => Promise<void>) => {
-    if (retryTimerRef.current) return;
-    const attempt = retryAttemptRef.current;
-    const base = Math.min(1500 * Math.pow(2, attempt), 60000);
-    const jitter = Math.floor(Math.random() * Math.min(base * 0.25, 5000));
-    retryAttemptRef.current = Math.min(attempt + 1, 6);
+  const scheduleRetry = useCallback((performSync: () => Promise<void>, targetRetryAt?: string) => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    let delayMs: number;
+    if (targetRetryAt) {
+      const parsed = Date.parse(targetRetryAt);
+      if (!isNaN(parsed)) {
+        delayMs = Math.max(100, parsed - Date.now() + 50);
+      } else {
+        const attempt = retryAttemptRef.current;
+        const base = Math.min(1500 * Math.pow(2, attempt), 60000);
+        const jitter = Math.floor(Math.random() * Math.min(base * 0.25, 5000));
+        retryAttemptRef.current = Math.min(attempt + 1, 6);
+        delayMs = base + jitter;
+      }
+    } else {
+      const attempt = retryAttemptRef.current;
+      const base = Math.min(1500 * Math.pow(2, attempt), 60000);
+      const jitter = Math.floor(Math.random() * Math.min(base * 0.25, 5000));
+      retryAttemptRef.current = Math.min(attempt + 1, 6);
+      delayMs = base + jitter;
+    }
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       if (!currentUserRef.current) return;
       performSync().catch(() => {});
-    }, base + jitter);
+    }, delayMs);
   }, []);
 
   // Forward declaration of triggerSync for background calls
@@ -515,6 +533,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         } else if (result.status === 'offline') {
           setSyncStatus('idle');
           setSyncMessage(result.message || '离线保存');
+        } else if (result.status === 'waiting') {
+          setSyncStatus('idle');
+          setSyncMessage(result.message || (result.waitingReason === 'lease' ? '另一标签页正在同步中' : '正在等待重试'));
+          setConflictData(null);
         } else {
           setSyncStatus('failed');
           setSyncMessage(result.message || '同步暂未完成，正在自动重试');
@@ -524,10 +546,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       const pending = result.pendingCount ?? await refreshPendingCount(user.id);
       if (mountedRef.current) setPendingSyncCount(pending);
 
-      if (result.status === 'failed' && !result.needsRelogin) {
+      if ((result.status === 'failed' || result.status === 'waiting') && !result.needsRelogin) {
         scheduleRetry(async () => {
           await triggerSyncRef.current();
-        });
+        }, result.retryAt);
       }
       return result;
     })();
@@ -1657,16 +1679,16 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     };
 
     let result = choice === 'keep_remote'
-      ? await forcePullRemote(user.id, record.serverState as AppState, record.serverRevision, localRevisionRef.current, reviewed)
-      : await forceUploadLocal(user.id, csrf, reviewed);
+      ? await forcePullRemote(user.id, record.serverState as AppState, record.serverRevision, localRevisionRef.current, reviewed, undefined, csrf)
+      : await forceUploadLocal(user.id, csrf, reviewed, localRevisionRef.current);
 
     if (result.needsSessionRefresh) {
       const refreshed = await refreshSession();
       if (refreshed.ok) {
         csrf = csrfTokenRef.current || '';
         result = choice === 'keep_remote'
-          ? await forcePullRemote(user.id, record.serverState as AppState, record.serverRevision, localRevisionRef.current, reviewed)
-          : await forceUploadLocal(user.id, csrf, reviewed);
+          ? await forcePullRemote(user.id, record.serverState as AppState, record.serverRevision, localRevisionRef.current, reviewed, undefined, csrf)
+          : await forceUploadLocal(user.id, csrf, reviewed, localRevisionRef.current);
       }
     }
     if (result.needsRelogin) {
@@ -1721,7 +1743,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         serverRevision: server.revision,
         serverGenerationId: server.generationId,
         serverContentHash: server.contentHash,
-      });
+      }, localRevisionRef.current);
     }
     return { ok: false, status: 'failed', message: resolution.message };
   }, [resolveConflict]);

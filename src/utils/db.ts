@@ -877,6 +877,8 @@ export interface UnresolvedLocalChanges {
   flushable: OutboxRecord[];
   failed: OutboxRecord[];
   inFlight: OutboxRecord[];
+  waitingBackoff: OutboxRecord[];
+  waitingLease: OutboxRecord[];
   quarantined: OutboxRecord[];
   conflict: SyncConflictRecord | null;
   /** True when there is ANY unresolved local modification (incl. quarantine/conflict/in-flight). */
@@ -892,15 +894,57 @@ export async function getUnresolvedLocalChanges(userId: string): Promise<Unresol
   const all = await getAllOutbox(userId);
   const conflict = await getConflictRecord(userId);
   const now = Date.now();
-  const flushable = all.filter(item => {
-    if (item.status !== 'pending' && item.status !== 'failed') return false;
-    if (!item.nextAttemptAt) return true;
-    return Date.parse(item.nextAttemptAt) <= now;
-  });
-  const pending = all.filter(item => item.status === 'pending');
-  const failed = all.filter(item => item.status === 'failed');
-  const inFlight = all.filter(item => item.status === 'in_flight');
-  const quarantined = all.filter(item => item.status === 'quarantined' || item.status === 'conflict');
+
+  const pending: OutboxRecord[] = [];
+  const failed: OutboxRecord[] = [];
+  const inFlight: OutboxRecord[] = [];
+  const flushable: OutboxRecord[] = [];
+  const waitingBackoff: OutboxRecord[] = [];
+  const waitingLease: OutboxRecord[] = [];
+  const quarantined: OutboxRecord[] = [];
+
+  for (const item of all) {
+    if (item.status === 'quarantined' || item.status === 'conflict') {
+      quarantined.push(item);
+      continue;
+    }
+
+    if (item.status === 'pending') {
+      pending.push(item);
+      if (item.nextAttemptAt && Date.parse(item.nextAttemptAt) > now) {
+        waitingBackoff.push(item);
+      } else {
+        flushable.push(item);
+      }
+      continue;
+    }
+
+    if (item.status === 'failed') {
+      failed.push(item);
+      if (item.nextAttemptAt && Date.parse(item.nextAttemptAt) > now) {
+        waitingBackoff.push(item);
+      } else {
+        flushable.push(item);
+      }
+      continue;
+    }
+
+    if (item.status === 'in_flight') {
+      inFlight.push(item);
+      const isLeaseActive = Boolean(item.leaseExpiresAt) && !isNaN(Date.parse(item.leaseExpiresAt!)) && Date.parse(item.leaseExpiresAt!) >= now;
+      if (isLeaseActive) {
+        waitingLease.push(item);
+      } else {
+        // Expired in_flight lease: recoverable / flushable!
+        flushable.push(item);
+      }
+      continue;
+    }
+
+    // Default fallback to flushable
+    flushable.push(item);
+  }
+
   return {
     userId,
     total: all.length,
@@ -908,6 +952,8 @@ export async function getUnresolvedLocalChanges(userId: string): Promise<Unresol
     flushable,
     failed,
     inFlight,
+    waitingBackoff,
+    waitingLease,
     quarantined,
     conflict,
     hasUnsynced: all.length > 0 || Boolean(conflict),
@@ -928,31 +974,58 @@ export async function claimOutboxTask(
   const nowIso = now.toISOString();
   const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
 
-  const apply = (item: OutboxRecord): OutboxRecord | null => {
-    const claimable =
-      item.status === 'pending' ||
-      item.status === 'failed' ||
-      (item.status === 'in_flight' && Boolean(item.leaseExpiresAt) && Date.parse(item.leaseExpiresAt!) < now.getTime());
-    if (!claimable) return null;
+  const isLeaseActive = (item: OutboxRecord): boolean => {
+    return Boolean(item.leaseExpiresAt) && !isNaN(Date.parse(item.leaseExpiresAt!)) && Date.parse(item.leaseExpiresAt!) >= now.getTime();
+  };
+
+  const isClaimable = (item: OutboxRecord): boolean => {
+    return item.status === 'pending' || item.status === 'failed' || (item.status === 'in_flight' && !isLeaseActive(item));
+  };
+
+  if (!hasNativeIdb()) {
+    const item = memoryStore.outbox.get(id);
+    if (!item || !isClaimable(item)) return null;
+    const payloadHash = item.payloadHash || (await hashState(item.state));
+    const frozenRequest = item.frozenRequest || JSON.stringify({
+      requestId: item.requestId,
+      expectedRevision: item.expectedRevision,
+      generationId: item.generationId,
+      state: item.state,
+    });
+    const fence = (item.attemptFence ?? 0) + 1;
     const claimed: OutboxRecord = {
       ...item,
       status: 'in_flight',
       leaseOwner: owner,
       leaseExpiresAt,
+      attemptFence: fence,
+      sentAt: nowIso,
+      payloadHash,
+      frozenRequest,
     };
-    return claimed;
-  };
-
-  if (!hasNativeIdb()) {
-    const item = memoryStore.outbox.get(id);
-    if (!item) return null;
-    const claimed = apply(item);
-    if (!claimed) return null;
     memoryStore.outbox.set(id, structuredClone(claimed));
     return claimed;
   }
 
   const db = await initDatabase();
+  const currentItem = await new Promise<OutboxRecord | undefined>((resolve, reject) => {
+    const tx = db.transaction(OUTBOX_STORE, 'readonly');
+    const store = tx.objectStore(OUTBOX_STORE);
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result as OutboxRecord | undefined);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (!currentItem || !isClaimable(currentItem)) return null;
+
+  const payloadHash = currentItem.payloadHash || (await hashState(currentItem.state));
+  const frozenRequest = currentItem.frozenRequest || JSON.stringify({
+    requestId: currentItem.requestId,
+    expectedRevision: currentItem.expectedRevision,
+    generationId: currentItem.generationId,
+    state: currentItem.state,
+  });
+
   return new Promise<OutboxRecord | null>((resolve, reject) => {
     const tx = db.transaction(OUTBOX_STORE, 'readwrite');
     const store = tx.objectStore(OUTBOX_STORE);
@@ -960,11 +1033,19 @@ export async function claimOutboxTask(
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const item = getReq.result as OutboxRecord | undefined;
-      if (!item) return;
-      const next = apply(item);
-      if (!next) return;
-      claimed = next;
-      store.put(next);
+      if (!item || !isClaimable(item)) return;
+      const fence = (item.attemptFence ?? 0) + 1;
+      claimed = {
+        ...item,
+        status: 'in_flight',
+        leaseOwner: owner,
+        leaseExpiresAt,
+        attemptFence: fence,
+        sentAt: nowIso,
+        payloadHash: payloadHash || item.payloadHash,
+        frozenRequest: frozenRequest || item.frozenRequest,
+      };
+      store.put(claimed);
     };
     tx.oncomplete = () => resolve(claimed);
     tx.onerror = () => reject(tx.error);
@@ -974,14 +1055,21 @@ export async function claimOutboxTask(
 
 /**
  * Releases a claimed task after a retryable failure, applying bounded exponential backoff.
- * The task and its attachments stay in the queue for the next automatic retry.
+ * Verifies task ID and fence so stale owner results have no side effects.
  */
 export async function releaseOutboxTask(
   id: string,
-  failure: { message?: string; retryAfterMs?: number } = {}
+  failure: { message?: string; retryAfterMs?: number } = {},
+  expectedFence?: number
 ): Promise<void> {
   const now = Date.now();
-  const apply = (item: OutboxRecord): OutboxRecord => {
+  const apply = (item: OutboxRecord): OutboxRecord | null => {
+    if (expectedFence !== undefined && item.attemptFence !== expectedFence) {
+      return null;
+    }
+    if (item.status !== 'in_flight') {
+      return null;
+    }
     const attempts = (item.attempts ?? 0) + 1;
     const base = failure.retryAfterMs ?? Math.min(1000 * Math.pow(2, Math.min(attempts, 6)), 60000);
     const jitter = Math.floor(Math.random() * Math.min(base * 0.3, 10000));
@@ -997,7 +1085,10 @@ export async function releaseOutboxTask(
 
   if (!hasNativeIdb()) {
     const item = memoryStore.outbox.get(id);
-    if (item) memoryStore.outbox.set(id, apply(item));
+    if (item) {
+      const updated = apply(item);
+      if (updated) memoryStore.outbox.set(id, updated);
+    }
     return;
   }
   const db = await initDatabase();
@@ -1007,7 +1098,10 @@ export async function releaseOutboxTask(
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const item = getReq.result as OutboxRecord | undefined;
-      if (item) store.put(apply(item));
+      if (item) {
+        const next = apply(item);
+        if (next) store.put(next);
+      }
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -1029,10 +1123,17 @@ export async function compactOutboxForFlush(
   generationId: string
 ): Promise<OutboxRecord | null> {
   const contentHash = await hashState(nextState);
+  const now = Date.now();
+  const isTargetInFlightActive = (target: OutboxRecord) =>
+    target.status === 'in_flight' &&
+    Boolean(target.leaseExpiresAt) &&
+    !isNaN(Date.parse(target.leaseExpiresAt!)) &&
+    Date.parse(target.leaseExpiresAt!) >= now;
+
   const apply = (items: OutboxRecord[]): OutboxRecord | null => {
     const target = items.find(i => i.userId === userId && i.requestId === requestId);
     if (!target) return null;
-    if (target.status === 'quarantined' || target.status === 'conflict' || target.status === 'in_flight') return null;
+    if (target.status === 'quarantined' || target.status === 'conflict' || isTargetInFlightActive(target)) return null;
     const updated: OutboxRecord = {
       ...target,
       state: nextState,
@@ -1050,7 +1151,7 @@ export async function compactOutboxForFlush(
     const updated = apply(items);
     if (!updated) return null;
     for (const item of items) {
-      if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed')) {
+      if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed' || (item.status === 'in_flight' && !isTargetInFlightActive(item)))) {
         memoryStore.outbox.delete(item.id);
       }
     }
@@ -1071,7 +1172,7 @@ export async function compactOutboxForFlush(
       if (!next) return;
       updated = next;
       for (const item of all) {
-        if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed')) {
+        if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed' || (item.status === 'in_flight' && !isTargetInFlightActive(item)))) {
           store.delete(item.id);
         }
       }
@@ -1091,7 +1192,8 @@ export interface PushConfirmation {
 
 /**
  * Atomically confirms a successful push:
- * - updates the sync baseline (confirmedRevision/generation/contentHash)
+ * - verifies task ID and fence (stale owner results have no side effects)
+ * - updates the sync baseline without regressing in the same generation
  * - updates snapshot confirmed metadata when the snapshot still holds the pushed content
  * - deletes the outbox task and clears any persisted conflict record
  */
@@ -1099,30 +1201,57 @@ export async function confirmOutboxPush(
   userId: string,
   requestId: string,
   confirmation: PushConfirmation,
-  pushedContentHash: string
+  pushedContentHash: string,
+  expectedFence?: number,
+  taskId?: string
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  const baseline: SyncBaseline = {
-    userId,
-    confirmedRevision: confirmation.revision,
-    generationId: confirmation.generationId || confirmation.contentHash ? confirmation.generationId : '',
-    contentHash: pushedContentHash,
-    updatedAt: nowIso,
-  };
 
   if (!hasNativeIdb()) {
-    memoryStore.syncState.set(userId, baseline);
-    for (const [id, item] of memoryStore.outbox.entries()) {
-      if (item.userId === userId && item.requestId === requestId) memoryStore.outbox.delete(id);
+    if (expectedFence !== undefined || taskId) {
+      const target = Array.from(memoryStore.outbox.values()).find(
+        i => i.userId === userId && (taskId ? i.id === taskId : i.requestId === requestId)
+      );
+      if (target && expectedFence !== undefined && target.attemptFence !== expectedFence) {
+        return; // Stale fence: ignore
+      }
     }
+
+    const currentBaseline = memoryStore.syncState.get(userId) as SyncBaseline | undefined;
+    const canUpdateBaseline = !currentBaseline ||
+      currentBaseline.generationId !== confirmation.generationId ||
+      confirmation.revision >= currentBaseline.confirmedRevision;
+
+    if (canUpdateBaseline) {
+      const baseline: SyncBaseline = {
+        userId,
+        confirmedRevision: confirmation.revision,
+        generationId: confirmation.generationId || (confirmation.contentHash ? confirmation.generationId : ''),
+        contentHash: pushedContentHash,
+        updatedAt: nowIso,
+      };
+      memoryStore.syncState.set(userId, baseline);
+    }
+
+    for (const [id, item] of memoryStore.outbox.entries()) {
+      if (item.userId === userId && (taskId ? item.id === taskId : item.requestId === requestId)) {
+        memoryStore.outbox.delete(id);
+      }
+    }
+
     const snapshot = memoryStore.snapshots.get(getSnapshotKey(userId));
     if (snapshot && snapshot.contentHash === pushedContentHash) {
-      memoryStore.snapshots.set(snapshot.key, {
-        ...snapshot,
-        confirmedRevision: confirmation.revision,
-        generationId: confirmation.generationId,
-        confirmedContentHash: pushedContentHash,
-      });
+      const canUpdateSnapshot = !snapshot.confirmedRevision ||
+        snapshot.generationId !== confirmation.generationId ||
+        confirmation.revision >= snapshot.confirmedRevision;
+      if (canUpdateSnapshot) {
+        memoryStore.snapshots.set(snapshot.key, {
+          ...snapshot,
+          confirmedRevision: confirmation.revision,
+          generationId: confirmation.generationId,
+          confirmedContentHash: pushedContentHash,
+        });
+      }
     }
     memoryStore.conflicts.delete(userId);
     return;
@@ -1134,34 +1263,71 @@ export async function confirmOutboxPush(
     const snapStore = tx.objectStore(SNAPSHOTS_STORE);
     const outStore = tx.objectStore(OUTBOX_STORE);
     const syncStore = tx.objectStore(SYNC_STATE_STORE);
-    syncStore.put(baseline);
-
-    const snapKey = getSnapshotKey(userId);
-    const snapReq = snapStore.get(snapKey);
-    snapReq.onsuccess = () => {
-      const snapshot = snapReq.result as SnapshotRecord | undefined;
-      if (snapshot && snapshot.contentHash === pushedContentHash) {
-        snapStore.put({
-          ...snapshot,
-          confirmedRevision: confirmation.revision,
-          generationId: confirmation.generationId,
-          confirmedContentHash: pushedContentHash,
-        });
-      }
-    };
 
     const outReq = outStore.getAll();
     outReq.onsuccess = () => {
       const items = (outReq.result || []) as OutboxRecord[];
-      for (const item of items) {
-        if (item.userId === userId && item.requestId === requestId) outStore.delete(item.id);
+      if (expectedFence !== undefined || taskId) {
+        const target = items.find(
+          i => i.userId === userId && (taskId ? i.id === taskId : i.requestId === requestId)
+        );
+        if (target && expectedFence !== undefined && target.attemptFence !== expectedFence) {
+          return; // Stale fence: abort without modifying baseline or deleting
+        }
       }
+
+      const baseReq = syncStore.get(userId);
+      baseReq.onsuccess = () => {
+        const currentBaseline = baseReq.result as SyncBaseline | undefined;
+        const canUpdateBaseline = !currentBaseline ||
+          currentBaseline.generationId !== confirmation.generationId ||
+          confirmation.revision >= currentBaseline.confirmedRevision;
+
+        if (canUpdateBaseline) {
+          const baseline: SyncBaseline = {
+            userId,
+            confirmedRevision: confirmation.revision,
+            generationId: confirmation.generationId || (confirmation.contentHash ? confirmation.generationId : ''),
+            contentHash: pushedContentHash,
+            updatedAt: nowIso,
+          };
+          syncStore.put(baseline);
+        }
+
+        const snapKey = getSnapshotKey(userId);
+        const snapReq = snapStore.get(snapKey);
+        snapReq.onsuccess = () => {
+          const snapshot = snapReq.result as SnapshotRecord | undefined;
+          if (snapshot && snapshot.contentHash === pushedContentHash) {
+            const canUpdateSnapshot = !snapshot.confirmedRevision ||
+              snapshot.generationId !== confirmation.generationId ||
+              confirmation.revision >= snapshot.confirmedRevision;
+            if (canUpdateSnapshot) {
+              snapStore.put({
+                ...snapshot,
+                confirmedRevision: confirmation.revision,
+                generationId: confirmation.generationId,
+                confirmedContentHash: pushedContentHash,
+              });
+            }
+          }
+        };
+
+        for (const item of items) {
+          if (item.userId === userId && (taskId ? item.id === taskId : item.requestId === requestId)) {
+            outStore.delete(item.id);
+          }
+        }
+      };
     };
+
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error || new Error('同步确认事务失败'));
     tx.onabort = () => reject(tx.error || new Error('同步确认事务中止'));
   });
 }
+
+export const confirmOutboxTask = confirmOutboxPush;
 
 /**
  * Quarantines an outbox task (stale/empty generation after GENERATION_MISMATCH).

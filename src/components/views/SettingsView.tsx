@@ -170,7 +170,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!navigator.onLine || syncStatus === 'idle') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-[11px] font-medium">
-          离线 · 待同步
+          {navigator.onLine ? (pendingSyncCount > 0 ? `待同步 (${pendingSyncCount} 项)` : '待同步') : '离线 · 待同步'}
         </span>
       );
     }

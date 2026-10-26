@@ -196,6 +196,16 @@ export interface OutboxRecord {
   leaseExpiresAt?: string;
   /** Content hash of the payload when it was successfully confirmed. */
   confirmedContentHash?: string;
+  /** Monotonically increasing attempt fence to ignore stale release/confirmation callbacks. */
+  attemptFence?: number;
+  /** Timestamp when the current in-flight attempt was dispatched. */
+  sentAt?: string;
+  /** Frozen serialized request for idempotent retry verification. */
+  frozenRequest?: string;
+  /** Precomputed payload hash of the task state. */
+  payloadHash?: string;
+  /** Expected server content hash for CAS-by-hash verification. */
+  expectedContentHash?: string;
 }
 
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'failed' | 'conflict';

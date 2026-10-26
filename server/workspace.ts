@@ -566,6 +566,7 @@ export function getUserWorkspace(userId: string): WorkspaceGetResponse {
 export interface SyncPushInput {
   userId: string;
   expectedRevision: number;
+  expectedContentHash?: string;
   requestId: string;
   schemaVersion: number;
   generationId: string;
@@ -691,11 +692,24 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
   const executeTransaction = db.transaction(() => {
     const existing = db.prepare('SELECT * FROM workspaces WHERE user_id = ?').get(input.userId) as WorkspaceRow | undefined;
     const currentRevision = existing ? existing.revision : 0;
+    const serverContentHash = existing ? getStateContentHash(existing.state_json) : null;
+    const serverState = existing ? parseStateJson(existing.state_json) : null;
+
+    // Check expected content hash if provided
+    if (input.expectedContentHash !== undefined && input.expectedContentHash !== null) {
+      if (serverContentHash !== input.expectedContentHash) {
+        return {
+          conflict: true as const,
+          currentRevision,
+          serverState,
+          serverContentHash,
+          snapshotGenerationId: existing ? existing.generation_id : null,
+        };
+      }
+    }
 
     // Check revision
     if (currentRevision !== input.expectedRevision) {
-      const serverState = existing ? parseStateJson(existing.state_json) : null;
-      const serverContentHash = existing ? getStateContentHash(existing.state_json) : null;
       return {
         conflict: true as const,
         currentRevision,

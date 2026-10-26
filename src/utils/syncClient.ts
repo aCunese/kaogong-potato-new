@@ -18,13 +18,18 @@ import {
   saveActiveGenerationId,
   withUserLock,
   atomicResolveConflict,
+  clearOutbox,
+  saveDamagedCache,
+  stableStateJson,
 } from './db';
 import { flushLegacyMedia } from './mediaSync';
 
 export interface SyncResult {
   ok: boolean;
-  status: 'synced' | 'conflict' | 'failed' | 'offline';
+  status: 'synced' | 'conflict' | 'failed' | 'offline' | 'waiting';
   code?: string;
+  waitingReason?: 'backoff' | 'lease';
+  retryAt?: string;
   serverRevision?: number;
   serverState?: AppState | null;
   serverGenerationId?: string;
@@ -395,9 +400,42 @@ async function pushPath(
     const snapshot = await loadSnapshot(userId);
     const flushable = unresolved.flushable.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     if (flushable.length === 0) {
-      if (unresolved.inFlight.length > 0) {
+      if (unresolved.waitingBackoff.length > 0) {
+        const earliest = unresolved.waitingBackoff.map(i => i.nextAttemptAt!).filter(Boolean).sort()[0];
         return {
-          result: { ok: false, status: 'failed', code: 'SYNC_IN_PROGRESS_OTHER_TAB', message: '另一标签页正在同步，已等待其完成' },
+          result: {
+            ok: false,
+            status: 'waiting',
+            waitingReason: 'backoff',
+            retryAt: earliest,
+            message: '等待重试退避时间',
+            pendingCount: unresolved.total,
+          },
+          remaining: unresolved.total,
+        };
+      }
+      if (unresolved.waitingLease.length > 0) {
+        const earliest = unresolved.waitingLease.map(i => i.leaseExpiresAt!).filter(Boolean).sort()[0];
+        return {
+          result: {
+            ok: false,
+            status: 'waiting',
+            waitingReason: 'lease',
+            retryAt: earliest,
+            message: '另一标签页正在同步中',
+            pendingCount: unresolved.total,
+          },
+          remaining: unresolved.total,
+        };
+      }
+      if (unresolved.total > 0) {
+        return {
+          result: {
+            ok: false,
+            status: 'waiting',
+            message: '队列正在等待处理',
+            pendingCount: unresolved.total,
+          },
           remaining: unresolved.total,
         };
       }
@@ -449,6 +487,7 @@ async function pushPath(
         },
         body: JSON.stringify({
           expectedRevision: claimed.expectedRevision,
+          expectedContentHash: claimed.expectedContentHash,
           requestId: claimed.requestId,
           schemaVersion: 3,
           generationId: claimed.generationId,
@@ -457,7 +496,7 @@ async function pushPath(
         }),
       });
     } catch {
-      await releaseOutboxTask(claimed.id);
+      await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
       return {
         result: { ok: false, status: 'failed', code: 'NETWORK', message: '网络通信异常，修改已安全保留在本机，恢复连接后将自动重试' },
         remaining: flushable.length,
@@ -466,11 +505,11 @@ async function pushPath(
 
     if (response.ok) {
       if (lockScope && lockScope.isExpired()) {
-        await releaseOutboxTask(claimed.id);
+        await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
         return { result: { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' }, remaining: flushable.length };
       }
       if (options?.guard && !options.guard()) {
-        await releaseOutboxTask(claimed.id);
+        await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
         return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
       }
 
@@ -483,7 +522,7 @@ async function pushPath(
         revision: confirmedRevisionResult,
         generationId: confirmedGeneration,
         contentHash: confirmedHash,
-      }, pushedHash);
+      }, pushedHash, claimed.attemptFence, claimed.id);
       saveActiveGenerationId(userId, confirmedGeneration);
       if (json.needsInitChoice !== undefined) {
         // R10: surface server-driven empty-library initialization state.
@@ -512,7 +551,7 @@ async function pushPath(
     if (response.status === 409) {
       const body = await response.json().catch(() => ({}));
       if (body.code === 'SESSION_ACCOUNT_MISMATCH') {
-        await releaseOutboxTask(claimed.id);
+        await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
         return {
           result: { ok: false, status: 'failed', code: 'SESSION_ACCOUNT_MISMATCH', message: body.message || '账号会话不匹配', needsRelogin: true },
           remaining: flushable.length,
@@ -556,16 +595,16 @@ async function pushPath(
     }
 
     if (response.status === 401) {
-      await releaseOutboxTask(claimed.id, { retryAfterMs: 5000 });
+      await releaseOutboxTask(claimed.id, { retryAfterMs: 5000 }, claimed.attemptFence);
       return { result: { ok: false, status: 'failed', code: 'SESSION_EXPIRED', message: '登录状态已失效，请重新登录', needsRelogin: true }, remaining: flushable.length };
     }
     if (response.status === 403) {
-      await releaseOutboxTask(claimed.id, { retryAfterMs: 2000 });
+      await releaseOutboxTask(claimed.id, { retryAfterMs: 2000 }, claimed.attemptFence);
       return { result: { ok: false, status: 'failed', code: 'CSRF_INVALID', message: '安全令牌已过期，正在重新验证会话', needsSessionRefresh: true }, remaining: flushable.length };
     }
 
     const body = await response.json().catch(() => ({}));
-    await releaseOutboxTask(claimed.id);
+    await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
     return {
       result: {
         ok: false,
@@ -638,13 +677,46 @@ export async function syncWithLockScope(
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
 
-  if (unresolved.flushable.length > 0 || unresolved.inFlight.length > 0) {
+  if (unresolved.flushable.length > 0) {
     const { result } = await pushPath(userId, csrfToken, options, scope);
     if (options.guard && !options.guard()) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     const remaining = await getUnresolvedLocalChanges(userId);
     return { ...result, pendingCount: remaining.total };
+  }
+
+  if (unresolved.waitingBackoff.length > 0) {
+    const earliest = unresolved.waitingBackoff.map(i => i.nextAttemptAt!).filter(Boolean).sort()[0];
+    return {
+      ok: false,
+      status: 'waiting',
+      waitingReason: 'backoff',
+      retryAt: earliest,
+      message: '等待重试退避时间',
+      pendingCount: unresolved.total,
+    };
+  }
+
+  if (unresolved.waitingLease.length > 0) {
+    const earliest = unresolved.waitingLease.map(i => i.leaseExpiresAt!).filter(Boolean).sort()[0];
+    return {
+      ok: false,
+      status: 'waiting',
+      waitingReason: 'lease',
+      retryAt: earliest,
+      message: '另一标签页正在同步中',
+      pendingCount: unresolved.total,
+    };
+  }
+
+  if (unresolved.total > 0) {
+    return {
+      ok: false,
+      status: 'waiting',
+      message: '队列正在等待处理',
+      pendingCount: unresolved.total,
+    };
   }
 
   const result = await pullPath(userId, options, scope);
@@ -816,32 +888,56 @@ export async function forceUploadLocal(
   }
 
   const run = async (scope: LockScope): Promise<SyncResult> => {
+    // 1. Verify expectedLocalRevision: if local snapshot revision does not match expectedLocalRevision, abort with LOCAL_CHANGED
+    const local = await loadLatestState(userId);
+    const snapshot = await loadSnapshot(userId);
+    const currentLocalRevision = snapshot?.revision ?? local.revision;
+    if (expectedLocalRevision !== undefined && currentLocalRevision !== expectedLocalRevision) {
+      return {
+        ok: false,
+        status: 'failed',
+        code: 'LOCAL_CHANGED',
+        message: '本机在确认期间产生了新的修改，请重新核对双方内容',
+      };
+    }
+
+    // 2. Re-verify reviewed server state
     const refreshed = await verifyReviewedServerState(reviewed, userId);
     if (refreshed && (!refreshed.ok || refreshed.hasCloudData === false || refreshed.revision !== reviewed?.serverRevision || refreshed.generationId !== reviewed?.serverGenerationId || (reviewed?.serverContentHash && refreshed.contentHash !== reviewed.serverContentHash))) {
-      // The remote side changed while the user was reviewing: re-verify instead of overwriting.
-      const conflict = await buildConflictResult(
+      return buildConflictResult(
         userId,
         refreshed,
         'REMOTE_CHANGED_DURING_REVIEW',
         '云端内容在你确认期间已发生变化，已停止覆盖，请重新核对最新云端内容后再选择。'
       );
-      return conflict;
     }
 
-    const local = await loadLatestState(userId);
-    const snapshot = await loadSnapshot(userId);
-    const baseline = await getSyncBaseline(userId);
+    // 3. MUST NOT perform a second GET that silently replaces server.revision with an unreviewed new revision!
     const server = await fetchServerSnapshot(userId);
     if (!server.ok) return failureFromStatus(server.status, server.code, server.message);
     if (!server.hasCloudData) {
       return { ok: false, status: 'failed', code: 'CLOUD_EMPTY', message: '云端暂无工作区，无法覆盖' };
     }
+    if (reviewed) {
+      const remoteChanged =
+        (typeof reviewed.serverRevision === 'number' && server.revision !== reviewed.serverRevision) ||
+        (Boolean(reviewed.serverGenerationId) && server.generationId !== reviewed.serverGenerationId) ||
+        (Boolean(reviewed.serverContentHash) && server.contentHash !== reviewed.serverContentHash);
+      if (remoteChanged) {
+        return buildConflictResult(
+          userId,
+          server,
+          'REMOTE_CHANGED_DURING_REVIEW',
+          '云端内容在你确认期间已发生变化，已停止覆盖，请重新核对最新云端内容后再选择。'
+        );
+      }
+    }
 
     const localVersion = expectedLocalRevision ?? snapshot?.revision ?? local.revision;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    const confirmedRevision = server.revision;
-    const generationId = server.generationId || server.snapshotGenerationId;
-    const serverContentHash = server.contentHash;
+    const confirmedRevision = reviewed?.serverRevision ?? server.revision;
+    const generationId = reviewed?.serverGenerationId || server.generationId || server.snapshotGenerationId;
+    const serverContentHash = reviewed?.serverContentHash ?? server.contentHash;
 
     const forcedSnapshot: SnapshotRecord = {
       key: snapshot?.key ?? `snapshot_${userId}`,
@@ -860,6 +956,7 @@ export async function forceUploadLocal(
       requestId,
       state: local.state,
       expectedRevision: confirmedRevision,
+      expectedContentHash: serverContentHash,
       generationId,
       createdAt: new Date().toISOString(),
       status: 'pending',
@@ -884,56 +981,193 @@ export async function forceUploadLocal(
 
 /**
  * Keep remote: adopt the cloud snapshot AFTER re-verifying the reviewed remote
- * revision/generation/content is still current. Saves a recovery point first.
+ * revision/generation/content is still current. Sends server version barrier. Saves a recovery point first.
  */
 export async function forcePullRemote(
   userId: string,
-  _targetServerState: AppState,
+  targetServerState: AppState,
   targetServerRevision: number,
   expectedLocalRevision?: number,
-  reviewed?: { serverRevision?: number; serverGenerationId?: string; serverContentHash?: string },
-  lockScope?: LockScope
+  reviewed?: {
+    serverRevision?: number;
+    serverGenerationId?: string;
+    serverContentHash?: string;
+    serverState?: AppState;
+  },
+  lockScope?: LockScope,
+  csrfToken?: string
 ): Promise<SyncResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { ok: false, status: 'offline', message: '当前离线，无法拉取云端存档' };
   }
 
   const run = async (scope: LockScope): Promise<SyncResult> => {
-    const refreshed = await verifyReviewedServerState(reviewed ?? { serverRevision: targetServerRevision }, userId);
+    // 1. Verify reviewed cloud identity still matches server. If cloud changed, return conflict.
+    const reviewedIdentity = reviewed ?? {
+      serverRevision: targetServerRevision,
+    };
+    const refreshed = await verifyReviewedServerState(reviewedIdentity, userId);
     if (refreshed) {
       if (!refreshed.ok) return failureFromStatus(refreshed.status, refreshed.code, refreshed.message);
-      const conflict = await buildConflictResult(
+      return buildConflictResult(
         userId,
         refreshed,
         'REMOTE_CHANGED_DURING_REVIEW',
         '云端内容在你确认期间已发生变化，已停止覆盖，请重新核对最新云端内容后再选择。'
       );
-      return conflict;
     }
     const server = await fetchServerSnapshot(userId);
     if (!server.ok) return failureFromStatus(server.status, server.code, server.message);
     if (!server.hasCloudData || !server.state) {
       return { ok: false, status: 'failed', code: 'CLOUD_EMPTY', message: '云端暂无可用工作区数据' };
     }
-    const installed = await installConfirmedServerState(userId, server.state, {
-      revision: server.revision,
-      generationId: server.generationId || server.snapshotGenerationId,
-      contentHash: server.contentHash,
-      snapshotGenerationId: server.snapshotGenerationId,
-    }, { force: true, saveRecovery: true });
+    if (reviewed) {
+      const remoteChanged =
+        (typeof reviewed.serverRevision === 'number' && server.revision !== reviewed.serverRevision) ||
+        (Boolean(reviewed.serverGenerationId) && server.generationId !== reviewed.serverGenerationId) ||
+        (Boolean(reviewed.serverContentHash) && server.contentHash !== reviewed.serverContentHash);
+      if (remoteChanged) {
+        return buildConflictResult(
+          userId,
+          server,
+          'REMOTE_CHANGED_DURING_REVIEW',
+          '云端内容在你确认期间已发生变化，已停止覆盖，请重新核对最新云端内容后再选择。'
+        );
+      }
+    }
+
+    // 2. Verify local state revision matches expectedLocalRevision. If local has new edits, return LOCAL_CHANGED / re-confirm.
+    const local = await loadLatestState(userId);
+    const snapshot = await loadSnapshot(userId);
+    const currentLocalRevision = snapshot?.revision ?? local.revision;
+    if (expectedLocalRevision !== undefined && currentLocalRevision !== expectedLocalRevision) {
+      return {
+        ok: false,
+        status: 'failed',
+        code: 'LOCAL_CHANGED',
+        message: '本机在确认期间产生了新的修改，请重新核对双方内容',
+      };
+    }
+
+    // 3. Save local recovery point and intent.
+    try {
+      await saveDamagedCache(stableStateJson(local.state), 'pre_force_pull_remote_barrier');
+    } catch {}
+
+    const effectiveServerState = reviewed?.serverState ?? server.state ?? targetServerState;
+    const effectiveServerRevision = reviewed?.serverRevision ?? server.revision;
+    const effectiveGenerationId = reviewed?.serverGenerationId || server.generationId || server.snapshotGenerationId;
+    const effectiveContentHash = reviewed?.serverContentHash || server.contentHash;
+    const barrierRequestId = `barrier_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // 4. Send barrier POST to /api/workspace
+    let effectiveCsrf = csrfToken || '';
+    if (!effectiveCsrf && typeof fetch !== 'undefined') {
+      try {
+        const meRes = await fetch('/api/auth/me', { method: 'GET' });
+        if (meRes.ok) {
+          const meData = await meRes.json().catch(() => ({}));
+          if (meData?.csrfToken) {
+            effectiveCsrf = meData.csrfToken;
+          }
+        }
+      } catch {}
+    }
+
+    let barrierResponse: Response;
+    try {
+      barrierResponse = await fetch('/api/workspace', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': effectiveCsrf,
+          'x-workspace-user': userId,
+        },
+        body: JSON.stringify({
+          expectedRevision: effectiveServerRevision,
+          expectedContentHash: effectiveContentHash,
+          state: effectiveServerState,
+          generationId: effectiveGenerationId,
+          requestId: barrierRequestId,
+          reason: 'keep_remote_barrier',
+          schemaVersion: 3,
+        }),
+      });
+    } catch {
+      return {
+        ok: false,
+        status: 'failed',
+        code: 'NETWORK',
+        message: '网络通信异常，未能确认采用云端，请稍后重试',
+      };
+    }
+
+    // 5. If barrier POST fails with 409, fail safely with conflict.
+    if (!barrierResponse.ok) {
+      if (barrierResponse.status === 409) {
+        const freshServer = await fetchServerSnapshot(userId);
+        return buildConflictResult(
+          userId,
+          freshServer,
+          'REMOTE_CHANGED_DURING_BARRIER',
+          '云端内容在执行裁决期间已发生变化，请重新核对最新云端内容。'
+        );
+      }
+      const body = await barrierResponse.json().catch(() => ({}));
+      return {
+        ok: false,
+        status: 'failed',
+        code: body.code || 'BARRIER_FAILED',
+        message: body.message || `采用云端版本失败 (HTTP ${barrierResponse.status})`,
+      };
+    }
+
+    const barrierJson = await barrierResponse.json().catch(() => ({}));
+    const nextRevision = typeof barrierJson.revision === 'number' ? barrierJson.revision : effectiveServerRevision + 1;
+    const nextGenerationId = typeof barrierJson.generationId === 'string' && barrierJson.generationId ? barrierJson.generationId : effectiveGenerationId;
+    const nextContentHash = typeof barrierJson.contentHash === 'string' && barrierJson.contentHash ? barrierJson.contentHash : effectiveContentHash;
+
+    // 6. In a single local transaction, check scope and expectedLocalRevision.
+    if (scope.isExpired()) {
+      return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
+    }
+
+    const recheckLocal = await loadLatestState(userId);
+    const recheckSnapshot = await loadSnapshot(userId);
+    const recheckLocalRevision = recheckSnapshot?.revision ?? recheckLocal.revision;
+    if (expectedLocalRevision !== undefined && recheckLocalRevision !== expectedLocalRevision) {
+      return {
+        ok: false,
+        status: 'failed',
+        code: 'LOCAL_CHANGED',
+        message: '本机在提交裁决期间产生了新的修改，已保留本机新修改，请重新核对双方内容',
+      };
+    }
+
+    const installed = await installConfirmedServerState(userId, effectiveServerState, {
+      revision: nextRevision,
+      generationId: nextGenerationId,
+      contentHash: nextContentHash,
+      snapshotGenerationId: nextGenerationId,
+    }, { force: true, saveRecovery: false });
+
     if (!installed.ok) {
       return { ok: false, status: 'failed', code: installed.code || 'INSTALL_FAILED', message: installed.message || '采用云端数据失败' };
     }
-    saveActiveGenerationId(userId, server.generationId || server.snapshotGenerationId);
+
+    await clearOutbox(userId);
+    await clearConflictRecord(userId);
+    saveActiveGenerationId(userId, nextGenerationId);
+
     const latest = await loadLatestState(userId);
     return {
       ok: true,
       status: 'synced',
       message: '已采用云端最新存档覆盖本机数据（覆盖前已保存本机恢复点）',
-      serverRevision: server.revision,
+      serverRevision: nextRevision,
       serverState: latest.state,
-      serverGenerationId: server.generationId,
-      serverContentHash: server.contentHash,
+      serverGenerationId: nextGenerationId,
+      serverContentHash: nextContentHash,
       pendingCount: 0,
     };
   };

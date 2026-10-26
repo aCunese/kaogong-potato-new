@@ -428,7 +428,7 @@ app.get('/api/workspace', requireAuth, (req: AuthenticatedRequest, res: Response
 });
 
 app.post('/api/workspace', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const { expectedRevision, requestId, schemaVersion, generationId, state, reason } = req.body || {};
+  const { expectedRevision, requestId, schemaVersion, generationId, state, reason, expectedContentHash } = req.body || {};
 
   if (typeof expectedRevision !== 'number' || !requestId || !state) {
     res.status(400).json({ ok: false, code: 'INVALID_SYNC_PAYLOAD', message: '同步快照请求参数不完整' });
@@ -438,6 +438,7 @@ app.post('/api/workspace', requireAuth, (req: AuthenticatedRequest, res: Respons
   const result = syncUserWorkspace({
     userId: req.user!.id,
     expectedRevision,
+    expectedContentHash: typeof expectedContentHash === 'string' ? expectedContentHash : undefined,
     requestId: String(requestId),
     schemaVersion: schemaVersion || 3,
     generationId: String(generationId || ''),
