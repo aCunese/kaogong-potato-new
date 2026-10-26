@@ -39,8 +39,11 @@ RUN apt-get purge -y --auto-remove python3 make g++ && \
 # Copy compiled frontend and server source
 COPY --from=builder /app/dist ./dist
 COPY server/ ./server
+COPY src/ ./src
 COPY tsconfig.json ./
 COPY tsconfig.server.json ./
+COPY release/ ./release
+COPY scripts/ ./scripts
 
 # Setup data directory permissions for non-root node user
 RUN mkdir -p /app/data/attachments /app/data/backups /app/release/apk && \

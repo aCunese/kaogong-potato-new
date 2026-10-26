@@ -20,6 +20,10 @@ services:
     volumes:
       # 持久化存储目录：挂载 SQLite 数据库及附件存储
       - ./data:/app/data
+      # 挂载客户端安装包发布目录
+      - ./release:/app/release:ro
+      # 挂载运维备份脚本目录
+      - ./scripts:/app/scripts:ro
     deploy:
       resources:
         limits:
