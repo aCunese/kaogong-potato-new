@@ -272,10 +272,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       const res = await fetch('/version.json?_t=' + Date.now(), { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
-      const currentBuild = '20261026.01';
+      const currentBuild = '20261026.02';
       if (data.build && data.build > currentBuild) {
         setUpdateInfo({
-          version: data.version || '1.0.0',
+          version: data.version || '1.0.1',
           build: data.build,
           summary: data.summary || '发现新版本发布',
         });
@@ -299,19 +299,44 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     return true;
   }, [isAnyTimerRunning]);
 
-  // Offline Readiness Check: lights up when IndexedDB is loaded and SW is ready
+  // Offline Readiness Check: lights up when IndexedDB is loaded and SW is controlling the page
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!isLoading && !storageError) {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready
-          .then(() => setOfflineReady(true))
-          .catch(() => setOfflineReady(true));
-      } else {
+    if (isLoading || storageError) {
+      setOfflineReady(false);
+      return;
+    }
+
+    if (preview) {
+      setOfflineReady(true);
+      return;
+    }
+
+    if ('serviceWorker' in navigator) {
+      const checkReady = () => {
+        if (navigator.serviceWorker.controller && !isLoading && !storageError) {
+          setOfflineReady(true);
+        }
+      };
+
+      if (navigator.serviceWorker.controller) {
         setOfflineReady(true);
       }
+
+      navigator.serviceWorker.ready
+        .then(() => {
+          setOfflineReady(true);
+        })
+        .catch(() => {});
+
+      navigator.serviceWorker.addEventListener('controllerchange', checkReady);
+      return () => {
+        navigator.serviceWorker.removeEventListener('controllerchange', checkReady);
+      };
+    } else {
+      setOfflineReady(true);
     }
-  }, [isLoading, storageError]);
+  }, [isLoading, storageError, preview]);
 
   useEffect(() => {
     if (preview) return;

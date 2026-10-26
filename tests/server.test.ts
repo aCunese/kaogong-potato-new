@@ -39,9 +39,9 @@ describe('Backend Server API & Security Suite', () => {
     const vRes = await fetch(`${baseUrl}/version.json`);
     assert.equal(vRes.status, 200);
     const vJson = await vRes.json();
-    assert.equal(vJson.version, '1.0.0');
+    assert.equal(vJson.version, '1.0.1');
     assert.equal(vJson.schemaVersion, 3);
-    assert.ok(vJson.build);
+    assert.equal(vJson.build, '20261026.02');
 
     const hRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(hRes.status, 200);

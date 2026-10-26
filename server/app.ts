@@ -56,12 +56,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ----------------------------------------------------------------------
 
 const VERSION_INFO = {
-  version: '1.0.0',
-  build: '20261026.01',
+  version: '1.0.1',
+  build: '20261026.02',
   schemaVersion: 3,
-  apkVersion: '1.0.0',
-  deployedAt: '2026-10-26T15:00:00Z',
-  summary: '正式上线：多账号邀请制、云端快照幂等同步与防冲突保护',
+  apkVersion: '1.0.1',
+  deployedAt: '2026-10-26T17:30:00Z',
+  summary: '生产正式版：多账号邀请制、种子工厂、双向防冲突与离线完整可用',
 };
 
 app.get('/version.json', (_req: Request, res: Response) => {

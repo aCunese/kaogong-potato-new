@@ -177,4 +177,89 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     console.log('✅ Disaster Recovery drill passed all assertions with full data isolation and generation protection.');
     closeDb();
   });
+
+  it('hot-backup strictly rejects missing attachments referenced in media_records and leaves no incomplete backup', async () => {
+    const { getDb, closeDb } = await import('../server/db');
+    const db = getDb();
+
+    // Insert a dangling media_records entry that points to a non-existent file on disk
+    const fakeMediaId = 'media_missing_' + Date.now();
+    const fakeFilename = 'non_existent_attachment.png';
+    db.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES (?, 'u_dr_test_1001', ?, 'non_existent.png', 'image/png', 1024, 'dummyhash', datetime('now'))
+    `).run(fakeMediaId, fakeFilename);
+
+    closeDb();
+
+    // Run hot-backup via child_process
+    const { execSync } = await import('node:child_process');
+    const faultyBackupDir = path.join(testRoot, 'faulty_backup_' + Date.now());
+
+    let failed = false;
+    try {
+      execSync(`node --import tsx "${path.resolve(process.cwd(), 'server', 'cli.ts')}" hot-backup "${faultyBackupDir}"`, {
+        env: { ...process.env, DATA_DIR: testDataDir },
+        stdio: 'pipe',
+      });
+    } catch (err: any) {
+      failed = true;
+      const errOut = err.stderr ? err.stderr.toString() : '';
+      assert.ok(errOut.includes('CRITICAL_ATTACHMENT_MISSING') || err.stdout.toString().includes('CRITICAL_ATTACHMENT_MISSING'), 'must report missing attachment');
+    }
+
+    assert.equal(failed, true, 'hot-backup must fail and reject backup when attachment is missing');
+    assert.equal(fs.existsSync(faultyBackupDir), false, 'incomplete backup directory must be deleted');
+
+    // Clean up the fake row so it doesn't affect other tests
+    const db2 = getDb();
+    db2.prepare('DELETE FROM media_records WHERE id = ?').run(fakeMediaId);
+    closeDb();
+  });
+
+  it('restore script strictly rejects backup if an attachment referenced in db is missing', async () => {
+    const { execSync } = await import('node:child_process');
+    const Database = (await import('better-sqlite3')).default;
+
+    // Create a mock backup directory with a database that references an attachment, but the attachment is missing
+    const mockBackupDir = path.join(testRoot, 'mock_incomplete_backup');
+    const mockAttDir = path.join(mockBackupDir, 'attachments');
+    fs.mkdirSync(mockAttDir, { recursive: true });
+
+    const mockDbFile = path.join(mockBackupDir, 'potato.db');
+    const mockDb = new Database(mockDbFile);
+    mockDb.exec(`
+      CREATE TABLE media_records (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        sha256 TEXT NOT NULL
+      );
+      INSERT INTO media_records VALUES ('m_missing', 'ghost.png', 100, 'somehash');
+    `);
+    mockDb.close();
+
+    const dbBuf = fs.readFileSync(mockDbFile);
+    const dbHash = crypto.createHash('sha256').update(dbBuf).digest('hex');
+    const manifest = {
+      version: '1.0.1',
+      database: { filename: 'potato.db', sha256: dbHash },
+      attachments: [],
+    };
+    fs.writeFileSync(path.join(mockBackupDir, 'manifest.json'), JSON.stringify(manifest), 'utf8');
+
+    let restoreFailed = false;
+    try {
+      execSync(`bash "${path.resolve(process.cwd(), 'scripts', 'restore.sh')}" "${mockBackupDir}" --skip-pre-backup`, {
+        env: { ...process.env, DATA_DIR: testDataDir },
+        stdio: 'pipe',
+      });
+    } catch (err: any) {
+      restoreFailed = true;
+      const combined = (err.stderr ? err.stderr.toString() : '') + (err.stdout ? err.stdout.toString() : '');
+      assert.ok(combined.includes('恢复校验失败: 数据库引用的媒体文件在备份中缺失'), 'must fail with missing attachment message');
+    }
+
+    assert.equal(restoreFailed, true, 'restore script must reject backup when database-referenced attachment is missing');
+  });
 });

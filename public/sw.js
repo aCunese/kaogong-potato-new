@@ -2,7 +2,7 @@
 // 考公工作台 · Offline Service Worker (PWA & Offline Shell)
 // ==============================================================================
 
-const CACHE_NAME = 'kaogong-shell-v1.0.0';
+const CACHE_NAME = 'kaogong-shell-v1.0.1-20261026.02';
 
 const PRECACHE_RESOURCES = [
   '/',
@@ -101,18 +101,61 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // D. Static Assets (JS, CSS, Images, Fonts): Cache-First with runtime caching
+  // D. Static Assets (JS, CSS, Images, Fonts): Cache-First with runtime caching and type checking
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
 
-      return fetch(event.request).then((response) => {
-        if (response.ok && (url.pathname.startsWith('/assets/') || event.request.destination === 'script' || event.request.destination === 'style' || event.request.destination === 'image')) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      });
+      return fetch(event.request)
+        .then((response) => {
+          const contentType = response.headers.get('content-type') || '';
+          const isImage =
+            event.request.destination === 'image' ||
+            url.pathname.match(/\.(png|jpg|jpeg|webp|svg|gif|ico)$/i);
+
+          // CRITICAL SAFETY GUARD:
+          // Never treat 404/503 HTML fallback pages as images or scripts
+          if (isImage && contentType.includes('text/html')) {
+            return new Response('Image not found', {
+              status: 404,
+              statusText: 'Not Found',
+              headers: { 'Content-Type': 'text/plain' },
+            });
+          }
+
+          if (response.ok) {
+            // Verify valid content type before storing into cache
+            if (isImage && !contentType.startsWith('image/') && contentType.includes('text/html')) {
+              return response;
+            }
+
+            if (
+              url.pathname.startsWith('/assets/') ||
+              event.request.destination === 'script' ||
+              event.request.destination === 'style' ||
+              event.request.destination === 'image' ||
+              event.request.destination === 'font'
+            ) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            }
+          }
+          return response;
+        })
+        .catch((fetchErr) => {
+          // If offline and requesting an image, return 404 text response rather than falling back to HTML
+          const isImage =
+            event.request.destination === 'image' ||
+            url.pathname.match(/\.(png|jpg|jpeg|webp|svg|gif|ico)$/i);
+          if (isImage) {
+            return new Response('Offline Image Unavailable', {
+              status: 404,
+              statusText: 'Offline Image Unavailable',
+              headers: { 'Content-Type': 'text/plain' },
+            });
+          }
+          throw fetchErr;
+        });
     })
   );
 });

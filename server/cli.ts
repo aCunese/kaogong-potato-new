@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import Database from 'better-sqlite3';
 import {
   createInviteCode,
   listUsers,
@@ -107,7 +108,26 @@ async function run() {
       const dbFile = path.join(targetDir, 'potato.db');
       await backupDatabaseOnline(dbFile);
 
-      // Copy attachments if any
+      // 1. Verify integrity of the backup db file
+      const backupDb = new Database(dbFile, { readonly: true });
+      const check = backupDb.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      if (!check || check[0]?.integrity_check !== 'ok') {
+        backupDb.close();
+        fs.rmSync(targetDir, { recursive: true, force: true });
+        throw new Error(`热备数据库完整性检查失败: ${JSON.stringify(check)}`);
+      }
+
+      // 2. Query all required attachments from media_records in the backup DB
+      const records = backupDb.prepare('SELECT id, filename, byte_size, sha256 FROM media_records').all() as Array<{
+        id: string;
+        filename: string;
+        byte_size: number;
+        sha256: string;
+      }>;
+      backupDb.close();
+
+      console.log(`🔍 备份数据库中引用了 ${records.length} 个媒体附件，开始一致性校验与复制...`);
+
       const srcAttDir = getAttachmentsDir();
       const destAttDir = path.join(targetDir, 'attachments');
       if (!fs.existsSync(destAttDir)) {
@@ -115,23 +135,31 @@ async function run() {
       }
 
       const attachmentsManifest: Array<{ filename: string; sha256: string; byteSize: number }> = [];
-      if (fs.existsSync(srcAttDir)) {
-        const files = fs.readdirSync(srcAttDir);
-        for (const file of files) {
-          const srcFilePath = path.join(srcAttDir, file);
-          const stat = fs.statSync(srcFilePath);
-          if (stat.isFile()) {
-            const destFilePath = path.join(destAttDir, file);
-            fs.copyFileSync(srcFilePath, destFilePath);
-            const content = fs.readFileSync(destFilePath);
-            const hash = crypto.createHash('sha256').update(content).digest('hex');
-            attachmentsManifest.push({
-              filename: file,
-              sha256: hash,
-              byteSize: stat.size,
-            });
-          }
+
+      for (const rec of records) {
+        const srcFilePath = path.join(srcAttDir, rec.filename);
+        if (!fs.existsSync(srcFilePath)) {
+          console.error(`❌ 热备中止: 数据库引用的媒体文件在磁盘上缺失: ${rec.filename} (ID: ${rec.id})`);
+          fs.rmSync(targetDir, { recursive: true, force: true });
+          throw new Error(`CRITICAL_ATTACHMENT_MISSING: ${rec.filename}`);
         }
+
+        const destFilePath = path.join(destAttDir, rec.filename);
+        fs.copyFileSync(srcFilePath, destFilePath);
+        const content = fs.readFileSync(destFilePath);
+        const actualHash = crypto.createHash('sha256').update(content).digest('hex');
+
+        if (actualHash !== rec.sha256) {
+          console.error(`❌ 热备中止: 附件校验和不匹配: ${rec.filename} (期望: ${rec.sha256}, 实际: ${actualHash})`);
+          fs.rmSync(targetDir, { recursive: true, force: true });
+          throw new Error(`ATTACHMENT_HASH_MISMATCH: ${rec.filename}`);
+        }
+
+        attachmentsManifest.push({
+          filename: rec.filename,
+          sha256: actualHash,
+          byteSize: content.length,
+        });
       }
 
       // Compute database hash
@@ -140,7 +168,8 @@ async function run() {
       const genId = getCurrentGenerationId();
 
       const manifest = {
-        version: '1.0.0',
+        version: '1.0.1',
+        build: '20261026.02',
         schemaVersion: 3,
         createdAt: new Date().toISOString(),
         generationId: genId,
@@ -156,7 +185,7 @@ async function run() {
       fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8');
       console.log(`✅ 热备份完成:`);
       console.log(`   - 数据库文件: ${dbFile} (${(dbBuffer.length / 1024).toFixed(1)} KB)`);
-      console.log(`   - 附件数量: ${attachmentsManifest.length} 个`);
+      console.log(`   - 附件数量: ${attachmentsManifest.length} 个（与数据库引用完全吻合）`);
       console.log(`   - 代际标识: ${genId}`);
       console.log(`   - 清单文件: ${path.join(targetDir, 'manifest.json')}\n`);
       break;
