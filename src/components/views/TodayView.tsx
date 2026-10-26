@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
+import { Avatar } from '../common/Avatar';
 import { Card, Button, Tag } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
 import { Plan } from '../../types';
@@ -12,6 +13,8 @@ interface TodayViewProps {
   onOpenComplete: (plan: Plan) => void;
   onOpenCountdownEdit: (index: number) => void;
   onOpenDeleteConfirm?: (plan: Plan) => void;
+  onOpenProfile?: () => void;
+  showProfileBar?: boolean;
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({
@@ -21,6 +24,8 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onOpenComplete,
   onOpenCountdownEdit,
   onOpenDeleteConfirm,
+  onOpenProfile,
+  showProfileBar = false,
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
   const [, setTick] = useState(0);
@@ -82,6 +87,19 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
+      {/* 顶部个人状态条（如开启展示） */}
+      {showProfileBar && (
+        <div className="flex items-center justify-between px-1 py-0.5">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={onOpenProfile}>
+            <Avatar avatar={state.profile.avatar} size={32} />
+            <div>
+              <div className="text-xs font-bold text-ink-main">{state.profile.name || '备考学员'}</div>
+              <div className="text-[10px] text-ink-muted">今日专注备考中</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. 1:1 还原原设计：浅鼠尾草绿 65分钟大汇总卡 + 右下角读书土豆 (Pose 1) (Fixes A08) */}
       <div className="relative bg-[#E5ECD9] border border-[#DDE5CE] rounded-[24px] p-5 overflow-hidden shadow-soft">
         {/* 背景大圆形底斑 */}

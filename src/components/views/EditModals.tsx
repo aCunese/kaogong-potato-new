@@ -768,46 +768,7 @@ export const AuthModal: React.FC<{
 /* =========================================================================
    9. Download APK Modal (download-apk: 13:3730)
    ========================================================================= */
-export const DownloadApkModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-}> = ({ isOpen, onClose }) => {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="专属 Android 安装包">
-      <div className="space-y-4 text-center py-2">
-        <div className="my-2">
-          <PotatoSprite pose={5} size={84} />
-        </div>
-
-        <div>
-          <h3 className="text-base font-bold text-ink-main">考公工作台 · 安卓离线独立版</h3>
-          <p className="text-xs text-ink-muted mt-1">
-            包体约 2.6 MB · 纯净无广告 · 桌面沉浸式备考
-          </p>
-        </div>
-
-        <div className="p-3 bg-cream/70 rounded-xl text-left text-xs text-ink-muted space-y-1.5 border border-line">
-          <div>• 采用原生 AppCompatActivity + WebView 容器</div>
-          <div>• 针对 412×915、393×873 等主流安卓分辨率深度校核</div>
-          <div>• 数据本地持久化，断网环境下计时刷题依然完整可用</div>
-        </div>
-
-        <Button
-          variant="primary"
-          size="md"
-          fullWidth
-          onClick={() => {
-            alert('已触发安装包下载请求（app-release.apk）');
-            onClose();
-          }}
-        >
-          <Download size={16} />
-          下载 APK (2.6 MB)
-        </Button>
-      </div>
-    </Modal>
-  );
-};
+export { DownloadApkModal } from './DownloadApkModal';
 
 /* =========================================================================
    10. Overall Legend Detail Modal (overall-legend: 13:3931)

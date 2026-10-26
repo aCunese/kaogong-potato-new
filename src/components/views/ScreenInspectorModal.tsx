@@ -78,16 +78,22 @@ export const ALL_50_SCREENS: ScreenDef[] = [
   { id: 'focus-custom', nodeId: '13:4220', name: '自定义专注计时', category: 'extra', desc: '自定义事项专注计时变体', hasRefScreenshot: true, refScreenshotFile: '50-focus-custom.png' },
 ];
 
+export type ScreenSize = '360' | '393' | '412' | 'full';
+
 interface ScreenInspectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onJumpToScreen: (screenId: string) => void;
+  screenSize?: ScreenSize;
+  onSelectScreenSize?: (size: ScreenSize) => void;
 }
 
 export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
   isOpen,
   onClose,
   onJumpToScreen,
+  screenSize = 'full',
+  onSelectScreenSize,
 }) => {
   const [filterCat, setFilterCat] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
@@ -101,6 +107,32 @@ export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="50 画面全矩阵导航与验收直达">
       <div className="space-y-4">
+        {onSelectScreenSize && (
+          <div className="flex items-center justify-between p-2.5 bg-paper rounded-xl border border-line text-xs">
+            <span className="text-ink-muted font-medium">预览分辨率：</span>
+            <div className="flex gap-1.5 font-mono">
+              {[
+                { id: 'full', label: '100% 全屏' },
+                { id: '412', label: '412×915' },
+                { id: '393', label: '393×873' },
+                { id: '360', label: '360×800' },
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => onSelectScreenSize(opt.id as ScreenSize)}
+                  className={`px-2 py-1 rounded text-xs transition-colors ${
+                    screenSize === opt.id
+                      ? 'bg-sage text-white font-bold'
+                      : 'bg-cream/60 hover:bg-cream text-ink-muted'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-xs text-ink-muted">
           <span>共收录 50 个独立画板与状态</span>
           <span className="text-sage font-bold font-mono">50 画面交互已就绪</span>

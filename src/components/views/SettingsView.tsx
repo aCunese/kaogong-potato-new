@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
+import { Avatar } from '../common/Avatar';
 import { Card, Button, Tag, Modal } from '../common/UIComponents';
 import { validateAndMigrateBackup, BackupValidationResult } from '../../utils/backupValidator';
 import { Smartphone, Cloud, Download, Upload, ShieldCheck, RefreshCw, User, LogIn, UserPlus, LogOut, FileText, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
@@ -97,11 +98,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onClick={onOpenProfile}
               className="w-14 h-14 rounded-2xl bg-paper border-2 border-line overflow-hidden flex items-center justify-center cursor-pointer shadow-soft active:scale-95 transition-transform"
             >
-              {state.profile.avatar ? (
-                <img src={state.profile.avatar} alt="头像" className="w-full h-full object-cover" />
-              ) : (
-                <PotatoSprite pose={0} size={50} />
-              )}
+              <Avatar avatar={state.profile.avatar} size={52} className="w-full h-full" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -148,8 +145,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <Cloud size={16} className="text-sage" />
             <h3 className="text-sm font-bold text-ink-main">云端多用户同步</h3>
           </div>
-          <Tag variant={isGuest ? 'gray' : 'sage'}>
-            {isGuest ? '未登录' : '已就绪'}
+          <Tag variant="gray">
+            离线单机模式（未接入云端）
           </Tag>
         </div>
 

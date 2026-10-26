@@ -5,16 +5,28 @@ import { AlertTriangle, Trash2, RotateCcw, UploadCloud, DownloadCloud, LogOut, F
 interface ConfirmModalsViewProps {
   onBack: () => void;
   initialActiveModal?: string | null;
+  triggerKey?: number;
+  onCloseActiveModal?: () => void;
 }
 
-export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({ onBack, initialActiveModal = null }) => {
+export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({
+  onBack,
+  initialActiveModal = null,
+  triggerKey = 0,
+  onCloseActiveModal,
+}) => {
   const [activeModal, setActiveModal] = useState<string | null>(initialActiveModal);
 
   React.useEffect(() => {
     if (initialActiveModal) {
       setActiveModal(initialActiveModal);
     }
-  }, [initialActiveModal]);
+  }, [initialActiveModal, triggerKey]);
+
+  const handleClose = () => {
+    setActiveModal(null);
+    onCloseActiveModal?.();
+  };
 
   const confirmItems = [
     {
@@ -157,9 +169,9 @@ export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({ onBack, in
           cancelText="取消返回"
           onConfirm={() => {
             alert(`已确认操作：${currentItem.title}`);
-            setActiveModal(null);
+            handleClose();
           }}
-          onCancel={() => setActiveModal(null)}
+          onCancel={handleClose}
         />
       )}
     </div>

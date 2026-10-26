@@ -7,6 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        bg: '#F4F3EB',
         cream: '#F4F3EB',
         paper: '#FFFDF8',
         sage: {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from './context/AppContext';
 import { TodayView } from './components/views/TodayView';
 import { LearningView } from './components/views/LearningView';
@@ -25,8 +25,9 @@ import {
 } from './components/views/EditModals';
 import { StatesPreviewView } from './components/views/StatesPreviewView';
 import { ConfirmModalsView } from './components/views/ConfirmModalsView';
-import { ScreenInspectorModal, ALL_50_SCREENS } from './components/views/ScreenInspectorModal';
+import { ScreenInspectorModal, ALL_50_SCREENS, ScreenSize } from './components/views/ScreenInspectorModal';
 import { ConfirmModal, Tag } from './components/common/UIComponents';
+import { getLocalMonthString } from './constants/initialData';
 import {
   Calendar,
   BookOpen,
@@ -42,7 +43,11 @@ import {
 } from 'lucide-react';
 import { MainTab, Plan, Book, Course, WrongRecord, LearningSubTab, AnalysisSubTab } from './types';
 
-type ScreenSize = '412' | '393' | '360' | 'full';
+declare global {
+  interface Window {
+    handleBack?: () => boolean;
+  }
+}
 
 export const App: React.FC = () => {
   const {
@@ -64,7 +69,7 @@ export const App: React.FC = () => {
   const [learningSubTab, setLearningSubTab] = useState<LearningSubTab>('books');
   const [analysisSubTab, setAnalysisSubTab] = useState<AnalysisSubTab>('overall');
   const [todayForcedMode, setTodayForcedMode] = useState<'normal' | 'empty' | 'multi'>('normal');
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getLocalMonthString());
   const [forcedGuestMode, setForcedGuestMode] = useState<boolean>(false);
 
   // Sub-views
@@ -72,6 +77,7 @@ export const App: React.FC = () => {
   const [statesPreviewTab, setStatesPreviewTab] = useState<'empty' | 'sync' | 'form'>('empty');
   const [showConfirmModalsView, setShowConfirmModalsView] = useState<boolean>(false);
   const [confirmModalTarget, setConfirmModalTarget] = useState<string | null>(null);
+  const [confirmTriggerKey, setConfirmTriggerKey] = useState<number>(0);
 
   // Modals state
   const [addPlanOpen, setAddPlanOpen] = useState(false);
@@ -117,8 +123,8 @@ export const App: React.FC = () => {
   // Toast
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Responsive device frame width
-  const [screenSize, setScreenSize] = useState<ScreenSize>('412');
+  // Responsive device frame width (defaults to native full mobile viewport)
+  const [screenSize, setScreenSize] = useState<ScreenSize>('full');
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -329,6 +335,7 @@ export const App: React.FC = () => {
         // Fixes A07: Directly activate the specific target modal in confirm collection
         setShowConfirmModalsView(true);
         setConfirmModalTarget(screenId);
+        setConfirmTriggerKey(k => k + 1);
         break;
       default:
         setActiveTab('today');
@@ -341,89 +348,213 @@ export const App: React.FC = () => {
   const getContainerClasses = () => {
     switch (screenSize) {
       case '360':
-        return 'w-full max-w-[360px] h-[800px] rounded-[32px] border-[6px] border-[#343C2F]/15 shadow-2xl';
+        return 'w-full max-w-[360px] h-[800px] flex flex-col mx-auto overflow-hidden bg-bg relative rounded-[32px] border-[6px] border-[#343C2F]/15 shadow-2xl';
       case '393':
-        return 'w-full max-w-[393px] h-[873px] rounded-[36px] border-[6px] border-[#343C2F]/15 shadow-2xl';
+        return 'w-full max-w-[393px] h-[873px] flex flex-col mx-auto overflow-hidden bg-bg relative rounded-[36px] border-[6px] border-[#343C2F]/15 shadow-2xl';
       case '412':
-        return 'w-full max-w-[412px] h-[915px] rounded-[36px] border-[6px] border-[#343C2F]/15 shadow-2xl';
+        return 'w-full max-w-[412px] h-[915px] flex flex-col mx-auto overflow-hidden bg-bg relative rounded-[36px] border-[6px] border-[#343C2F]/15 shadow-2xl';
       case 'full':
       default:
         // Native full mobile viewport without artificial outer desktop margins
-        return 'w-full max-w-md h-[100dvh] rounded-none border-0 shadow-none';
+        return 'w-full max-w-md h-[100dvh] flex flex-col mx-auto overflow-hidden bg-bg relative rounded-none border-0 shadow-none';
     }
   };
 
-  return (
-    <div className="w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-0 lg:py-6 text-ink-main selection:bg-sage-light overflow-x-hidden">
-      {/* 桌面端外围工具条（仅在 >=1024px 屏幕呈现，真机移动设备完全隐藏，Fixes A06） */}
-      <header className="w-full max-w-2xl px-4 py-2 hidden lg:flex items-center justify-between text-xs text-ink-muted mb-2">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-ink-main flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-potato inline-block" />
-            考公工作台 · 土豆陪伴新版
-          </span>
-          <span className="text-[11px] text-sage font-medium bg-sage-light px-2 py-0.5 rounded-md">
-            React+TS+Vite 1:1还原版
-          </span>
-        </div>
+  // Android / Browser Back Button Contract
+  useEffect(() => {
+    window.handleBack = (): boolean => {
+      // 1. If any modal is open, close the topmost modal and return true
+      if (confirmConfig.open) {
+        setConfirmConfig(prev => ({ ...prev, open: false }));
+        return true;
+      }
+      if (inspectorOpen) {
+        setInspectorOpen(false);
+        return true;
+      }
+      if (addPlanOpen) {
+        setAddPlanOpen(false);
+        return true;
+      }
+      if (focusPlan) {
+        setFocusPlan(null);
+        return true;
+      }
+      if (completePlan) {
+        setCompletePlan(null);
+        return true;
+      }
+      if (bookModalState.open) {
+        setBookModalState({ open: false });
+        return true;
+      }
+      if (courseModalState.open) {
+        setCourseModalState({ open: false });
+        return true;
+      }
+      if (customAddOpen) {
+        setCustomAddOpen(false);
+        return true;
+      }
+      if (countdownIndex !== null) {
+        setCountdownIndex(null);
+        return true;
+      }
+      if (photoImportOpen) {
+        setPhotoImportOpen(false);
+        return true;
+      }
+      if (wrongDetailRecord) {
+        setWrongDetailRecord(null);
+        return true;
+      }
+      if (authModal.open) {
+        setAuthModal({ open: false, mode: 'login' });
+        return true;
+      }
+      if (downloadApkOpen) {
+        setDownloadApkOpen(false);
+        return true;
+      }
+      if (legendOpen) {
+        setLegendOpen(false);
+        return true;
+      }
+      if (monthPickerOpen) {
+        setMonthPickerOpen(false);
+        return true;
+      }
+      if (syncModalOpen) {
+        setSyncModalOpen(false);
+        return true;
+      }
+      if (backupModalOpen) {
+        setBackupModalOpen(false);
+        return true;
+      }
+      if (profileModalOpen) {
+        setProfileModalOpen(false);
+        return true;
+      }
 
-        {/* 屏幕尺寸切换器 */}
-        <div className="flex items-center gap-3">
-          <div className="flex bg-paper border border-line rounded-lg p-0.5 shadow-sm">
-            <button
-              onClick={() => setScreenSize('412')}
-              className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-                screenSize === '412' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
-              }`}
-              title="主设计尺寸 412×915 (Google Pixel)"
-            >
-              412px
-            </button>
-            <button
-              onClick={() => setScreenSize('393')}
-              className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-                screenSize === '393' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
-              }`}
-              title="校核尺寸 393×873 (iPhone)"
-            >
-              393px
-            </button>
-            <button
-              onClick={() => setScreenSize('360')}
-              className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-                screenSize === '360' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
-              }`}
-              title="紧凑尺寸 360×800 (Compact Android)"
-            >
-              360px
-            </button>
-            <button
-              onClick={() => setScreenSize('full')}
-              className={`px-2 py-1 rounded text-xs transition-colors ${
-                screenSize === 'full' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
-              }`}
-            >
-              100%
-            </button>
+      // 2. If showStatesPreview or showConfirmModalsView is open, close it and return true
+      if (showStatesPreview) {
+        setShowStatesPreview(false);
+        return true;
+      }
+      if (showConfirmModalsView) {
+        setShowConfirmModalsView(false);
+        return true;
+      }
+
+      // 3. If activeTab !== 'today', set activeTab('today') and return true
+      if (activeTab !== 'today') {
+        setActiveTab('today');
+        return true;
+      }
+
+      // 4. Return false otherwise
+      return false;
+    };
+
+    return () => {
+      delete window.handleBack;
+    };
+  }, [
+    confirmConfig.open,
+    inspectorOpen,
+    addPlanOpen,
+    focusPlan,
+    completePlan,
+    bookModalState.open,
+    courseModalState.open,
+    customAddOpen,
+    countdownIndex,
+    photoImportOpen,
+    wrongDetailRecord,
+    authModal.open,
+    downloadApkOpen,
+    legendOpen,
+    monthPickerOpen,
+    syncModalOpen,
+    backupModalOpen,
+    profileModalOpen,
+    showStatesPreview,
+    showConfirmModalsView,
+    activeTab,
+  ]);
+
+  return (
+    <div className={`w-full min-h-screen bg-[#ECEAE1] flex flex-col items-center justify-center p-0 ${screenSize === 'full' ? '' : 'lg:py-6'} text-ink-main selection:bg-sage-light overflow-x-hidden`}>
+      {/* 桌面端外围工具条（当 screenSize !== 'full' 时在桌面端呈现） */}
+      {screenSize !== 'full' && (
+        <header className="w-full max-w-2xl px-4 py-2 hidden lg:flex items-center justify-between text-xs text-ink-muted mb-2">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-ink-main flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-potato inline-block" />
+              考公工作台 · 土豆陪伴新版
+            </span>
+            <span className="text-[11px] text-sage font-medium bg-sage-light px-2 py-0.5 rounded-md">
+              React+TS+Vite 1:1还原版
+            </span>
           </div>
 
-          {/* 50 屏直达检查器 */}
-          <button
-            onClick={() => setInspectorOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-paper border border-sage/50 text-sage hover:bg-sage-light font-bold rounded-lg shadow-sm transition-all"
-          >
-            <Layers size={14} />
-            <span>50 屏画板矩阵</span>
-          </button>
-        </div>
-      </header>
+          {/* 屏幕尺寸切换器 */}
+          <div className="flex items-center gap-3">
+            <div className="flex bg-paper border border-line rounded-lg p-0.5 shadow-sm">
+              <button
+                onClick={() => setScreenSize('412')}
+                className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
+                  screenSize === '412' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
+                }`}
+                title="主设计尺寸 412×915 (Google Pixel)"
+              >
+                412px
+              </button>
+              <button
+                onClick={() => setScreenSize('393')}
+                className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
+                  screenSize === '393' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
+                }`}
+                title="校核尺寸 393×873 (iPhone)"
+              >
+                393px
+              </button>
+              <button
+                onClick={() => setScreenSize('360')}
+                className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
+                  screenSize === '360' ? 'bg-sage text-white font-bold' : 'hover:text-ink-main text-ink-muted'
+                }`}
+                title="紧凑尺寸 360×800 (Compact Android)"
+              >
+                360px
+              </button>
+              <button
+                onClick={() => setScreenSize('full')}
+                className="px-2 py-1 rounded text-xs transition-colors hover:text-ink-main text-ink-muted"
+              >
+                100%
+              </button>
+            </div>
+
+            {/* 50 屏直达检查器 */}
+            <button
+              onClick={() => setInspectorOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-paper border border-sage/50 text-sage hover:bg-sage-light font-bold rounded-lg shadow-sm transition-all"
+            >
+              <Layers size={14} />
+              <span>50 屏画板矩阵</span>
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* 手机界面容器 (主视口画布，严格修复横向溢出与首屏导航可见性，Fixes A06) */}
       <main
-        className={`${getContainerClasses()} bg-cream flex flex-col relative overflow-hidden transition-all duration-300`}
+        className={`${getContainerClasses()} transition-all duration-300`}
       >
         {/* 顶部移动端小工具条（屏幕宽度较小时提供轻量直达入口） */}
-        <div className="lg:hidden flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
+        <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
           <span className="font-bold text-ink-main flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-potato inline-block" />
             土豆考公工作台
@@ -438,7 +569,7 @@ export const App: React.FC = () => {
         </div>
 
         {/* 视图主体内容区：独立平滑内部滚动，底部留出足够 padding 防止导航遮挡 */}
-        <div className="flex-1 px-4 pt-3 pb-4 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 pt-3 pb-4">
           {corruptedRaw && (
             <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900 shadow-sm animate-fade-in">
               <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
@@ -464,6 +595,8 @@ export const App: React.FC = () => {
           ) : showConfirmModalsView ? (
             <ConfirmModalsView
               initialActiveModal={confirmModalTarget}
+              triggerKey={confirmTriggerKey}
+              onCloseActiveModal={() => setConfirmModalTarget(null)}
               onBack={() => setShowConfirmModalsView(false)}
             />
           ) : activeTab === 'today' ? (
@@ -590,8 +723,8 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* 底部固定 5 大入口导航栏：shrink-0 绝对固定在视口底部，首屏 100% 可见 (Fixes A06) */}
-        <nav className="shrink-0 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around z-40 shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        {/* 底部固定 5 大入口导航栏：flex-none sticky bottom-0 z-30 */}
+        <nav className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {[
             { id: 'today', label: '今日', icon: Calendar },
             { id: 'learning', label: '学习', icon: BookOpen },
@@ -799,6 +932,8 @@ export const App: React.FC = () => {
           isOpen={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
           onJumpToScreen={handleJumpToScreen}
+          screenSize={screenSize}
+          onSelectScreenSize={setScreenSize}
         />
       </main>
     </div>

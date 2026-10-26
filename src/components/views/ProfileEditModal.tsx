@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button } from '../common/UIComponents';
 import { PotatoSprite, PotatoPose } from '../common/PotatoSprite';
-import { Camera, Check, Sparkles } from 'lucide-react';
+import { Avatar } from '../common/Avatar';
+import { Camera, Check, Upload } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompressor';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -18,6 +20,21 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   const { state, updateProfile } = useApp();
   const [name, setName] = useState(state.profile.name || '土豆的备考空间');
   const [selectedAvatar, setSelectedAvatar] = useState<string>(state.profile.avatar || 'pose-0');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Initialize and synchronize draft on open/profile change so uncommitted drafts are NEVER retained
+  useEffect(() => {
+    if (isOpen) {
+      setName(state.profile.name || '土豆的备考空间');
+      setSelectedAvatar(state.profile.avatar || 'pose-0');
+    }
+  }, [isOpen, state.profile]);
+
+  const handleCancel = () => {
+    setName(state.profile.name || '土豆的备考空间');
+    setSelectedAvatar(state.profile.avatar || 'pose-0');
+    onClose();
+  };
 
   // Avatar choices using potato poses (0 to 7)
   const avatarOptions: { id: string; pose: PotatoPose; label: string }[] = [
@@ -31,43 +48,76 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     { id: 'pose-7', pose: 7, label: '专注土豆' },
   ];
 
+  const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await compressImage(file, {
+        maxWidth: 320,
+        maxHeight: 320,
+        quality: 0.75,
+      });
+      setSelectedAvatar(dataUrl);
+      onToast('头像已上传就绪，点击下方保存即可应用');
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : '相册头像处理失败');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const handleSave = () => {
     if (!name.trim()) {
       alert('请输入空间昵称');
       return;
     }
-    // Real persistence call (Fixes A11)
     updateProfile(name.trim(), selectedAvatar);
     onToast('备考资料已保存更新！');
     onClose();
   };
 
-  const getPoseNumber = (str: string): PotatoPose => {
-    const num = parseInt(str.replace('pose-', '') || '0', 10);
-    return (num >= 0 && num <= 7 ? num : 0) as PotatoPose;
-  };
-
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="编辑个人资料 (13:1231)">
+    <Modal isOpen={isOpen} onClose={handleCancel} title="编辑个人资料 (13:1231)">
       <div className="space-y-4">
-        {/* 大头像展示与选择器 */}
+        {/* 大头像展示与相册上传 */}
         <div className="flex flex-col items-center justify-center pt-1 pb-2">
           <div className="relative w-24 h-24 rounded-3xl bg-paper border-2 border-sage/50 p-2 shadow-soft flex items-center justify-center">
-            {selectedAvatar.startsWith('data:') || selectedAvatar.startsWith('http') ? (
-              <img src={selectedAvatar} alt="头像" className="w-full h-full object-cover rounded-2xl" />
-            ) : (
-              <PotatoSprite pose={getPoseNumber(selectedAvatar)} size={76} />
-            )}
-            <div className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-sage text-white flex items-center justify-center shadow-md">
+            <Avatar avatar={selectedAvatar} size={76} />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-sage text-white flex items-center justify-center shadow-md hover:bg-sage-dark active:scale-95 transition-all"
+              title="上传相册头像"
+            >
               <Camera size={14} />
-            </div>
+            </button>
           </div>
-          <span className="text-xs text-ink-muted mt-2">点击下方更换土豆陪伴头像</span>
+          <span className="text-xs text-ink-muted mt-2">选择土豆吉祥物或上传专属照片</span>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarFile}
+          />
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="mt-2.5 text-xs text-sage"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload size={13} />
+            <span>上传相册头像</span>
+          </Button>
         </div>
 
         {/* 土豆头像库 */}
         <div>
-          <label className="block text-xs font-bold text-ink-main mb-2">选择土豆吉祥物形象</label>
+          <label className="block text-xs font-bold text-ink-main mb-2">或选择经典土豆形象</label>
           <div className="grid grid-cols-4 gap-2">
             {avatarOptions.map(opt => {
               const active = selectedAvatar === opt.id;
@@ -105,7 +155,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
         {/* 提交按钮 */}
         <div className="flex gap-2.5 pt-2">
-          <Button variant="secondary" size="md" fullWidth onClick={onClose}>
+          <Button variant="secondary" size="md" fullWidth onClick={handleCancel}>
             取消
           </Button>
           <Button variant="primary" size="md" fullWidth onClick={handleSave}>

@@ -232,3 +232,6 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     </div>
   );
 };
+
+export { Avatar } from './Avatar';
+
