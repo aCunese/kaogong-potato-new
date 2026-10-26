@@ -1,0 +1,145 @@
+{
+  "runId": "backup_1793024649212_a55ccd",
+  "checkedAt": "2026-10-26T14:24:11.599Z",
+  "seedDataDir": "/tmp/potato-backup-audit-L5xlsl/seed-data",
+  "restoreDataDir": "/tmp/potato-backup-audit-L5xlsl/restore-data",
+  "archivePath": "/tmp/potato-backup-audit-L5xlsl/seed-data/backups/backup_20261026_232410.tar.gz",
+  "archiveSize": 7301,
+  "gitHead": "bc368b7b8ac6217b1a31ef78cf74c5d0e7ebaa9c",
+  "integrity": {
+    "integrity": "ok",
+    "workspaces": 1,
+    "revision": 2,
+    "seedVersion": 1,
+    "mediaCount": 1,
+    "sessions": 0,
+    "generation": "gen_1793024649370_5f01203014ee8db4"
+  },
+  "dockerAvailable": false,
+  "resticAvailable": false,
+  "environmentGaps": [
+    {
+      "item": "Docker 容器重建验收",
+      "available": false,
+      "note": "环境未安装 Docker：容器重建/持久卷挂载验收未执行，不得宣称已验收"
+    },
+    {
+      "item": "Restic 异地灾备仓库快照与隔离恢复",
+      "available": false,
+      "note": "环境未安装 restic 且无远程仓库凭据：远程快照与异地隔离恢复未验收"
+    }
+  ],
+  "total": 13,
+  "passed": 13,
+  "failed": 0,
+  "results": [
+    {
+      "name": "backup: isolated registration succeeds",
+      "passed": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "backup: real attachment uploaded",
+      "passed": true,
+      "detail": {
+        "status": 200,
+        "id": "media_1793024649604_f2060e1c3073"
+      }
+    },
+    {
+      "name": "backup: workspace synced with media reference",
+      "passed": true,
+      "detail": {
+        "status": 200,
+        "revision": 2
+      }
+    },
+    {
+      "name": "backup: backup.sh produced a tar.gz archive",
+      "passed": true,
+      "detail": {
+        "archivePath": "/tmp/potato-backup-audit-L5xlsl/seed-data/backups/backup_20261026_232410.tar.gz",
+        "size": 7301
+      }
+    },
+    {
+      "name": "restore: restore.sh executed on a fresh isolated directory",
+      "passed": true
+    },
+    {
+      "name": "restore: attachment files restored",
+      "passed": true,
+      "detail": {
+        "files": [
+          "8d62f61347c37830c28e9b61a6f8f517c061501388d2f6233b00cb136c9914ce.png"
+        ]
+      }
+    },
+    {
+      "name": "restore: SQLite integrity_check ok",
+      "passed": true,
+      "detail": {
+        "integrity": "ok",
+        "workspaces": 1,
+        "revision": 2,
+        "seedVersion": 1,
+        "mediaCount": 1,
+        "sessions": 0,
+        "generation": "gen_1793024649370_5f01203014ee8db4"
+      }
+    },
+    {
+      "name": "restore: workspace data restored",
+      "passed": true,
+      "detail": {
+        "integrity": "ok",
+        "workspaces": 1,
+        "revision": 2,
+        "seedVersion": 1,
+        "mediaCount": 1,
+        "sessions": 0,
+        "generation": "gen_1793024649370_5f01203014ee8db4"
+      }
+    },
+    {
+      "name": "restore: login works after restore (user rows preserved)",
+      "passed": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "restore: workspace content readable after restore (profile + wrong photo reference)",
+      "passed": true,
+      "detail": {
+        "revision": 2,
+        "image": "/api/media/media_1793024649604_f2060e1c3073"
+      }
+    },
+    {
+      "name": "restore: generation rotated after restore",
+      "passed": true,
+      "detail": {
+        "before": "gen_1793024649370_5f01203014ee8db4",
+        "after": "gen_1793024650432_bbca137f69418e12"
+      }
+    },
+    {
+      "name": "restore: actual photo bytes match the original upload",
+      "passed": true,
+      "detail": {
+        "bytes": 189,
+        "shaMatches": true
+      }
+    },
+    {
+      "name": "restore: data + attachments persist across a server restart",
+      "passed": true,
+      "detail": {
+        "revision": 2
+      }
+    }
+  ]
+}

@@ -303,7 +303,7 @@ describe('Milestone 3: Frontend Back Contract (window.handleBack)', () => {
 });
 
 describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
-  it('DownloadApkModal delivers official Android Release APK download link and v1.0.1 info', () => {
+  it('DownloadApkModal presents the official verified APK download path without hardcoded old versions', () => {
     const html = renderToStaticMarkup(
       React.createElement(DownloadApkModal, {
         isOpen: true,
@@ -312,11 +312,12 @@ describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
     );
     expect(html).toContain('考公工作台 · 安卓正式独立版');
     expect(html).toContain('/api/download/apk');
-    expect(html).toContain('立即下载 Android 安装包 (APK)');
-    expect(html).toContain('v1.0.1');
+    expect(html).toContain('work.ruyne.space');
+    // The old hardcoded "v1.0.1" release label must not come back.
+    expect(html.includes('v1.0.1')).toBe(false);
   });
 
-  it('SyncModal clearly states "单机离线模式（云端服务未接入）"', () => {
+  it('SyncModal no longer claims the app is a standalone offline mode without cloud service', () => {
     const html = renderToStaticMarkup(
       React.createElement(SyncModal, {
         isOpen: true,
@@ -326,27 +327,34 @@ describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
         onToast: () => {},
       })
     );
-    expect(html).toContain('单机离线模式（云端服务未接入）');
+    expect(html.includes('云端服务未接入')).toBe(false);
+    expect(html).toContain('自动同步');
   });
 
-  it('SettingsView displays "离线单机模式（未接入云端）" cloud tag', () => {
+  it('SettingsView displays compact items and eliminates obsolete offline/backup cards', () => {
     const html = renderToStaticMarkup(
       React.createElement(
         AppProvider,
         null,
         React.createElement(SettingsView, {
-          onOpenLogin: () => {},
-          onOpenRegister: () => {},
           onOpenSync: () => {},
-          onOpenBackup: () => {},
           onOpenProfile: () => {},
-          onOpenDownloadApk: () => {},
           onOpenResetConfirm: () => {},
           onOpenLogoutConfirm: () => {},
           onToast: () => {},
         })
       )
     );
-    expect(html).toContain('离线单机模式（未接入云端）');
+    // 验证五大紧凑业务入口存在
+    expect(html).toContain('同步状态');
+    expect(html).toContain('检查更新');
+    expect(html).toContain('关于应用');
+    expect(html).toContain('账号与数据设置');
+    expect(html).toContain('退出登录');
+    // 验证废弃文案已彻底移除
+    expect(html).not.toContain('离线单机模式（未接入云端）');
+    expect(html).not.toContain('本地 JSON 备份');
+    expect(html).not.toContain('上传本机覆盖云端');
+    expect(html).not.toContain('从云端拉取覆盖');
   });
 });

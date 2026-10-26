@@ -1,0 +1,914 @@
+{
+  "runId": "run-20261026-141653-5a8b2d",
+  "mode": "isolated-auto",
+  "generatedAt": "2026-10-26T14:17:24.356Z",
+  "realDataDir": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
+  "realDataBefore": {
+    "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
+    "exists": true,
+    "capturedAt": "2026-10-26T14:16:54.283Z",
+    "files": [
+      {
+        "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
+        "size": 70,
+        "mtimeMs": 1792995329512.9246,
+        "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+      },
+      {
+        "path": "attachments/stream_test_del.png",
+        "size": 10,
+        "mtimeMs": 1793018917274.216,
+        "sha256": "5d2fe555eea829ac791af899610755bc8c5dc4f350bee9abbac1d2144d005fc8"
+      },
+      {
+        "path": "backups/backup_20261026_153756/attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
+        "size": 70,
+        "mtimeMs": 1792996676655.7534,
+        "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+      },
+      {
+        "path": "backups/backup_20261026_153756/manifest.json",
+        "size": 555,
+        "mtimeMs": 1792996676656.4644,
+        "sha256": "a1c8d1c264f4c37dfe52a3c95c2e3ba251d740b5bfd7feac6149c36b9a58f57c"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db",
+        "size": 98304,
+        "mtimeMs": 1792996676655.1223,
+        "sha256": "6f4ae6360c1b97ddd3da67cd965a6e44691ed0c8129f86844f781a6122880027"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1792996676686.6624,
+        "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db-wal",
+        "size": 0,
+        "mtimeMs": 1792996676686.5151,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "backups/backup_20261026_153756.tar.gz",
+        "size": 5882,
+        "mtimeMs": 1792996676705.978,
+        "sha256": "e917e42b43e5a5dfd0e0e17d5d1460232de9f28869f4b882e0fb3008a2b5bb6e"
+      },
+      {
+        "path": "potato.db",
+        "size": 98304,
+        "mtimeMs": 1792995675566.1826,
+        "sha256": "c123fa192fbc56b1e4a32ad94897c6b45e3982a123bc3f1a0f0a7031fd5c900e"
+      },
+      {
+        "path": "potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1793019121187.2803,
+        "sha256": "bbf6df475baa06519b74b0c09acb10b1c7541caa4b4ec7b221edf5187376b3c4"
+      },
+      {
+        "path": "potato.db-wal",
+        "size": 622152,
+        "mtimeMs": 1793020967458.0186,
+        "sha256": "2e601e61429a02a1121ee85a8d983797b33bce84cbcc167e532cc187400fefba"
+      }
+    ],
+    "aggregateSha256": "5dc94c686471743760008e966176afa11ee8d3d12b9d08a2b36324c1d962bc6b"
+  },
+  "realDataAfter": {
+    "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
+    "exists": true,
+    "capturedAt": "2026-10-26T14:17:24.355Z",
+    "files": [
+      {
+        "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
+        "size": 70,
+        "mtimeMs": 1792995329512.9246,
+        "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+      },
+      {
+        "path": "attachments/stream_test_del.png",
+        "size": 10,
+        "mtimeMs": 1793018917274.216,
+        "sha256": "5d2fe555eea829ac791af899610755bc8c5dc4f350bee9abbac1d2144d005fc8"
+      },
+      {
+        "path": "backups/backup_20261026_153756/attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
+        "size": 70,
+        "mtimeMs": 1792996676655.7534,
+        "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+      },
+      {
+        "path": "backups/backup_20261026_153756/manifest.json",
+        "size": 555,
+        "mtimeMs": 1792996676656.4644,
+        "sha256": "a1c8d1c264f4c37dfe52a3c95c2e3ba251d740b5bfd7feac6149c36b9a58f57c"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db",
+        "size": 98304,
+        "mtimeMs": 1792996676655.1223,
+        "sha256": "6f4ae6360c1b97ddd3da67cd965a6e44691ed0c8129f86844f781a6122880027"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1792996676686.6624,
+        "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      },
+      {
+        "path": "backups/backup_20261026_153756/potato.db-wal",
+        "size": 0,
+        "mtimeMs": 1792996676686.5151,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "backups/backup_20261026_153756.tar.gz",
+        "size": 5882,
+        "mtimeMs": 1792996676705.978,
+        "sha256": "e917e42b43e5a5dfd0e0e17d5d1460232de9f28869f4b882e0fb3008a2b5bb6e"
+      },
+      {
+        "path": "potato.db",
+        "size": 98304,
+        "mtimeMs": 1792995675566.1826,
+        "sha256": "c123fa192fbc56b1e4a32ad94897c6b45e3982a123bc3f1a0f0a7031fd5c900e"
+      },
+      {
+        "path": "potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1793019121187.2803,
+        "sha256": "bbf6df475baa06519b74b0c09acb10b1c7541caa4b4ec7b221edf5187376b3c4"
+      },
+      {
+        "path": "potato.db-wal",
+        "size": 622152,
+        "mtimeMs": 1793020967458.0186,
+        "sha256": "2e601e61429a02a1121ee85a8d983797b33bce84cbcc167e532cc187400fefba"
+      }
+    ],
+    "aggregateSha256": "5dc94c686471743760008e966176afa11ee8d3d12b9d08a2b36324c1d962bc6b"
+  },
+  "realDataDiff": {
+    "unchanged": true,
+    "added": [],
+    "removed": [],
+    "modified": []
+  },
+  "realDataUnchanged": true,
+  "isolatedEnv": {
+    "repoRoot": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版",
+    "dataDir": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261026-141653-5a8b2d-oy4JXK/data",
+    "tmpRoot": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261026-141653-5a8b2d-oy4JXK",
+    "serverUrl": "http://127.0.0.1:49561",
+    "serverPid": 16960,
+    "webBuild": {
+      "version": "1.0.3",
+      "build": "20261027.01",
+      "schemaVersion": 3,
+      "source": "server-endpoint",
+      "servedAt": "2026-10-26T14:16:58.036Z"
+    },
+    "build": {
+      "strategy": "npm-run-build",
+      "typecheckPassed": true,
+      "npmBuildExitCode": 0,
+      "viteBuildExitCode": 0,
+      "distIndexPath": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/dist/index.html",
+      "distIndexMtimeMs": 1793024217849.1528,
+      "hashedAssets": [
+        "potato-poses-bvJKuRVa.png",
+        "index-B-J_DQ8W.js",
+        "index-ByhKRi8F.css"
+      ]
+    },
+    "inviteCreated": true
+  },
+  "gitBefore": {
+    "head": "bc368b7b8ac6217b1a31ef78cf74c5d0e7ebaa9c",
+    "branch": "codex/prod-release-m1-m4",
+    "statusPorcelain": " M .gitignore\n M Dockerfile\n M android/README.md\n M android/app/build.gradle\n M android/app/src/main/AndroidManifest.xml\n M android/app/src/main/java/com/ruyne/kaogong/MainActivity.java\n M android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png\n M deploy/nginx/work.ruyne.space.conf\n M docker-compose.yml\n M docs/implementation/STATUS.md\n M index.html\n M package.json\n M public/manifest.json\n M public/sw.js\n M public/version.json\n M scripts/backup.sh\n M scripts/build-apk.sh\n M scripts/restore.sh\n M scripts/verify-screens.ts\n M server/admin.ts\n M server/app.ts\n M server/auth.ts\n M server/cli.ts\n M server/db.ts\n M server/media.ts\n M server/workspace.ts\n M src/App.tsx\n M src/components/common/Avatar.tsx\n M src/components/views/ConfirmModalsView.tsx\n M src/components/views/ConflictModal.tsx\n M src/components/views/DownloadApkModal.tsx\n M src/components/views/EditModals.tsx\n M src/components/views/SettingsView.tsx\n M src/components/views/StatesPreviewView.tsx\n M src/components/views/SyncModal.tsx\n M src/context/AppContext.tsx\n M src/types/index.ts\n M src/utils/db.ts\n M src/utils/syncClient.ts\n M tests/server.test.ts\n M tests/ui_interaction.test.ts\n M vite.config.ts\n?? .dockerignore\n?? android/app/src/main/java/com/ruyne/kaogong/KaogongFileProvider.java\n?? android/app/src/main/res/drawable/\n?? android/app/src/main/res/mipmap-anydpi-v26/\n?? android/app/src/main/res/mipmap-hdpi/\n?? android/app/src/main/res/mipmap-mdpi/\n?? android/app/src/main/res/mipmap-xhdpi/\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png\n?? android/app/src/main/res/mipmap-xxxhdpi/\n?? android/app/src/main/res/values/colors.xml\n?? android/build/\n?? docs/implementation/HANDOVER.md\n?? docs/implementation/evidence/\n?? public/apple-touch-icon.png\n?? public/branding/\n?? public/favicon-16x16.png\n?? public/favicon-32x32.png\n?? public/favicon-48x48.png\n?? public/favicon.ico\n?? public/favicon.png\n?? public/pwa-192.png\n?? public/pwa-512.png\n?? public/pwa-maskable-192.png\n?? public/pwa-maskable-512.png\n?? release.json\n?? release/apk/kaogong-potato-v1.0.2.apk\n?? release/apk/kaogong-potato-v1.0.2.apk.idsig\n?? release/apk/kaogong-potato-v1.0.2.apk.sha256\n?? scripts/business-e2e-audit.ts\n?? scripts/generate-brand-assets.py\n?? scripts/lib/\n?? scripts/run-isolated-audit.ts\n?? server/retention.ts\n?? src/assets/branding/\n?? src/components/views/AuthView.tsx\n?? src/components/views/MigrationModals.tsx\n?? src/components/views/UpdateModal.tsx\n?? src/utils/guestMigration.ts\n?? src/utils/mediaSync.ts\n?? src/utils/seedMerge.ts\n?? src/utils/versionCheck.ts\n?? tests/defects-f01-f12-regression.test.ts\n?? tests/fixtures/\n?? tests/sync-core-regressions.test.ts\n",
+    "trackedDiffSha256": "a8f0a0ed17eb8aa0f26badc153beeb9be0a835cf454d7f747024c459be73975e",
+    "untrackedFiles": [
+      {
+        "path": ".dockerignore",
+        "sha256": "8a1f4d946e1ff7fd44560f992416cbc99bffe92eb1a42db2239ceac9939717b9"
+      },
+      {
+        "path": "android/app/src/main/java/com/ruyne/kaogong/KaogongFileProvider.java",
+        "sha256": "bab4536f183c80ea83c1c7508489fb2b7357d03bcca9c7b0b5db58aa000fd957"
+      },
+      {
+        "path": "android/app/src/main/res/drawable/ic_launcher_background.xml",
+        "sha256": "fb90e5af5c7d4dc20d3a88ecc783cf821d9841eaf880a8e9e5e943b006670c75"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+        "sha256": "dce5cc8a0617775a483b87da68e148d297ef9642a6b4b5bdaa96df7d7aace217"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+        "sha256": "dce5cc8a0617775a483b87da68e148d297ef9642a6b4b5bdaa96df7d7aace217"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+        "sha256": "344ff799effdd5d1619ad4f0792cb54b9c8f9721df204e398d53a8e277a7e6d8"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+        "sha256": "e5be091eb0cbd338f173b4ff9553a663c23dee0e3beeb075b952c8fcb390cc2d"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png",
+        "sha256": "21ae2c259c3aaaa7552b6a74f256305789ea8db852ba7b4bf20dd591687250db"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+        "sha256": "746d2c17d4e2b01c771123ff8b7500beda8cb3fec0b51e3d25da004dc8320d60"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+        "sha256": "e025184b322a74f83803d4457dbc251aa2a62d95ba00b8fc8385d5ce3f42854a"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+        "sha256": "1dd04d339a4ae7fcf377837e64f9dcf09e5ba17be401e5c323603c1ad0b0649c"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png",
+        "sha256": "833d065480069484b916c7ea6a6ef9e60db687022e1076c0233b053b0e4d83de"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+        "sha256": "2c3f3cae86c509f83d8742ef84154bec3e0a6b40afa2a42af1a87be88c172cbb"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+        "sha256": "350e2f03d1f445e17b68d1e3f7229a53bb128388ab6824000243fb948fef135b"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+        "sha256": "3f491315b7b524ed2416172518f2870f26748259cca0b8905b6f5301275f67dd"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png",
+        "sha256": "a6be6755b1fb15bb3f84ece0349e40b93af7fe323d95a4c950609b59908d75c5"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+        "sha256": "43aec2a63fe78f4ed6f78846fa318c871c8d8dc645d82240350d4f8665196672"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+        "sha256": "dbd3908ebee14c22100fe2f648c194efa96958edc09621a7daaab82547cb2c9f"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png",
+        "sha256": "b26bac0b672229d626811f5fcdab0bd53e5a255f7c14593268d12d84cff3f514"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+        "sha256": "425cc41179702a9640cbdd4d3c5d0abf39f61ddcd146fcf39558fb0e955cc112"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+        "sha256": "85c843aa6bc4915e4965f3b198b9ac37ccda1169483a482304be65584fbe34d6"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+        "sha256": "bda5930868c76adb1a2bb92cca0d958a04ebade567f678c3769b7a1d522a0250"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png",
+        "sha256": "33441fa4fc68b87a83b1d1ea64fd777812e1f62016e57fc1a1d491ea0ffefe26"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+        "sha256": "b1d4bdcc66022e5793a42fb08c6796ed2c29ee1b6fe189c2904c9b3862fab188"
+      },
+      {
+        "path": "android/app/src/main/res/values/colors.xml",
+        "sha256": "89a19feeb7633fd76f00cfc288a87a3e5c349a2a0dd2899eeffa6070430d9b81"
+      },
+      {
+        "path": "android/build/verify/kaogong-potato-v1.0.3-UNSIGNED-NOT-FOR-DISTRIBUTION.apk",
+        "sha256": "50cd19c1ffcff3750317b4c12d3868104b0707c62133ef00a611602806d130dd"
+      },
+      {
+        "path": "android/build/verify/kaogong-potato-v1.0.3-UNSIGNED-NOT-FOR-DISTRIBUTION.apk.verify.txt",
+        "sha256": "64c421f6656c9cdfea64cd7b24518ac59a383a01c044eebf81ec9953d88a4530"
+      },
+      {
+        "path": "docs/implementation/HANDOVER.md",
+        "sha256": "a34291df19c3f540bac2697168f7ba6d3f1fd50659877a7c8b07579ed1328bb3"
+      },
+      {
+        "path": "docs/implementation/evidence/android-r13-r17-evidence.md",
+        "sha256": "6e0cb405182df9a855ca463b56e30bcc5a431e13146594d488151037e44e5468"
+      },
+      {
+        "path": "docs/implementation/evidence/android-update-sw-harness.mts",
+        "sha256": "c84bd1c537d5aa62e2a11d4b6da00aef090a47757bcb75612c813168ec71ce76"
+      },
+      {
+        "path": "docs/implementation/evidence/android-update-versioncheck-harness.mts",
+        "sha256": "3c01b8773fd59bd6f9e8d477be320cba47bc60c8a82f71301efc074504a293c0"
+      },
+      {
+        "path": "docs/implementation/evidence/business-e2e-results.json",
+        "sha256": "01f469a0e6a2aa42dc3aed3e2fac0853c4d2d42d13825962d5b44aa980f55e9b"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-360x800.png",
+        "sha256": "77ce34cea5285df3dc6d3bfca08fe120f8b1c378dce92eab8e953498e33930ff"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-393x873.png",
+        "sha256": "c5ff2885f279372dd0f4696ea628cbc28e9aa3dd49013e39a9d74d4bf2290c3c"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-412x915.png",
+        "sha256": "6464bf58e90fe4fe636b22367f4bf7bb1fdf07b171f868507ea8327612e10784"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-360x800.png",
+        "sha256": "ee424c8433e8c0d808a2d726d1db8a78742411b83fa338132b162821769da61b"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-393x873.png",
+        "sha256": "52e121a76d8fc3ad4555999c5277ec25a4868d543e425115f580014c923f7fac"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-412x915.png",
+        "sha256": "33a22ae620443a757d6055bc53dcaf2a1c39851c6419f15265afdbd951d329dd"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-360x800.png",
+        "sha256": "6cc448c85f8f75a8c92840af885d7cad24154eb298b9a1fcce8dec2954d8c022"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-393x873.png",
+        "sha256": "92b55a41fd0932968c9f7b2f6042b450697923f636c054de7be6737c3c1d71b6"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-412x915.png",
+        "sha256": "cca8740ca54d962c05bd42ba227422f5f12426ba82ac665732c320f1ba1d87eb"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/offline-reconnected-412x915.png",
+        "sha256": "36e44ce9c9d0a7f2ea9c3258f6424a226b6739b38165af15db512db99386866f"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-360x800.png",
+        "sha256": "b2974e311932eb9792d872e13165acd20905ece268d0547573ef6ecb5365e7ce"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-393x873.png",
+        "sha256": "b073ad179081c8731ed82291d5e93319dbea1ccb2744307efc8343d8db24fcef"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-412x915.png",
+        "sha256": "7c3b2a8e72635de4cd1e8b9bb5940b175d5a29177133a002c58ed12d12e5f7b0"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-360x800.png",
+        "sha256": "b92f97db29e92438a0924986bc78a664d0cb4970b8a8cef79b13827c45ecac55"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-393x873.png",
+        "sha256": "e56e426ce11cb0f3fe9d54d510222d5bcebd16eb060663f2baede13777816660"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-412x915.png",
+        "sha256": "35504e99568d3d49be471e83aac36619ec2067ccf22f27600a65508f7d1bc923"
+      },
+      {
+        "path": "docs/implementation/evidence/server-contracts.md",
+        "sha256": "47e5d03420f03a4582c392df13f7d9b9c762fce63407813debb8e968d8ea1f31"
+      },
+      {
+        "path": "docs/implementation/evidence/test-isolation-baseline-isolation.json",
+        "sha256": "d09851d082aabf3d8d420529b74da4ff1b92f6c01ac4b369d7c4810b5c5f1098"
+      },
+      {
+        "path": "docs/implementation/evidence/test-isolation-baseline-results.json",
+        "sha256": "7e4652c1e257fb519f70d435abb4a48b6af03843c59717e61f14e9fa173c1860"
+      },
+      {
+        "path": "public/apple-touch-icon.png",
+        "sha256": "00cfc75dd1f3961c83467f17be77a9427d14df6a490a129982a0948f2f73df72"
+      },
+      {
+        "path": "public/branding/logo-transparent.png",
+        "sha256": "ea86a06f1c46bd1d4b196b7458f5dea1d2e555a8041e6d5cce9bf771a75bcda7"
+      },
+      {
+        "path": "public/branding/logo.png",
+        "sha256": "98fa5086a3c414f2c4f30974e3b2cab5fc571ef178f86b2c881d710124ced364"
+      },
+      {
+        "path": "public/branding/potato-logo-cream.png",
+        "sha256": "2708ea16a2c7da0cbbdb8e539f83d1287a1529503f5863351fb141e0e4ab14f4"
+      },
+      {
+        "path": "public/branding/potato-logo-master.png",
+        "sha256": "97910702f999a05b7656ef69522aa89894f517e4e3e09df2b37c8905f5a6b870"
+      },
+      {
+        "path": "public/branding/potato-logo-transparent.png",
+        "sha256": "9e37bcac99220f383354d1b21f4f2920f501f59d8a5a4e628fc01e4740febc96"
+      },
+      {
+        "path": "public/favicon-16x16.png",
+        "sha256": "e0f40b9b39a787f3fabb9d1c91a2ae7d0130b8ec11de613c28284bcafa7cd554"
+      },
+      {
+        "path": "public/favicon-32x32.png",
+        "sha256": "491f3382ad4cab821c8a593a1f2e35881f4b607d877b396ddacf55193d984a92"
+      },
+      {
+        "path": "public/favicon-48x48.png",
+        "sha256": "c73de5d9caf209501906b83415b245a7fdcfd1d0e12bbdfa8f00ac50c4af91fe"
+      },
+      {
+        "path": "public/favicon.ico",
+        "sha256": "984f05cd82ae6317d0c9b30b549e941c13b910e2c66a1aaffbc36010900391df"
+      },
+      {
+        "path": "public/favicon.png",
+        "sha256": "c73de5d9caf209501906b83415b245a7fdcfd1d0e12bbdfa8f00ac50c4af91fe"
+      },
+      {
+        "path": "public/pwa-192.png",
+        "sha256": "85c843aa6bc4915e4965f3b198b9ac37ccda1169483a482304be65584fbe34d6"
+      },
+      {
+        "path": "public/pwa-512.png",
+        "sha256": "bae8eb3e1a6a5f7462a886b72b57ae9e1cdcf50616d76a8c7b0f0974aae2f8d1"
+      },
+      {
+        "path": "public/pwa-maskable-192.png",
+        "sha256": "3956234d690bc2cf066019ab8d6a5c78da5937b83e220128bc3b5379ee6ffc05"
+      },
+      {
+        "path": "public/pwa-maskable-512.png",
+        "sha256": "561327336c934b8576c42f3af03c1cf531b227d94a8b7a1659e42637da858dc0"
+      },
+      {
+        "path": "release.json",
+        "sha256": "3e2c28156506c7a8ed17697a74cc508ecb440b5b661ac9146b01c7e0ef37fb67"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk",
+        "sha256": "74c61178855ff06e7066b77d6c874ac84ba9539ab41681196c40857a25f6a678"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk.idsig",
+        "sha256": "8619356945a9f3ea12d8d0293966adc5336b63e29d44cf32d74fe42f4b39c528"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk.sha256",
+        "sha256": "f0f2a8ac4bdd41e62b97a6b45d960ab58c50cf7c25055c5c868cc775fa9e41eb"
+      },
+      {
+        "path": "scripts/business-e2e-audit.ts",
+        "sha256": "568fe3de3e1cfc7b161a4063bac51b56f7dee86913d9b5ba3125582bbf26422a"
+      },
+      {
+        "path": "scripts/generate-brand-assets.py",
+        "sha256": "d0908f08fd70a2170c08e618eccda8e4fe45520a5ddba9ab039a840f691bb2af"
+      },
+      {
+        "path": "scripts/lib/isolated-env.ts",
+        "sha256": "c6f05d3e75b90aa6ff3ac415d4e1bd0ca5c0945f5727004ee6e41e9c1dcf3e2d"
+      },
+      {
+        "path": "scripts/run-isolated-audit.ts",
+        "sha256": "ece9d768bc5dc1b48c07fda93d2f24e9077b15d6a639e8acfda7533e1bb3d2ca"
+      },
+      {
+        "path": "server/retention.ts",
+        "sha256": "ba207de7357c289b96089fcc8a01cf2c6193c0e4f08b305105a39d34a1d1c641"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-cream.png",
+        "sha256": "2708ea16a2c7da0cbbdb8e539f83d1287a1529503f5863351fb141e0e4ab14f4"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-master.png",
+        "sha256": "97910702f999a05b7656ef69522aa89894f517e4e3e09df2b37c8905f5a6b870"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-transparent.png",
+        "sha256": "9e37bcac99220f383354d1b21f4f2920f501f59d8a5a4e628fc01e4740febc96"
+      },
+      {
+        "path": "src/components/views/AuthView.tsx",
+        "sha256": "8429912cf86ccc3264fcf5db8f0a3095cd70f0585b7b2740eac80fd1a8ea38dc"
+      },
+      {
+        "path": "src/components/views/MigrationModals.tsx",
+        "sha256": "64b6b0ffd1d52203f5b40a7371f26a37c8dd0862ed1dce3e4a160e19a53ce357"
+      },
+      {
+        "path": "src/components/views/UpdateModal.tsx",
+        "sha256": "cbe3d326e73d7191ef5011b4cb6f3fc341787fd5fab4f32bc4e97ae72fb8adcd"
+      },
+      {
+        "path": "src/utils/guestMigration.ts",
+        "sha256": "f0095e3971d21f89c2492cc1eb10f5a2cc0dba5777c2471e2540a073977b9d2b"
+      },
+      {
+        "path": "src/utils/mediaSync.ts",
+        "sha256": "63a49c01d4e5d8005d3a1d02bef0db81da943dde9c351c7466988dca3cd3809c"
+      },
+      {
+        "path": "src/utils/seedMerge.ts",
+        "sha256": "8430f0e909af3b91484c176efb44edc0b88379fd69c893a15b862ea911d3ea78"
+      },
+      {
+        "path": "src/utils/versionCheck.ts",
+        "sha256": "c4369985b5a618e0c15d20d5d0b18ce1b18c764ca4c604be76cdca7fed234d08"
+      },
+      {
+        "path": "tests/defects-f01-f12-regression.test.ts",
+        "sha256": "d49e6058afbffd19206fc7d53888ffbb489d4fcd446d71f5d1ce118335920169"
+      },
+      {
+        "path": "tests/fixtures/sync-harness.ts",
+        "sha256": "e0e1d4c646c946db3f1b4794ead80baaefaf37c9711c97e330027cdea666d4e0"
+      },
+      {
+        "path": "tests/sync-core-regressions.test.ts",
+        "sha256": "191fde38d68b9433642275eb29d36a402d32fefaee60411f29e127387c18f854"
+      }
+    ],
+    "worktreeSha256": "e9ab079d68834d5b9f30844038cc8117b98829cbc0722dcddc54ab879290f9e4",
+    "capturedAt": "2026-10-26T14:16:54.279Z"
+  },
+  "gitAfter": {
+    "head": "bc368b7b8ac6217b1a31ef78cf74c5d0e7ebaa9c",
+    "branch": "codex/prod-release-m1-m4",
+    "statusPorcelain": " M .gitignore\n M Dockerfile\n M android/README.md\n M android/app/build.gradle\n M android/app/src/main/AndroidManifest.xml\n M android/app/src/main/java/com/ruyne/kaogong/MainActivity.java\n M android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png\n M deploy/nginx/work.ruyne.space.conf\n M docker-compose.yml\n M docs/implementation/STATUS.md\n M index.html\n M package.json\n M public/manifest.json\n M public/sw.js\n M public/version.json\n M scripts/backup.sh\n M scripts/build-apk.sh\n M scripts/restore.sh\n M scripts/verify-screens.ts\n M server/admin.ts\n M server/app.ts\n M server/auth.ts\n M server/cli.ts\n M server/db.ts\n M server/media.ts\n M server/workspace.ts\n M src/App.tsx\n M src/components/common/Avatar.tsx\n M src/components/views/ConfirmModalsView.tsx\n M src/components/views/ConflictModal.tsx\n M src/components/views/DownloadApkModal.tsx\n M src/components/views/EditModals.tsx\n M src/components/views/SettingsView.tsx\n M src/components/views/StatesPreviewView.tsx\n M src/components/views/SyncModal.tsx\n M src/context/AppContext.tsx\n M src/types/index.ts\n M src/utils/db.ts\n M src/utils/syncClient.ts\n M tests/server.test.ts\n M tests/ui_interaction.test.ts\n M vite.config.ts\n?? .dockerignore\n?? android/app/src/main/java/com/ruyne/kaogong/KaogongFileProvider.java\n?? android/app/src/main/res/drawable/\n?? android/app/src/main/res/mipmap-anydpi-v26/\n?? android/app/src/main/res/mipmap-hdpi/\n?? android/app/src/main/res/mipmap-mdpi/\n?? android/app/src/main/res/mipmap-xhdpi/\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png\n?? android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png\n?? android/app/src/main/res/mipmap-xxxhdpi/\n?? android/app/src/main/res/values/colors.xml\n?? android/build/\n?? docs/implementation/HANDOVER.md\n?? docs/implementation/evidence/\n?? public/apple-touch-icon.png\n?? public/branding/\n?? public/favicon-16x16.png\n?? public/favicon-32x32.png\n?? public/favicon-48x48.png\n?? public/favicon.ico\n?? public/favicon.png\n?? public/pwa-192.png\n?? public/pwa-512.png\n?? public/pwa-maskable-192.png\n?? public/pwa-maskable-512.png\n?? release.json\n?? release/apk/kaogong-potato-v1.0.2.apk\n?? release/apk/kaogong-potato-v1.0.2.apk.idsig\n?? release/apk/kaogong-potato-v1.0.2.apk.sha256\n?? scripts/business-e2e-audit.ts\n?? scripts/generate-brand-assets.py\n?? scripts/lib/\n?? scripts/run-isolated-audit.ts\n?? server/retention.ts\n?? src/assets/branding/\n?? src/components/views/AuthView.tsx\n?? src/components/views/MigrationModals.tsx\n?? src/components/views/UpdateModal.tsx\n?? src/utils/guestMigration.ts\n?? src/utils/mediaSync.ts\n?? src/utils/seedMerge.ts\n?? src/utils/versionCheck.ts\n?? tests/defects-f01-f12-regression.test.ts\n?? tests/fixtures/\n?? tests/sync-core-regressions.test.ts\n",
+    "trackedDiffSha256": "a8f0a0ed17eb8aa0f26badc153beeb9be0a835cf454d7f747024c459be73975e",
+    "untrackedFiles": [
+      {
+        "path": ".dockerignore",
+        "sha256": "8a1f4d946e1ff7fd44560f992416cbc99bffe92eb1a42db2239ceac9939717b9"
+      },
+      {
+        "path": "android/app/src/main/java/com/ruyne/kaogong/KaogongFileProvider.java",
+        "sha256": "bab4536f183c80ea83c1c7508489fb2b7357d03bcca9c7b0b5db58aa000fd957"
+      },
+      {
+        "path": "android/app/src/main/res/drawable/ic_launcher_background.xml",
+        "sha256": "fb90e5af5c7d4dc20d3a88ecc783cf821d9841eaf880a8e9e5e943b006670c75"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+        "sha256": "dce5cc8a0617775a483b87da68e148d297ef9642a6b4b5bdaa96df7d7aace217"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+        "sha256": "dce5cc8a0617775a483b87da68e148d297ef9642a6b4b5bdaa96df7d7aace217"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+        "sha256": "344ff799effdd5d1619ad4f0792cb54b9c8f9721df204e398d53a8e277a7e6d8"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+        "sha256": "e5be091eb0cbd338f173b4ff9553a663c23dee0e3beeb075b952c8fcb390cc2d"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png",
+        "sha256": "21ae2c259c3aaaa7552b6a74f256305789ea8db852ba7b4bf20dd591687250db"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+        "sha256": "746d2c17d4e2b01c771123ff8b7500beda8cb3fec0b51e3d25da004dc8320d60"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+        "sha256": "e025184b322a74f83803d4457dbc251aa2a62d95ba00b8fc8385d5ce3f42854a"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+        "sha256": "1dd04d339a4ae7fcf377837e64f9dcf09e5ba17be401e5c323603c1ad0b0649c"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png",
+        "sha256": "833d065480069484b916c7ea6a6ef9e60db687022e1076c0233b053b0e4d83de"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+        "sha256": "2c3f3cae86c509f83d8742ef84154bec3e0a6b40afa2a42af1a87be88c172cbb"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+        "sha256": "350e2f03d1f445e17b68d1e3f7229a53bb128388ab6824000243fb948fef135b"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+        "sha256": "3f491315b7b524ed2416172518f2870f26748259cca0b8905b6f5301275f67dd"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png",
+        "sha256": "a6be6755b1fb15bb3f84ece0349e40b93af7fe323d95a4c950609b59908d75c5"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+        "sha256": "43aec2a63fe78f4ed6f78846fa318c871c8d8dc645d82240350d4f8665196672"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+        "sha256": "dbd3908ebee14c22100fe2f648c194efa96958edc09621a7daaab82547cb2c9f"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png",
+        "sha256": "b26bac0b672229d626811f5fcdab0bd53e5a255f7c14593268d12d84cff3f514"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+        "sha256": "425cc41179702a9640cbdd4d3c5d0abf39f61ddcd146fcf39558fb0e955cc112"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+        "sha256": "85c843aa6bc4915e4965f3b198b9ac37ccda1169483a482304be65584fbe34d6"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+        "sha256": "bda5930868c76adb1a2bb92cca0d958a04ebade567f678c3769b7a1d522a0250"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png",
+        "sha256": "33441fa4fc68b87a83b1d1ea64fd777812e1f62016e57fc1a1d491ea0ffefe26"
+      },
+      {
+        "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+        "sha256": "b1d4bdcc66022e5793a42fb08c6796ed2c29ee1b6fe189c2904c9b3862fab188"
+      },
+      {
+        "path": "android/app/src/main/res/values/colors.xml",
+        "sha256": "89a19feeb7633fd76f00cfc288a87a3e5c349a2a0dd2899eeffa6070430d9b81"
+      },
+      {
+        "path": "android/build/verify/kaogong-potato-v1.0.3-UNSIGNED-NOT-FOR-DISTRIBUTION.apk",
+        "sha256": "50cd19c1ffcff3750317b4c12d3868104b0707c62133ef00a611602806d130dd"
+      },
+      {
+        "path": "android/build/verify/kaogong-potato-v1.0.3-UNSIGNED-NOT-FOR-DISTRIBUTION.apk.verify.txt",
+        "sha256": "64c421f6656c9cdfea64cd7b24518ac59a383a01c044eebf81ec9953d88a4530"
+      },
+      {
+        "path": "docs/implementation/HANDOVER.md",
+        "sha256": "a34291df19c3f540bac2697168f7ba6d3f1fd50659877a7c8b07579ed1328bb3"
+      },
+      {
+        "path": "docs/implementation/evidence/android-r13-r17-evidence.md",
+        "sha256": "6e0cb405182df9a855ca463b56e30bcc5a431e13146594d488151037e44e5468"
+      },
+      {
+        "path": "docs/implementation/evidence/android-update-sw-harness.mts",
+        "sha256": "c84bd1c537d5aa62e2a11d4b6da00aef090a47757bcb75612c813168ec71ce76"
+      },
+      {
+        "path": "docs/implementation/evidence/android-update-versioncheck-harness.mts",
+        "sha256": "3c01b8773fd59bd6f9e8d477be320cba47bc60c8a82f71301efc074504a293c0"
+      },
+      {
+        "path": "docs/implementation/evidence/business-e2e-results.json",
+        "sha256": "01f469a0e6a2aa42dc3aed3e2fac0853c4d2d42d13825962d5b44aa980f55e9b"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-360x800.png",
+        "sha256": "d4775551b8aa8330ea10e00b2ad0cde78b6f3e049e1c3bc6415b3cc3b54ef693"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-393x873.png",
+        "sha256": "82da89e86645c468479f9e963d7914ffa3f293a79c62a0cab5f21c9c5cc431a8"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/conflict-412x915.png",
+        "sha256": "67c63215e1af1da25cde6f0bd535d06965155d8ce99e3441eb20bbab130fe23b"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-360x800.png",
+        "sha256": "ee424c8433e8c0d808a2d726d1db8a78742411b83fa338132b162821769da61b"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-393x873.png",
+        "sha256": "41158451c570803b40ca446b019a9c8324f71c45261d94f3c2237ad62b08ef67"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/library-412x915.png",
+        "sha256": "33a22ae620443a757d6055bc53dcaf2a1c39851c6419f15265afdbd951d329dd"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-360x800.png",
+        "sha256": "6cc448c85f8f75a8c92840af885d7cad24154eb298b9a1fcce8dec2954d8c022"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-393x873.png",
+        "sha256": "92b55a41fd0932968c9f7b2f6042b450697923f636c054de7be6737c3c1d71b6"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/login-412x915.png",
+        "sha256": "cca8740ca54d962c05bd42ba227422f5f12426ba82ac665732c320f1ba1d87eb"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/offline-reconnected-412x915.png",
+        "sha256": "bd00fa98dc27dde1eceac8a4773b3b6d2d551998112e6f6a4d4743df78f094c5"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-360x800.png",
+        "sha256": "26ca2d33202e4e2403599193839296a30aeb584bf29262d8c7dca4fc085d68e3"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-393x873.png",
+        "sha256": "4538e14f72f24b29b0a30b6b39d1a457b252f4a671658da206f1e6a0796440d0"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/settings-412x915.png",
+        "sha256": "efe5ef966dbec0a5407df771bbc5e41cbaa6747a4531dc11ef1f0c47108da6fb"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-360x800.png",
+        "sha256": "b92f97db29e92438a0924986bc78a664d0cb4970b8a8cef79b13827c45ecac55"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-393x873.png",
+        "sha256": "e56e426ce11cb0f3fe9d54d510222d5bcebd16eb060663f2baede13777816660"
+      },
+      {
+        "path": "docs/implementation/evidence/screens/update-failed-412x915.png",
+        "sha256": "35504e99568d3d49be471e83aac36619ec2067ccf22f27600a65508f7d1bc923"
+      },
+      {
+        "path": "docs/implementation/evidence/server-contracts.md",
+        "sha256": "47e5d03420f03a4582c392df13f7d9b9c762fce63407813debb8e968d8ea1f31"
+      },
+      {
+        "path": "docs/implementation/evidence/test-isolation-baseline-isolation.json",
+        "sha256": "d09851d082aabf3d8d420529b74da4ff1b92f6c01ac4b369d7c4810b5c5f1098"
+      },
+      {
+        "path": "docs/implementation/evidence/test-isolation-baseline-results.json",
+        "sha256": "7e4652c1e257fb519f70d435abb4a48b6af03843c59717e61f14e9fa173c1860"
+      },
+      {
+        "path": "public/apple-touch-icon.png",
+        "sha256": "00cfc75dd1f3961c83467f17be77a9427d14df6a490a129982a0948f2f73df72"
+      },
+      {
+        "path": "public/branding/logo-transparent.png",
+        "sha256": "ea86a06f1c46bd1d4b196b7458f5dea1d2e555a8041e6d5cce9bf771a75bcda7"
+      },
+      {
+        "path": "public/branding/logo.png",
+        "sha256": "98fa5086a3c414f2c4f30974e3b2cab5fc571ef178f86b2c881d710124ced364"
+      },
+      {
+        "path": "public/branding/potato-logo-cream.png",
+        "sha256": "2708ea16a2c7da0cbbdb8e539f83d1287a1529503f5863351fb141e0e4ab14f4"
+      },
+      {
+        "path": "public/branding/potato-logo-master.png",
+        "sha256": "97910702f999a05b7656ef69522aa89894f517e4e3e09df2b37c8905f5a6b870"
+      },
+      {
+        "path": "public/branding/potato-logo-transparent.png",
+        "sha256": "9e37bcac99220f383354d1b21f4f2920f501f59d8a5a4e628fc01e4740febc96"
+      },
+      {
+        "path": "public/favicon-16x16.png",
+        "sha256": "e0f40b9b39a787f3fabb9d1c91a2ae7d0130b8ec11de613c28284bcafa7cd554"
+      },
+      {
+        "path": "public/favicon-32x32.png",
+        "sha256": "491f3382ad4cab821c8a593a1f2e35881f4b607d877b396ddacf55193d984a92"
+      },
+      {
+        "path": "public/favicon-48x48.png",
+        "sha256": "c73de5d9caf209501906b83415b245a7fdcfd1d0e12bbdfa8f00ac50c4af91fe"
+      },
+      {
+        "path": "public/favicon.ico",
+        "sha256": "984f05cd82ae6317d0c9b30b549e941c13b910e2c66a1aaffbc36010900391df"
+      },
+      {
+        "path": "public/favicon.png",
+        "sha256": "c73de5d9caf209501906b83415b245a7fdcfd1d0e12bbdfa8f00ac50c4af91fe"
+      },
+      {
+        "path": "public/pwa-192.png",
+        "sha256": "85c843aa6bc4915e4965f3b198b9ac37ccda1169483a482304be65584fbe34d6"
+      },
+      {
+        "path": "public/pwa-512.png",
+        "sha256": "bae8eb3e1a6a5f7462a886b72b57ae9e1cdcf50616d76a8c7b0f0974aae2f8d1"
+      },
+      {
+        "path": "public/pwa-maskable-192.png",
+        "sha256": "3956234d690bc2cf066019ab8d6a5c78da5937b83e220128bc3b5379ee6ffc05"
+      },
+      {
+        "path": "public/pwa-maskable-512.png",
+        "sha256": "561327336c934b8576c42f3af03c1cf531b227d94a8b7a1659e42637da858dc0"
+      },
+      {
+        "path": "release.json",
+        "sha256": "3e2c28156506c7a8ed17697a74cc508ecb440b5b661ac9146b01c7e0ef37fb67"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk",
+        "sha256": "74c61178855ff06e7066b77d6c874ac84ba9539ab41681196c40857a25f6a678"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk.idsig",
+        "sha256": "8619356945a9f3ea12d8d0293966adc5336b63e29d44cf32d74fe42f4b39c528"
+      },
+      {
+        "path": "release/apk/kaogong-potato-v1.0.2.apk.sha256",
+        "sha256": "f0f2a8ac4bdd41e62b97a6b45d960ab58c50cf7c25055c5c868cc775fa9e41eb"
+      },
+      {
+        "path": "scripts/business-e2e-audit.ts",
+        "sha256": "568fe3de3e1cfc7b161a4063bac51b56f7dee86913d9b5ba3125582bbf26422a"
+      },
+      {
+        "path": "scripts/generate-brand-assets.py",
+        "sha256": "d0908f08fd70a2170c08e618eccda8e4fe45520a5ddba9ab039a840f691bb2af"
+      },
+      {
+        "path": "scripts/lib/isolated-env.ts",
+        "sha256": "c6f05d3e75b90aa6ff3ac415d4e1bd0ca5c0945f5727004ee6e41e9c1dcf3e2d"
+      },
+      {
+        "path": "scripts/run-isolated-audit.ts",
+        "sha256": "ece9d768bc5dc1b48c07fda93d2f24e9077b15d6a639e8acfda7533e1bb3d2ca"
+      },
+      {
+        "path": "server/retention.ts",
+        "sha256": "ba207de7357c289b96089fcc8a01cf2c6193c0e4f08b305105a39d34a1d1c641"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-cream.png",
+        "sha256": "2708ea16a2c7da0cbbdb8e539f83d1287a1529503f5863351fb141e0e4ab14f4"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-master.png",
+        "sha256": "97910702f999a05b7656ef69522aa89894f517e4e3e09df2b37c8905f5a6b870"
+      },
+      {
+        "path": "src/assets/branding/potato-logo-transparent.png",
+        "sha256": "9e37bcac99220f383354d1b21f4f2920f501f59d8a5a4e628fc01e4740febc96"
+      },
+      {
+        "path": "src/components/views/AuthView.tsx",
+        "sha256": "8429912cf86ccc3264fcf5db8f0a3095cd70f0585b7b2740eac80fd1a8ea38dc"
+      },
+      {
+        "path": "src/components/views/MigrationModals.tsx",
+        "sha256": "64b6b0ffd1d52203f5b40a7371f26a37c8dd0862ed1dce3e4a160e19a53ce357"
+      },
+      {
+        "path": "src/components/views/UpdateModal.tsx",
+        "sha256": "cbe3d326e73d7191ef5011b4cb6f3fc341787fd5fab4f32bc4e97ae72fb8adcd"
+      },
+      {
+        "path": "src/utils/guestMigration.ts",
+        "sha256": "f0095e3971d21f89c2492cc1eb10f5a2cc0dba5777c2471e2540a073977b9d2b"
+      },
+      {
+        "path": "src/utils/mediaSync.ts",
+        "sha256": "63a49c01d4e5d8005d3a1d02bef0db81da943dde9c351c7466988dca3cd3809c"
+      },
+      {
+        "path": "src/utils/seedMerge.ts",
+        "sha256": "8430f0e909af3b91484c176efb44edc0b88379fd69c893a15b862ea911d3ea78"
+      },
+      {
+        "path": "src/utils/versionCheck.ts",
+        "sha256": "c4369985b5a618e0c15d20d5d0b18ce1b18c764ca4c604be76cdca7fed234d08"
+      },
+      {
+        "path": "tests/defects-f01-f12-regression.test.ts",
+        "sha256": "d49e6058afbffd19206fc7d53888ffbb489d4fcd446d71f5d1ce118335920169"
+      },
+      {
+        "path": "tests/fixtures/sync-harness.ts",
+        "sha256": "e0e1d4c646c946db3f1b4794ead80baaefaf37c9711c97e330027cdea666d4e0"
+      },
+      {
+        "path": "tests/sync-core-regressions.test.ts",
+        "sha256": "191fde38d68b9433642275eb29d36a402d32fefaee60411f29e127387c18f854"
+      }
+    ],
+    "worktreeSha256": "9c35d9a802fdf65203108fbc9581aebdec19fd4d5a7e6d3a52daf48eab14bd89",
+    "capturedAt": "2026-10-26T14:17:24.352Z"
+  },
+  "sourceChangedDuringRun": false
+}

@@ -1,0 +1,288 @@
+{
+  "runId": "e2e_1793024207373_2afabf",
+  "baseUrl": "http://127.0.0.1:49548",
+  "dataDir": "/tmp/potato-business-e2e-5xYnzt/data",
+  "webVersion": "1.0.3",
+  "webBuild": "20261027.01",
+  "checkedAt": "2026-10-26T14:18:03.382Z",
+  "gitHead": "bc368b7b8ac6217b1a31ef78cf74c5d0e7ebaa9c",
+  "total": 38,
+  "passed": 38,
+  "failed": 0,
+  "results": [
+    {
+      "name": "isolated server uses temporary DATA_DIR",
+      "passed": true
+    },
+    {
+      "name": "web build served with release identity",
+      "passed": true,
+      "detail": {
+        "versionInfo": {
+          "version": "1.0.3",
+          "build": "20261027.01",
+          "schemaVersion": 3,
+          "apkVersion": "1.0.3",
+          "apkVersionCode": 4,
+          "apkDownloadUrl": "/api/download/apk",
+          "apkSha256": "",
+          "apkSizeBytes": 0,
+          "apkPackageName": "com.ruyne.kaogong",
+          "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
+          "apkReleased": false,
+          "deployedAt": "2026-10-27T00:00:00Z",
+          "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
+          "servedAt": "2026-10-26T14:16:51.305Z",
+          "nonce": "startup"
+        },
+        "distVersion": {
+          "version": "1.0.3",
+          "build": "20261027.01",
+          "schemaVersion": 3,
+          "apkVersion": "1.0.3",
+          "apkVersionCode": 4,
+          "apkDownloadUrl": "/api/download/apk",
+          "apkSha256": "",
+          "apkSizeBytes": 0,
+          "apkPackageName": "com.ruyne.kaogong",
+          "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
+          "apkReleased": false,
+          "deployedAt": "2026-10-27T00:00:00Z",
+          "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复"
+        }
+      }
+    },
+    {
+      "name": "A: server seeded 14/7/22 after registration",
+      "passed": true,
+      "detail": {
+        "books": 14,
+        "courses": 7,
+        "library": 22,
+        "seedVersion": 1
+      }
+    },
+    {
+      "name": "A: local IndexedDB partition seeded 14/7/22",
+      "passed": true
+    },
+    {
+      "name": "A: UI displays seeded library",
+      "passed": true
+    },
+    {
+      "name": "J: login screenshot 412x915/393x873/360x800 @412",
+      "passed": true
+    },
+    {
+      "name": "J: login screenshot 412x915/393x873/360x800 @393",
+      "passed": true
+    },
+    {
+      "name": "J: login screenshot 412x915/393x873/360x800 @360",
+      "passed": true
+    },
+    {
+      "name": "J: library screenshots saved for 3 viewports",
+      "passed": true
+    },
+    {
+      "name": "J: settings (我的) screenshots saved for 3 viewports",
+      "passed": true
+    },
+    {
+      "name": "A2: deleted book stays deleted across a new device (no seed resurrection)",
+      "passed": true,
+      "detail": {
+        "books": 13,
+        "showsDeletedTitle": false
+      }
+    },
+    {
+      "name": "A3: server-driven needsInitChoice shown on a fresh device",
+      "passed": true
+    },
+    {
+      "name": "A3: default library applied and persisted server-side",
+      "passed": true,
+      "detail": {
+        "initChoice": "default",
+        "seedVersion": 1
+      }
+    },
+    {
+      "name": "A3: choice is not asked again on another device",
+      "passed": true,
+      "detail": {
+        "choiceVisibleOnD": false,
+        "books": 14
+      }
+    },
+    {
+      "name": "B: wrong photo uploaded as server media reference",
+      "passed": true,
+      "detail": {
+        "image": "/api/media/media_1793024228413_0f14e7ac8386"
+      }
+    },
+    {
+      "name": "B: avatar uploaded as server media reference",
+      "passed": true,
+      "detail": {
+        "avatar": "/api/media/media_1793024229128_c34fa3a4b6c5"
+      }
+    },
+    {
+      "name": "B: second independent device reads the actual photo bytes from server",
+      "passed": true,
+      "detail": {
+        "photoSrc": "/api/media/media_1793024228413_0f14e7ac8386",
+        "photoBytes": 774
+      }
+    },
+    {
+      "name": "B: second device sees wrong record text + avatar",
+      "passed": true
+    },
+    {
+      "name": "B2: offline cold start loads the app under real Service Worker control",
+      "passed": true
+    },
+    {
+      "name": "B2: offline edit is queued locally (pending, not claimed synced)",
+      "passed": true,
+      "detail": {
+        "outbox": 1,
+        "offlineText": "离线补传_mvpcbzow\n@e2e_user_mvpcbjxy\n正式学员专属空间\n离线就绪\n编辑资料\n云端同步状态\n当前离线：已载入本机可靠缓存，联网后将自动恢复会话并补传\n离线 · 待同步\n检查更新\n支持 Web 与 Android 原"
+      }
+    },
+    {
+      "name": "B2: reconnect auto-restores session and flushes queued edit",
+      "passed": true
+    },
+    {
+      "name": "B2: outbox drained after reconnect",
+      "passed": true,
+      "detail": {
+        "outbox": 0
+      }
+    },
+    {
+      "name": "C: real conflict dialog appears on second device",
+      "passed": true
+    },
+    {
+      "name": "J: conflict screenshots saved for 3 viewports",
+      "passed": true
+    },
+    {
+      "name": "C: conflict resolution keeps the cloud content",
+      "passed": true,
+      "detail": {
+        "name": "A云端_mvpcc1fr"
+      }
+    },
+    {
+      "name": "C: conflict banner cleared after resolution",
+      "passed": true
+    },
+    {
+      "name": "F: cache clear refuses to delete unsynced account data",
+      "passed": true,
+      "detail": {
+        "pendingBefore": 1,
+        "pendingAfter": 1,
+        "mentionedPreserved": true
+      }
+    },
+    {
+      "name": "F: a real completion record is created and synced",
+      "passed": true
+    },
+    {
+      "name": "F: reset created a real recovery point",
+      "passed": true
+    },
+    {
+      "name": "F: recovery entry available in settings after reset",
+      "passed": true
+    },
+    {
+      "name": "F: restoring the saved recovery snapshot really brings the record back",
+      "passed": true,
+      "detail": {
+        "records": 1
+      }
+    },
+    {
+      "name": "H: HTTP 503 never reports \"already latest\"",
+      "passed": true,
+      "detail": {
+        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.3"
+      }
+    },
+    {
+      "name": "H: HTTP 503 shows an explicit verification failure",
+      "passed": true
+    },
+    {
+      "name": "J: update dialog screenshots saved for 3 viewports",
+      "passed": true
+    },
+    {
+      "name": "H: manual update check performs a real network request",
+      "passed": true,
+      "detail": {
+        "hitsAfterManual1": 2
+      }
+    },
+    {
+      "name": "H: successful check can report latest (server reachable)",
+      "passed": true,
+      "detail": {
+        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.3"
+      }
+    },
+    {
+      "name": "H: automatic check is throttled (no extra version network call within 30min)",
+      "passed": true,
+      "detail": {
+        "hitsAfterSuccess": 2,
+        "afterReload": 2
+      }
+    },
+    {
+      "name": "isolation: real project data/potato.db untouched",
+      "passed": true,
+      "detail": {
+        "realDbBefore": {
+          "mtimeMs": 1792995675566.1826,
+          "size": 98304
+        },
+        "realDbAfter": {
+          "mtimeMs": 1792995675566.1826,
+          "size": 98304
+        }
+      }
+    }
+  ],
+  "consoleErrors": [],
+  "screenshots": [
+    "conflict-360x800.png",
+    "conflict-393x873.png",
+    "conflict-412x915.png",
+    "library-360x800.png",
+    "library-393x873.png",
+    "library-412x915.png",
+    "login-360x800.png",
+    "login-393x873.png",
+    "login-412x915.png",
+    "offline-reconnected-412x915.png",
+    "settings-360x800.png",
+    "settings-393x873.png",
+    "settings-412x915.png",
+    "update-failed-360x800.png",
+    "update-failed-393x873.png",
+    "update-failed-412x915.png"
+  ]
+}
