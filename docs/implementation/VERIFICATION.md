@@ -51,8 +51,44 @@
 
 ### 5. Unified Test Suite Execution
 - Command: `npm test` (`npm run test:unit && npm run test:server && npm run test:dr`)
-- Result: **91 passed / 0 failed** (84 unit tests + 6 server tests + 1 DR drill test)
+- Result: **101 passed / 0 failed** (90 unit tests + 8 server tests + 3 DR drill tests)
 
 ### 6. Build & Typecheck
-- Command: `npm run build` (`tsc && vite build`)
-- Result: **Passed** (0 errors, output bundles in `dist/`, including `sw.js`, `manifest.json`, `version.json`)
+- Command: `npm run build` (`npm run typecheck && vite build`)
+- Result: **Passed** (0 errors, full precache manifest with 7 assets injected into `dist/sw.js` and `dist/precache-manifest.json`)
+
+### 7. Android Release APK Build & Signature Verification
+- Command: `./scripts/build-apk.sh`
+- Artifact: `release/apk/kaogong-potato-v1.0.1.apk` (144 KB)
+- SHA-256: `70b939badc4ea98854d97c680fdf60aa68cfaec99907b9a8a980a77c7f64a34b`
+- Package Name: `com.ruyne.kaogong`, versionCode: 2, versionName: 1.0.1
+- SdkVersion: minSdk 24, targetSdk 34
+- Verification Output:
+  ```
+  Verified using v2 scheme (APK Signature Scheme v2): true
+  Verified using v3 scheme (APK Signature Scheme v3): true
+  Number of signers: 1
+  ```
+
+### 8. Production AWS & Cloudflare Public Verification
+- Public Target: `https://work.ruyne.space`
+- Health Endpoint: `curl -s https://work.ruyne.space/api/health`
+  ```json
+  {"ok":true,"status":"healthy","generationId":"gen_1792995329794_e00c30554b4ace1c",...}
+  ```
+- Version Endpoint: `curl -s https://work.ruyne.space/version.json`
+  ```json
+  {"version":"1.0.1","build":"20261026.02","schemaVersion":3,"apkVersion":"1.0.1",...}
+  ```
+- APK Download Endpoint: `curl -sI https://work.ruyne.space/api/download/apk`
+  ```
+  HTTP/2 200
+  content-type: application/vnd.android.package-archive
+  content-disposition: attachment; filename="kaogong-potato-v1.0.1.apk"
+  ```
+- Production Seed Factory E2E Test:
+  - Registered real user `prod_e2e_1793005636` with single-use invite code `invite_b2b359a3b461a926` over public HTTPS.
+  - Workspace returned: `revision: 1`, `seedVersion: 1`, 14 books (0 done, 0 errors, 0 minutes), 7 courses (0 lessons, link empty), 22 library items, 0 plans/records/wrong.
+  - Verified invite code double-spend rejection: HTTP 400 `MISSING_INVITE`.
+- Automated Backup in Production:
+  - Executed `docker exec kaogong-potato-app bash /app/scripts/backup.sh` on AWS: verified media consistency (1 attachment verified and hashed), PRAGMA integrity check passed, `.tar.gz` created, crontab installed (`0 3 * * *`), logrotate configured.

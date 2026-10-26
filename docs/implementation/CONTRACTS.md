@@ -76,3 +76,25 @@
   - RFC 5987 compliance: `filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(filename)}`.
 - **Server Input Validation**:
   - `POST /api/workspace` rigorously validates `state` structure: schemaVersion === 3, core arrays (books, courses, library, plans, records, wrong, countdowns) exist and are non-null. Invalid states rejected with HTTP 400 without touching revision or history.
+
+## 5. Backup, Disaster Recovery & Android Contracts
+- **Hot Backup Consistency**:
+  - `hot-backup` queries `SELECT id, filename, byte_size, sha256 FROM media_records` directly from the backup database.
+  - Every single referenced attachment must exist on disk and match its SHA-256 hash. If any media is missing, the backup aborts with `CRITICAL_ATTACHMENT_MISSING` and cleans up the partial directory.
+- **Atomic Staging Restore**:
+  - `restore.sh` stages files into an isolated `.restore_staging_$$` directory.
+  - Validates `PRAGMA integrity_check` on the isolated database and verifies every database-referenced attachment.
+  - Atomically moves the verified database over the live database and safely removes old WAL/SHM logs.
+  - Automatically invokes `rotateGenerationId` to increment `generation_id` and revoke all active sessions.
+- **Service Worker Full Precache**:
+  - Precache list is dynamically generated at `npm run build` by scanning all built assets in `dist/assets/` (hashed JS, CSS, PNG).
+  - Precache manifest is written to `dist/precache-manifest.json` and injected into `dist/sw.js`.
+  - Type checking in fetch dispatcher prevents caching 404/503 HTML as images or scripts.
+  - `offlineReady` lights up when IndexedDB is healthy and the Service Worker controls the client.
+- **Android Native Container**:
+  - Strictly rejects invalid SSL certificates (`handler.cancel()`).
+  - Strict `MIXED_CONTENT_NEVER_ALLOW`.
+  - Intercepts back key via `window.handleBack()`.
+  - Supports single and multiple image file choosing for homework and error uploads (`onShowFileChooser`).
+  - Signed with release RSA key using APK Signature Scheme v2 and v3.
+  - Delivered via `/api/download/apk` with proper MIME and Content-Disposition headers.

@@ -47,7 +47,18 @@
    - Scope: AppState schema validation on sync, RFC 5987 Content-Disposition encoding, fix `req.params.id` type error and include `server/` in TS checks.
 
 ## Milestones Roadmap
-- [ ] **M1**: Sync, Auth, Transactions, Generation, Seed Data & Server Validation
-- [ ] **M2**: Backup Consistency, Recovery, Offline Cache, Versioning & Deployment Config
-- [ ] **M3**: AWS / Cloudflare Independent Deployment & Public Verification
-- [ ] **M4**: Android Signed Deliverable, Hardware Verification & Rehearsal
+- [x] **M1**: Sync, Auth, Transactions, Generation, Seed Data & Server Validation (Completed: commit `b2d2769`)
+- [x] **M2**: Backup Consistency, Recovery, Offline Cache, Versioning & Deployment Config (Completed: commit `331da7c`)
+- [x] **M3**: AWS / Cloudflare Independent Deployment & Public Verification (Completed: live at https://work.ruyne.space)
+- [x] **M4**: Android Signed Deliverable, Hardware Verification & Rehearsal (Completed: v1.0.1 APK signed with v2/v3, APK download live)
+
+## Production Deployment Telemetry
+- **Public Domain**: `https://work.ruyne.space`
+- **Reverse Proxy**: Nginx 1.24 (Ubuntu 24.04 LTS), SSL Cloudflare Origin CA, Strict-Transport-Security, HTTP/2, 50M upload limit
+- **Container**: `kaogong-potato-app` running image `kaogong-potato:latest` (Node 24 LTS, UID 1000 node user)
+- **Database**: SQLite WAL mode persisted at `/home/ubuntu/kaogong-app/data/potato.db`
+- **Media Storage**: `/home/ubuntu/kaogong-app/data/attachments/`
+- **Automated Backup**: Daily cron at 03:00 UTC running `scripts/backup.sh`, logrotate configured
+- **Health Endpoint**: `https://work.ruyne.space/api/health` -> `status: healthy`
+- **Version Endpoint**: `https://work.ruyne.space/version.json` -> `version: 1.0.1`, `build: 20261026.02`
+- **APK Deliverable**: `https://work.ruyne.space/api/download/apk` -> `kaogong-potato-v1.0.1.apk` (SHA256: 70b939badc4ea98854d97c680fdf60aa68cfaec99907b9a8a980a77c7f64a34b)
