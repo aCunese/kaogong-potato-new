@@ -17,6 +17,7 @@ import {
   getAttachmentsDir,
   closeDb,
 } from './db';
+import { auditMediaStorage } from './media';
 
 const [,, command, ...args] = process.argv;
 
@@ -203,6 +204,12 @@ async function run() {
       break;
     }
 
+    case 'audit-media': {
+      const report = auditMediaStorage();
+      console.log(JSON.stringify(report, null, 2));
+      break;
+    }
+
     default:
       console.log(`
 考公工作台 · 管理员维护命令行工具
@@ -217,6 +224,7 @@ async function run() {
   rotate-gen                            轮换同步代际（整机灾备恢复后使用）
   restore-user <userId> <backupPath>    针对单个用户安全执行备份快照恢复
   hot-backup [targetDir]                执行在线热备份并导出校验清单
+  audit-media                           审计媒体存储（孤儿、缺失、损坏及暂存残留）
 `);
   }
 }

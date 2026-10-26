@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
-import { getDb, getCurrentGenerationId } from './db';
+import { getDb, getCurrentGenerationId, getAttachmentsDir } from './db';
+import { extractMediaIdsFromStateJson } from './media';
 import {
   pruneWorkspaceHistory,
   pruneSyncIdempotency,
@@ -485,14 +488,22 @@ export function validateMediaRefsOwnership(
 
   const db = getDb();
   const found = new Set<string>();
+  const attachmentsDir = getAttachmentsDir();
   const CHUNK = 400;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
     const placeholders = chunk.map(() => '?').join(',');
     const rows = db.prepare(
-      `SELECT id FROM media_records WHERE user_id = ? AND id IN (${placeholders})`
-    ).all(userId, ...chunk) as Array<{ id: string }>;
-    for (const row of rows) found.add(row.id);
+      `SELECT id, filename FROM media_records WHERE user_id = ? AND id IN (${placeholders})`
+    ).all(userId, ...chunk) as Array<{ id: string; filename: string }>;
+    for (const row of rows) {
+      if (row.filename) {
+        const diskPath = path.join(attachmentsDir, row.filename);
+        if (fs.existsSync(diskPath)) {
+          found.add(row.id);
+        }
+      }
+    }
   }
 
   const invalidRefs = unique.filter(id => !found.has(id));
@@ -1057,6 +1068,20 @@ export function restoreUserFromHistory(userId: string, historyId: string) {
 
   if (!historyRow) {
     return { ok: false, status: 404, message: '历史快照不存在或无权访问' };
+  }
+
+  // Before restoring, extract all media references from historyRow.state_json
+  const mediaIds = extractMediaIdsFromStateJson(historyRow.state_json);
+  if (mediaIds.length > 0) {
+    const ownership = validateMediaRefsOwnership(userId, mediaIds);
+    if (!ownership.valid) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'RESTORE_MEDIA_UNAVAILABLE',
+        message: '该历史版本引用的媒体附件已缺失或损坏，无法恢复',
+      };
+    }
   }
 
   const tx = db.transaction(() => {

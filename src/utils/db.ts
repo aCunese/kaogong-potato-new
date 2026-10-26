@@ -2297,7 +2297,7 @@ export async function applyMediaRefMappings(
         updatedAt: new Date().toISOString(),
       };
       memoryStore.snapshots.set(key, nextSnapshot);
-      memoryStore.snapshots.set(`media_backup_${userId}_latest`, { ...snapshot });
+      memoryStore.snapshots.set(`media_backup_${userId}_latest`, { ...snapshot, key: `media_backup_${userId}_latest` });
       for (const record of mediaRecords) memoryStore.media.set(record.id, structuredClone(record));
       let pendingRequestId: string | undefined;
       for (const item of memoryStore.outbox.values()) {
@@ -2309,49 +2309,117 @@ export async function applyMediaRefMappings(
       return { changed: true, revision: nextSnapshot.revision, pendingRequestId };
     }
 
-    const db = await initDatabase();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction([SNAPSHOTS_STORE, OUTBOX_STORE, MEDIA_STORE], 'readwrite');
-      const snapStore = tx.objectStore(SNAPSHOTS_STORE);
-      const outStore = tx.objectStore(OUTBOX_STORE);
-      const mediaStore = tx.objectStore(MEDIA_STORE);
-      const key = getSnapshotKey(userId);
-      let outcome: { changed: boolean; revision: number; pendingRequestId?: string } = { changed: false, revision: 0 };
-      const snapReq = snapStore.get(key);
-      snapReq.onsuccess = () => {
-        const snapshot = snapReq.result as SnapshotRecord | undefined;
-        if (!snapshot) return;
-        const nextState = applyState(snapshot.state);
-        // Keep a pre-migration recovery copy (never deleted automatically).
-        snapStore.put({ ...snapshot, key: `media_backup_${userId}_latest` });
-        const outReq = outStore.getAll();
-        outReq.onsuccess = () => {
-          const items = ((outReq.result || []) as OutboxRecord[]).filter(i => i.userId === userId);
-          let pendingRequestId: string | undefined;
-          for (const item of items) {
-            outStore.put({ ...item, state: applyState(item.state) });
-            pendingRequestId = item.requestId;
+    const maxRetries = 5;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // 1. Read-only preparation phase:
+      const snapshot = await getSnapshotFromDB(userId);
+      if (!snapshot) return { changed: false, revision: 0 };
+
+      const outboxItems = await getAllOutbox(userId);
+      const nextState = applyState(snapshot.state);
+      const contentHash = await hashState(nextState);
+
+      const updatedOutbox: OutboxRecord[] = [];
+      let pendingRequestId: string | undefined;
+      for (const item of outboxItems) {
+        const nextItemState = applyState(item.state);
+        updatedOutbox.push({ ...item, state: nextItemState });
+        pendingRequestId = item.requestId;
+      }
+
+      // 2. Short readwrite IDB transaction (no async Promise/hash inside):
+      const db = await initDatabase();
+      const outcome = await new Promise<{
+        drifted: boolean;
+        result?: { changed: boolean; revision: number; pendingRequestId?: string };
+      }>((resolve, reject) => {
+        let settled = false;
+        let drifted = false;
+
+        const safeResolve = (val: { drifted: boolean; result?: { changed: boolean; revision: number; pendingRequestId?: string } }) => {
+          if (!settled) {
+            settled = true;
+            resolve(val);
           }
-          for (const record of mediaRecords) mediaStore.put(record);
-          hashState(nextState).then(contentHash => {
-            snapStore.put({
-              ...snapshot,
-              state: nextState,
-              revision: snapshot.revision,
-              contentHash,
-              updatedAt: new Date().toISOString(),
-            });
-            outcome = { changed: true, revision: snapshot.revision, pendingRequestId };
-          }).catch(err => {
-            tx.abort();
+        };
+
+        const safeReject = (err: any) => {
+          if (!settled) {
+            settled = true;
             reject(err);
+          }
+        };
+
+        const tx = db.transaction([SNAPSHOTS_STORE, OUTBOX_STORE, MEDIA_STORE], 'readwrite');
+        const snapStore = tx.objectStore(SNAPSHOTS_STORE);
+        const outStore = tx.objectStore(OUTBOX_STORE);
+        const mediaStore = tx.objectStore(MEDIA_STORE);
+        const key = getSnapshotKey(userId);
+
+        const snapReq = snapStore.get(key);
+        snapReq.onsuccess = () => {
+          const currentSnap = snapReq.result as SnapshotRecord | undefined;
+          if (!currentSnap || currentSnap.revision !== snapshot.revision) {
+            drifted = true;
+            tx.abort();
+            return;
+          }
+
+          // Pre-migration recovery copy
+          snapStore.put({ ...currentSnap, key: `media_backup_${userId}_latest` });
+
+          // Put new media records
+          for (const record of mediaRecords) {
+            mediaStore.put(record);
+          }
+
+          // Put updated outbox tasks
+          for (const item of updatedOutbox) {
+            outStore.put(item);
+          }
+
+          // Put updated snapshot with precomputed contentHash
+          snapStore.put({
+            ...currentSnap,
+            state: nextState,
+            revision: currentSnap.revision,
+            contentHash,
+            updatedAt: new Date().toISOString(),
           });
         };
-      };
-      tx.oncomplete = () => resolve(outcome);
-      tx.onerror = () => reject(tx.error || new Error('附件引用迁移事务失败'));
-      tx.onabort = () => reject(tx.error || new Error('附件引用迁移事务中止，原数据未改变'));
-    });
+
+        snapReq.onerror = () => {
+          safeReject(snapReq.error || new Error('读取快照失败'));
+        };
+
+        tx.oncomplete = () => {
+          safeResolve({
+            drifted: false,
+            result: { changed: true, revision: snapshot.revision, pendingRequestId },
+          });
+        };
+
+        tx.onabort = () => {
+          if (drifted) {
+            safeResolve({ drifted: true });
+          } else {
+            safeReject(tx.error || new Error('附件引用迁移事务中止，原数据未改变'));
+          }
+        };
+
+        tx.onerror = () => {
+          if (!drifted) {
+            safeReject(tx.error || new Error('附件引用迁移事务失败'));
+          }
+        };
+      });
+
+      if (!outcome.drifted && outcome.result) {
+        return outcome.result;
+      }
+    }
+
+    throw new Error('附件引用迁移多次检测到快照并发修改，请重试');
   });
 }
 

@@ -499,7 +499,8 @@ app.post('/api/media/upload', requireAuth, (req: AuthenticatedRequest, res: Resp
 
   const result = saveUserMedia(req.user!.id, req.file.buffer, req.file.originalname);
   if (!result.ok) {
-    res.status(result.code === 'QUOTA_EXCEEDED' ? 413 : 400).json(result);
+    const status = result.status || (result.code === 'QUOTA_EXCEEDED' ? 413 : 400);
+    res.status(status).json(result);
     return;
   }
 
@@ -539,12 +540,12 @@ app.get('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response
 
 app.delete('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const mediaId = String(req.params.id);
-  const deleted = deleteUserMedia(req.user!.id, mediaId);
-  if (!deleted) {
-    res.status(404).json({ ok: false, code: 'NOT_FOUND', message: '图片不存在或无权删除' });
+  const result = deleteUserMedia(req.user!.id, mediaId);
+  if (!result.ok) {
+    res.status(result.status || 400).json(result);
     return;
   }
-  res.json({ ok: true, message: '图片已安全删除' });
+  res.json({ ok: true, message: result.message || '图片已安全删除' });
 });
 
 // ----------------------------------------------------------------------
