@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
 import { SUBJECTS, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff } from 'lucide-react';
 import { compressImage } from '../../utils/imageCompressor';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
@@ -724,6 +724,7 @@ export const AuthModal: React.FC<{
   const [inviteCode, setInviteCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -799,12 +800,23 @@ export const AuthModal: React.FC<{
 
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">密码 (至少4位)</label>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          />
+          <div className="relative flex items-center">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full pl-3 pr-10 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 p-1 text-ink-muted hover:text-ink-main focus:outline-none transition-colors"
+              title={showPassword ? '隐藏明文密码' : '显示明文密码'}
+              aria-label={showPassword ? '隐藏明文密码' : '显示明文密码'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </div>
 
         {mode === 'register' && (
