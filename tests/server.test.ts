@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { Server } from 'node:http';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import releaseConfig from '../release.json';
 
 // Isolate test database in temporary directory
 const TEST_DATA_DIR = path.resolve('/tmp', `potato-test-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
 process.env.DATA_DIR = TEST_DATA_DIR;
 
-import app from '../server/app';
+import app, { validateReleaseConfig } from '../server/app';
 import { createInviteCode, createPasswordResetCode, restoreUserWorkspace } from '../server/admin';
 import { getCurrentGenerationId, rotateGenerationId, closeDb, getDb } from '../server/db';
 import { BLANK_STATE } from '../src/constants/initialData';
@@ -77,6 +81,88 @@ describe('Backend Server API & Security Suite', () => {
       const apkJson = await apkRes.json();
       assert.equal(apkJson.code, 'APK_NOT_RELEASED');
     }
+  });
+
+  test('Release configuration validation rules and failure handling (Phase 7 / V06)', async () => {
+    // 1. Validation logic unit tests
+    const validBase = {
+      webVersion: '1.0.3',
+      webBuild: '20261027.02',
+      schemaVersion: 3,
+      apkReleased: false,
+    };
+    assert.equal(validateReleaseConfig(validBase).valid, true);
+
+    // Missing or unknown webVersion / webBuild
+    assert.equal(validateReleaseConfig({ ...validBase, webVersion: '' }).valid, false);
+    assert.equal(validateReleaseConfig({ ...validBase, webVersion: 'unknown' }).valid, false);
+    assert.equal(validateReleaseConfig({ ...validBase, webBuild: '' }).valid, false);
+    assert.equal(validateReleaseConfig({ ...validBase, webBuild: 'unknown' }).valid, false);
+
+    // When apkReleased is true, require sha, size > 0, package name, fingerprint
+    const releasedBase = {
+      ...validBase,
+      apkReleased: true,
+      apkSha256: 'abc',
+      apkSizeBytes: 12345,
+      apkPackageName: 'com.ruyne.kaogong',
+      apkCertFingerprint: 'AA:BB',
+    };
+    assert.equal(validateReleaseConfig(releasedBase).valid, true);
+    assert.equal(validateReleaseConfig({ ...releasedBase, apkSha256: '' }).valid, false);
+    assert.equal(validateReleaseConfig({ ...releasedBase, apkSizeBytes: 0 }).valid, false);
+    assert.equal(validateReleaseConfig({ ...releasedBase, apkPackageName: '' }).valid, false);
+    assert.equal(validateReleaseConfig({ ...releasedBase, apkCertFingerprint: '' }).valid, false);
+
+    // 2. Health check and version check respond 503 when release config is missing/invalid
+    const prevEnv = process.env.RELEASE_CONFIG_PATH;
+    try {
+      process.env.RELEASE_CONFIG_PATH = '/nonexistent/path/to/release.json';
+      const hFail = await fetch(`${baseUrl}/api/health`);
+      assert.equal(hFail.status, 503);
+      const hFailJson = await hFail.json();
+      assert.equal(hFailJson.ok, false);
+      assert.equal(hFailJson.status, 'unhealthy');
+      assert.equal(hFailJson.code, 'RELEASE_CONFIG_INVALID');
+      assert.equal(hFailJson.error, 'Release configuration missing or invalid');
+      assert.ok(hFailJson.generationId.startsWith('gen_'));
+
+      const vFail = await fetch(`${baseUrl}/version.json`);
+      assert.equal(vFail.status, 503);
+      const vFailJson = await vFail.json();
+      assert.equal(vFailJson.ok, false);
+      assert.equal(vFailJson.code, 'RELEASE_CONFIG_INVALID');
+    } finally {
+      if (prevEnv) {
+        process.env.RELEASE_CONFIG_PATH = prevEnv;
+      } else {
+        delete process.env.RELEASE_CONFIG_PATH;
+      }
+    }
+
+    // After restoring, health check returns 200 healthy
+    const hRestored = await fetch(`${baseUrl}/api/health`);
+    assert.equal(hRestored.status, 200);
+    const hRestoredJson = await hRestored.json();
+    assert.equal(hRestoredJson.ok, true);
+    assert.equal(hRestoredJson.status, 'healthy');
+
+    // 3. Precache manifest / public/sw.js matches release.json build
+    const swPath = path.resolve(__dirname, '../public/sw.js');
+    const swContent = fs.readFileSync(swPath, 'utf-8');
+    assert.ok(
+      swContent.includes(`const RELEASE_BUILD = '${releaseConfig.webBuild}';`),
+      `public/sw.js must contain RELEASE_BUILD = '${releaseConfig.webBuild}'`
+    );
+    assert.ok(
+      swContent.includes(`const RELEASE_VERSION = '${releaseConfig.webVersion}';`),
+      `public/sw.js must contain RELEASE_VERSION = '${releaseConfig.webVersion}'`
+    );
+    assert.ok(
+      swContent.includes('kaogong-shell-v3-${RELEASE_VERSION}-${RELEASE_BUILD}') ||
+        swContent.includes(`kaogong-shell-v3-${releaseConfig.webVersion}-${releaseConfig.webBuild}`),
+      'public/sw.js CACHE_NAME must bind to release identity'
+    );
   });
 
   test('Single-use invitation registration, Argon2id hashing and uniqueness', async () => {

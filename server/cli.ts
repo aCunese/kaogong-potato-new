@@ -18,6 +18,7 @@ import {
   closeDb,
 } from './db';
 import { auditMediaStorage } from './media';
+import { getReleaseValidation } from './app';
 
 const [,, command, ...args] = process.argv;
 
@@ -176,10 +177,8 @@ async function run() {
       const dbHash = crypto.createHash('sha256').update(dbBuffer).digest('hex');
       const genId = getCurrentGenerationId();
 
-      let releaseConfig: any = {};
-      try {
-        releaseConfig = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'release.json'), 'utf-8'));
-      } catch {}
+      const releaseStatus = getReleaseValidation();
+      const releaseConfig = releaseStatus.config || ({} as any);
       const manifest = {
         version: String(releaseConfig.webVersion || 'unknown'),
         build: String(releaseConfig.webBuild || 'unknown'),

@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { getDb, getCurrentGenerationId } from './db';
 import {
   hashPassword,
@@ -70,64 +71,224 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // System & Health Endpoints
 // ----------------------------------------------------------------------
 
-/**
- * 统一发布配置来源：仓库根目录 release.json。
- * Web 版本、构建号、APK versionName/versionCode、SHA-256、大小、包名与证书指纹
- * 全部从同一份配置读取，避免多处硬编码漂移（R14/R17 发布配置统一）。
- */
-const RELEASE_CONFIG_PATH = path.resolve(process.cwd(), 'release.json');
-let releaseConfig: any = {};
-try {
-  releaseConfig = JSON.parse(fs.readFileSync(RELEASE_CONFIG_PATH, 'utf-8'));
-} catch (err) {
-  console.error('⚠️ 无法读取 release.json，将使用安全占位配置:', err);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export interface ReleaseConfig {
+  webVersion: string;
+  webBuild: string;
+  schemaVersion: number;
+  apkVersion: string;
+  apkVersionCode: number;
+  apkPackageName: string;
+  apkSha256: string;
+  apkSizeBytes: number;
+  apkCertFingerprint: string;
+  apkReleased: boolean;
+  apkDownloadUrl: string;
+  deployedAt: string;
+  summary: string;
 }
 
-const VERSION_INFO = {
-  version: String(releaseConfig.webVersion || 'unknown'),
-  build: String(releaseConfig.webBuild || 'unknown'),
-  schemaVersion: Number(releaseConfig.schemaVersion) || 3,
-  apkVersion: String(releaseConfig.apkVersion || 'unknown'),
-  apkVersionCode: Number(releaseConfig.apkVersionCode) || 0,
-  apkDownloadUrl: String(releaseConfig.apkDownloadUrl || '/api/download/apk'),
-  apkSha256: String(releaseConfig.apkSha256 || ''),
-  apkSizeBytes: Number(releaseConfig.apkSizeBytes) || 0,
-  apkPackageName: String(releaseConfig.apkPackageName || 'com.ruyne.kaogong'),
-  apkCertFingerprint: String(releaseConfig.apkCertFingerprint || ''),
-  apkReleased: releaseConfig.apkReleased === true,
-  deployedAt: String(releaseConfig.deployedAt || ''),
-  summary: String(releaseConfig.summary || ''),
-};
+export interface ReleaseValidationResult {
+  valid: boolean;
+  error?: string;
+  config?: ReleaseConfig;
+  configPath?: string;
+}
+
+/**
+ * 确定 release.json 的绝对路径：
+ * 优先环境变量 RELEASE_CONFIG_PATH；
+ * 其次服务根目录（__dirname 的上一级，即应用根目录）；
+ * 再次进程当前工作目录 process.cwd()；
+ * 避免盲目依赖 process.cwd()。
+ */
+export function resolveReleaseConfigPath(): string | null {
+  if (process.env.RELEASE_CONFIG_PATH) {
+    if (fs.existsSync(process.env.RELEASE_CONFIG_PATH)) {
+      return process.env.RELEASE_CONFIG_PATH;
+    }
+    return null;
+  }
+  const appRootPath = path.resolve(__dirname, '..', 'release.json');
+  if (fs.existsSync(appRootPath)) {
+    return appRootPath;
+  }
+  const cwdPath = path.resolve(process.cwd(), 'release.json');
+  if (fs.existsSync(cwdPath)) {
+    return cwdPath;
+  }
+  return null;
+}
+
+/**
+ * 校验 release.json 配置合法性：
+ * - 必须为有效 JSON 对象
+ * - webVersion 与 webBuild 必填且不能为 "unknown"
+ * - apkReleased === true 时：必须有非空 apkSha256、apkSizeBytes > 0、apkPackageName、apkCertFingerprint
+ * - apkReleased === false 时：允许 apkSha256 为空且 apkSizeBytes 为 0
+ */
+export function validateReleaseConfig(raw: unknown): { valid: boolean; error?: string; config?: ReleaseConfig } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { valid: false, error: 'Release configuration must be a JSON object' };
+  }
+  const r = raw as Record<string, unknown>;
+
+  const webVersion = typeof r.webVersion === 'string' ? r.webVersion.trim() : '';
+  if (!webVersion || webVersion === 'unknown') {
+    return { valid: false, error: 'webVersion must be a non-empty string and cannot be "unknown"' };
+  }
+
+  const webBuild = typeof r.webBuild === 'string' ? r.webBuild.trim() : '';
+  if (!webBuild || webBuild === 'unknown') {
+    return { valid: false, error: 'webBuild must be a non-empty string and cannot be "unknown"' };
+  }
+
+  const apkReleased = r.apkReleased === true;
+  const apkSha256 = typeof r.apkSha256 === 'string' ? r.apkSha256.trim() : '';
+  const apkSizeBytes = typeof r.apkSizeBytes === 'number' ? r.apkSizeBytes : 0;
+  const apkPackageName = typeof r.apkPackageName === 'string' ? r.apkPackageName.trim() : '';
+  const apkCertFingerprint = typeof r.apkCertFingerprint === 'string' ? r.apkCertFingerprint.trim() : '';
+
+  if (apkReleased) {
+    if (!apkSha256) {
+      return { valid: false, error: 'apkSha256 is required when apkReleased is true' };
+    }
+    if (apkSizeBytes <= 0) {
+      return { valid: false, error: 'apkSizeBytes must be greater than 0 when apkReleased is true' };
+    }
+    if (!apkPackageName) {
+      return { valid: false, error: 'apkPackageName is required when apkReleased is true' };
+    }
+    if (!apkCertFingerprint) {
+      return { valid: false, error: 'apkCertFingerprint is required when apkReleased is true' };
+    }
+  }
+
+  const schemaVersion = typeof r.schemaVersion === 'number' ? r.schemaVersion : 3;
+  const apkVersion = typeof r.apkVersion === 'string' && r.apkVersion.trim() ? r.apkVersion.trim() : webVersion;
+  const apkVersionCode = typeof r.apkVersionCode === 'number' ? r.apkVersionCode : 0;
+  const apkDownloadUrl = typeof r.apkDownloadUrl === 'string' && r.apkDownloadUrl.trim() ? r.apkDownloadUrl.trim() : '/api/download/apk';
+  const deployedAt = typeof r.deployedAt === 'string' ? r.deployedAt : '';
+  const summary = typeof r.summary === 'string' ? r.summary : '';
+
+  return {
+    valid: true,
+    config: {
+      webVersion,
+      webBuild,
+      schemaVersion,
+      apkVersion,
+      apkVersionCode,
+      apkPackageName: apkPackageName || 'com.ruyne.kaogong',
+      apkSha256,
+      apkSizeBytes,
+      apkCertFingerprint,
+      apkReleased,
+      apkDownloadUrl,
+      deployedAt,
+      summary,
+    },
+  };
+}
+
+export function getReleaseValidation(): ReleaseValidationResult {
+  const configPath = resolveReleaseConfigPath();
+  if (!configPath) {
+    return { valid: false, error: 'Release configuration file (release.json) not found' };
+  }
+  try {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    const result = validateReleaseConfig(parsed);
+    return {
+      ...result,
+      configPath,
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Failed to read or parse release configuration: ${err instanceof Error ? err.message : String(err)}`,
+      configPath,
+    };
+  }
+}
 
 /**
  * 版本元数据端点：完整保留既有字段以兼容旧客户端。
  * 网络新鲜度证明（R16）：回显请求 ?nonce=（最长 64 字符）并附带本次响应服务端时间 servedAt，
  * 客户端可据此证明拿到的是本次真实网络响应，而不是 Service Worker 缓存里的旧响应。
+ * 若发布配置缺失或非法，返回 HTTP 503。
  */
 app.get(['/version.json', '/api/version'], (req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  const releaseStatus = getReleaseValidation();
+  if (!releaseStatus.valid || !releaseStatus.config) {
+    return res.status(503).json({
+      ok: false,
+      status: 'unhealthy',
+      code: 'RELEASE_CONFIG_INVALID',
+      error: releaseStatus.error || 'Release configuration missing or invalid',
+    });
+  }
+  const config = releaseStatus.config;
   const nonceRaw = req.query.nonce;
   const nonce = typeof nonceRaw === 'string' && nonceRaw.length > 0 ? nonceRaw.slice(0, 64) : null;
   res.json({
-    ...VERSION_INFO,
+    version: config.webVersion,
+    build: config.webBuild,
+    schemaVersion: config.schemaVersion,
+    apkVersion: config.apkVersion,
+    apkVersionCode: config.apkVersionCode,
+    apkDownloadUrl: config.apkDownloadUrl,
+    apkSha256: config.apkSha256,
+    apkSizeBytes: config.apkSizeBytes,
+    apkPackageName: config.apkPackageName,
+    apkCertFingerprint: config.apkCertFingerprint,
+    apkReleased: config.apkReleased,
+    deployedAt: config.deployedAt,
+    summary: config.summary,
     servedAt: new Date().toISOString(),
     ...(nonce !== null ? { nonce } : {}),
   });
 });
 
+/**
+ * 服务端健康检查：
+ * - 检查数据库连接与同步代际 ID
+ * - 检查发布配置 (release.json) 合法性
+ * 若发布配置缺失或非法，返回 HTTP 503 (RELEASE_CONFIG_INVALID)；
+ * 仅当数据库正常且发布配置验证通过时，返回 HTTP 200 { ok: true, status: 'healthy', ... }。
+ */
 app.get('/api/health', (_req: Request, res: Response) => {
+  let genId = '';
   try {
-    const genId = getCurrentGenerationId();
-    res.json({
-      ok: true,
-      status: 'healthy',
+    genId = getCurrentGenerationId();
+  } catch (err) {
+    return res.status(500).json({ ok: false, status: 'unhealthy', error: String(err) });
+  }
+
+  const releaseStatus = getReleaseValidation();
+  if (!releaseStatus.valid || !releaseStatus.config) {
+    return res.status(503).json({
+      ok: false,
+      status: 'unhealthy',
+      code: 'RELEASE_CONFIG_INVALID',
+      error: 'Release configuration missing or invalid',
       generationId: genId,
       time: new Date().toISOString(),
       uptime: process.uptime(),
     });
-  } catch (err) {
-    res.status(500).json({ ok: false, status: 'unhealthy', error: String(err) });
   }
+
+  return res.json({
+    ok: true,
+    status: 'healthy',
+    generationId: genId,
+    time: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
 // APK 完整性校验缓存（根据文件 stat.mtimeMs 和 stat.size 缓存校验哈希，杜绝重复计算阻塞 Node 单线程）
@@ -160,17 +321,28 @@ async function getOrComputeApkSha256(filePath: string): Promise<string> {
 }
 
 app.get('/api/download/apk', async (_req: Request, res: Response) => {
-  // 严格绑定版本规范：生产环境唯一分发与当前 VERSION_INFO 严格一致的发行版 APK，禁止宽泛 fallback 穿透。
+  // 严格绑定版本规范：生产环境唯一分发与当前 release.json 严格一致的发行版 APK，禁止宽泛 fallback 穿透。
+  const releaseStatus = getReleaseValidation();
+  if (!releaseStatus.valid || !releaseStatus.config) {
+    return res.status(503).json({
+      ok: false,
+      code: 'RELEASE_CONFIG_INVALID',
+      message: 'Release configuration missing or invalid',
+    });
+  }
+  const config = releaseStatus.config;
   // 当前 release.json 标记 apkReleased=false（新包尚未用原密钥签名）时，绝不回退分发旧版本安装包。
-  if (!VERSION_INFO.apkReleased || !VERSION_INFO.apkSha256) {
+  if (!config.apkReleased || !config.apkSha256) {
     return res.status(404).json({
       ok: false,
       code: 'APK_NOT_RELEASED',
-      message: `Android ${VERSION_INFO.apkVersion} (versionCode ${VERSION_INFO.apkVersionCode}) 安装包尚待使用原发布密钥签名后发布，请稍后再试；网页端不受影响。`,
+      message: `Android ${config.apkVersion} (versionCode ${config.apkVersionCode}) 安装包尚待使用原发布密钥签名后发布，请稍后再试；网页端不受影响。`,
     });
   }
-  const canonicalApkFilename = `kaogong-potato-v${VERSION_INFO.apkVersion}.apk`;
-  const canonicalApkPath = path.resolve(process.cwd(), 'release', 'apk', canonicalApkFilename);
+  const canonicalApkFilename = `kaogong-potato-v${config.apkVersion}.apk`;
+  const appRootApk = path.resolve(__dirname, '..', 'release', 'apk', canonicalApkFilename);
+  const cwdApk = path.resolve(process.cwd(), 'release', 'apk', canonicalApkFilename);
+  const canonicalApkPath = fs.existsSync(appRootApk) ? appRootApk : cwdApk;
 
   if (!fs.existsSync(canonicalApkPath)) {
     return res.status(404).json({
@@ -184,9 +356,9 @@ app.get('/api/download/apk', async (_req: Request, res: Response) => {
     const actualSha256 = await getOrComputeApkSha256(canonicalApkPath);
 
     // 关键防御：运行时强校验安装包哈希，阻断磁盘被篡改/木马替换后的病毒传播
-    if (actualSha256 !== VERSION_INFO.apkSha256) {
+    if (actualSha256 !== config.apkSha256) {
       console.error(
-        `🚨 [CRITICAL_SECURITY_ALERT] 磁盘 APK 文件哈希不匹配！疑似文件被篡改或木马替换！期望: ${VERSION_INFO.apkSha256}, 实际: ${actualSha256}`
+        `🚨 [CRITICAL_SECURITY_ALERT] 磁盘 APK 文件哈希不匹配！疑似文件被篡改或木马替换！期望: ${config.apkSha256}, 实际: ${actualSha256}`
       );
       return res.status(500).json({
         ok: false,

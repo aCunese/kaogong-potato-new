@@ -32,8 +32,9 @@ import { runAllBoundaryChecks, type CheckResult } from './lib/boundary-checks';
 const REPO_ROOT = resolveRepoRoot();
 const RUN_ID = process.env.VERIFY_RUN_ID || createRunId();
 const EVIDENCE_DIR = path.join(REPO_ROOT, 'docs', 'implementation', 'evidence');
-const LOG_PATH = path.join(EVIDENCE_DIR, 'boundaries-baseline.log');
-const RESULTS_PATH = path.join(EVIDENCE_DIR, 'boundaries-baseline-results.json');
+const STEM = process.env.VERIFY_EVIDENCE_STEM || 'boundaries-verified';
+const LOG_PATH = path.join(EVIDENCE_DIR, `${STEM}.log`);
+const RESULTS_PATH = path.join(EVIDENCE_DIR, `${STEM}-results.json`);
 const STARTED_AT = new Date();
 
 fs.mkdirSync(EVIDENCE_DIR, { recursive: true });

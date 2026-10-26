@@ -42,6 +42,7 @@ COPY server/ ./server
 COPY src/ ./src
 COPY tsconfig.json ./
 COPY tsconfig.server.json ./
+COPY release.json ./release.json
 RUN mkdir -p /app/release/apk /app/scripts
 COPY release/apk/ ./release/apk/
 COPY scripts/backup.sh scripts/restore.sh ./scripts/

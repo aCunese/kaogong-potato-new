@@ -71,7 +71,15 @@ function swPrecachePlugin() {
         // Cache name carries the release identity so a new build always invalidates
         // stale precached shell assets (single source: release.json).
         swContent = swContent.replace(
-          /const CACHE_NAME = '[^']*';/,
+          /const RELEASE_BUILD = ['"][^'"]*['"];/,
+          `const RELEASE_BUILD = '${releaseInfo.webBuild}';`
+        );
+        swContent = swContent.replace(
+          /const RELEASE_VERSION = ['"][^'"]*['"];/,
+          `const RELEASE_VERSION = '${releaseInfo.webVersion}';`
+        );
+        swContent = swContent.replace(
+          /const CACHE_NAME = [`'"][^`'"]*[`'"];/,
           `const CACHE_NAME = 'kaogong-shell-v${releaseInfo.schemaVersion}-${releaseInfo.webVersion}-${releaseInfo.webBuild}';`
         );
         fs.writeFileSync(distSwPath, swContent, 'utf-8');
