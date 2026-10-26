@@ -202,3 +202,100 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
     generationId: currentGen,
   };
 }
+
+export interface WorkspaceHistoryItem {
+  id: string;
+  revision: number;
+  reason: string;
+  created_at: string;
+}
+
+export function getUserWorkspaceHistory(userId: string): WorkspaceHistoryItem[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, revision, reason, created_at
+    FROM workspace_history
+    WHERE user_id = ?
+    ORDER BY revision DESC
+    LIMIT 30
+  `).all(userId) as WorkspaceHistoryItem[];
+
+  return rows;
+}
+
+export function getUserBackupExport(userId: string) {
+  const current = getUserWorkspace(userId);
+  if (!current) return null;
+
+  return {
+    version: 3,
+    exportedAt: new Date().toISOString(),
+    userId,
+    revision: current.revision,
+    generationId: current.generationId,
+    state: current.state,
+  };
+}
+
+export function restoreUserFromHistory(userId: string, historyId: string) {
+  const db = getDb();
+  const currentGen = getCurrentGenerationId();
+
+  const historyRow = db.prepare(`
+    SELECT * FROM workspace_history WHERE id = ? AND user_id = ?
+  `).get(historyId, userId) as {
+    id: string;
+    user_id: string;
+    revision: number;
+    reason: string;
+    state_json: string;
+    created_at: string;
+  } | undefined;
+
+  if (!historyRow) {
+    return { ok: false, status: 404, message: '历史快照不存在或无权访问' };
+  }
+
+  const tx = db.transaction(() => {
+    const existing = db.prepare('SELECT * FROM workspaces WHERE user_id = ?').get(userId) as WorkspaceRow | undefined;
+    const currentRevision = existing ? existing.revision : 0;
+    const nextRevision = currentRevision + 1;
+    const nowIso = new Date().toISOString();
+
+    // Preserve the current state before replacing
+    if (existing) {
+      const currentHistoryId = `hist_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+      db.prepare(`
+        INSERT INTO workspace_history (id, user_id, revision, reason, state_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(currentHistoryId, userId, existing.revision, `pre_restore_from_${historyRow.revision}`, existing.state_json, nowIso);
+    }
+
+    db.prepare(`
+      INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, updated_at)
+      VALUES (?, ?, ?, ?, 3, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        revision = excluded.revision,
+        generation_id = excluded.generation_id,
+        state_json = excluded.state_json,
+        schema_version = excluded.schema_version,
+        updated_at = excluded.updated_at
+    `).run(userId, nextRevision, currentGen, historyRow.state_json, nowIso);
+
+    return nextRevision;
+  });
+
+  const newRevision = tx();
+  let parsedState: AppState | null = null;
+  try {
+    parsedState = JSON.parse(historyRow.state_json);
+  } catch {}
+
+  return {
+    ok: true,
+    status: 200,
+    message: `已成功将个人工作区恢复至历史版本（原修订号: ${historyRow.revision}，新修订号: ${newRevision}）`,
+    revision: newRevision,
+    state: parsedState,
+  };
+}

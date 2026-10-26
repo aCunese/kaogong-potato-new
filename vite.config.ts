@@ -32,6 +32,10 @@ export default defineConfig({
   server: {
     port: 5174,
     host: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:3000',
+      '/version.json': 'http://127.0.0.1:3000',
+    },
   },
   preview: {
     port: 4174,

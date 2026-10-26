@@ -50,6 +50,10 @@
 - Media:
   - `POST /api/media/upload` (multipart/form-data, magic byte check JPEG/PNG/WebP, quota enforcement 500MB)
   - `GET /api/media/:id` (session authenticated, strictly verifies resource belongs to user)
+- Backups & Version History:
+  - `GET /api/backups/export` (downloads authenticated user's portable JSON snapshot)
+  - `GET /api/backups/history` (lists up to 30 past revisions for authenticated user)
+  - `POST /api/backups/restore-history` (reverts workspace to a selected past snapshot, saves pre-restore backup into history, increments revision)
 
 ## 5. Offline & Service Worker Contracts (M4)
 - App Shell Cache: `kaogong-shell-v1.0.0`

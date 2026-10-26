@@ -16,7 +16,13 @@ import {
   resetLoginFailure,
   AuthenticatedRequest,
 } from './auth';
-import { getUserWorkspace, syncUserWorkspace } from './workspace';
+import {
+  getUserWorkspace,
+  syncUserWorkspace,
+  getUserBackupExport,
+  getUserWorkspaceHistory,
+  restoreUserFromHistory,
+} from './workspace';
 import { saveUserMedia, getUserMediaFile, deleteUserMedia, getUserTotalMediaUsage, MAX_USER_QUOTA_BYTES } from './media';
 import { resetPasswordWithCode } from './admin';
 
@@ -314,6 +320,37 @@ app.delete('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Respo
     return;
   }
   res.json({ ok: true, message: '图片已安全删除' });
+});
+
+// ----------------------------------------------------------------------
+// User Backup & Version History Endpoints (/api/backups/*)
+// ----------------------------------------------------------------------
+
+app.get('/api/backups/export', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const backup = getUserBackupExport(req.user!.id);
+  if (!backup) {
+    res.status(404).json({ ok: false, code: 'EMPTY_WORKSPACE', message: '暂无可导出的工作台数据' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="kaogong_backup_${req.user!.username}_${Date.now()}.json"`);
+  res.json(backup);
+});
+
+app.get('/api/backups/history', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const history = getUserWorkspaceHistory(req.user!.id);
+  res.json({ ok: true, history });
+});
+
+app.post('/api/backups/restore-history', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { historyId } = req.body || {};
+  if (!historyId) {
+    res.status(400).json({ ok: false, code: 'BAD_REQUEST', message: '请提供要恢复的历史快照 ID' });
+    return;
+  }
+
+  const result = restoreUserFromHistory(req.user!.id, String(historyId));
+  res.status(result.status).json(result);
 });
 
 // ----------------------------------------------------------------------

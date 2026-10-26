@@ -317,4 +317,72 @@ describe('Backend Server API & Security Suite', () => {
     });
     assert.equal(postGenCheck.status, 401); // Revoked on generation rotation
   });
+
+  test('User backup export, history tracking, and history restore endpoints (/api/backups/*)', async () => {
+    const userSuffix = Math.random().toString(36).substring(2, 7);
+    const uH = `userh_${userSuffix}`;
+
+    const inviteH = createInviteCode('test_admin');
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uH, password: 'userhpass', nickname: 'User H', inviteCode: inviteH }),
+    });
+    const { csrfToken: csrfH } = await regRes.json();
+    const cookieH = regRes.headers.get('set-cookie')!;
+
+    // 1. Push rev 1
+    const stateRev1 = {
+      ...BLANK_STATE,
+      plans: [{ id: 'plan-h-1', title: '版本1计划', done: false, date: '2026-10-26' }],
+    };
+    await fetch(`${baseUrl}/api/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
+      body: JSON.stringify({ expectedRevision: 0, requestId: 'req-h-1', state: stateRev1 }),
+    });
+
+    // 2. Push rev 2 (creates history entry for rev 1)
+    const stateRev2 = {
+      ...BLANK_STATE,
+      plans: [{ id: 'plan-h-2', title: '版本2计划', done: true, date: '2026-10-26' }],
+    };
+    await fetch(`${baseUrl}/api/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
+      body: JSON.stringify({ expectedRevision: 1, requestId: 'req-h-2', state: stateRev2 }),
+    });
+
+    // 3. GET /api/backups/export
+    const exportRes = await fetch(`${baseUrl}/api/backups/export`, {
+      headers: { cookie: cookieH },
+    });
+    assert.equal(exportRes.status, 200);
+    const exportedData = await exportRes.json();
+    assert.equal(exportedData.version, 3);
+    assert.equal(exportedData.revision, 2);
+    assert.equal(exportedData.state.plans[0].id, 'plan-h-2');
+
+    // 4. GET /api/backups/history
+    const historyRes = await fetch(`${baseUrl}/api/backups/history`, {
+      headers: { cookie: cookieH },
+    });
+    assert.equal(historyRes.status, 200);
+    const { history } = await historyRes.json();
+    assert.ok(Array.isArray(history));
+    assert.equal(history.length >= 1, true);
+    assert.equal(history[0].revision, 1);
+
+    // 5. POST /api/backups/restore-history
+    const restoreRes = await fetch(`${baseUrl}/api/backups/restore-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfH, cookie: cookieH },
+      body: JSON.stringify({ historyId: history[0].id }),
+    });
+    assert.equal(restoreRes.status, 200);
+    const restoreData = await restoreRes.json();
+    assert.equal(restoreData.ok, true);
+    assert.equal(restoreData.revision, 3); // Revision incremented to 3
+    assert.equal(restoreData.state.plans[0].id, 'plan-h-1'); // Restored state matches rev 1
+  });
 });

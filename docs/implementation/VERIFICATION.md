@@ -27,16 +27,17 @@
     - Persisted mutation failure keeps draft without false success: **Passed**
     - Running plan completion pauses latest timer and uses recorded summary: **Passed**
 
-### 3. Backend Server API & Security Suite (6 integration tests)
+### 3. Backend Server API & Security Suite (7 integration tests)
 - Command: `npm run test:server` (`node --import tsx --test tests/server.test.ts`)
 - Target: Node.js 24 LTS / Express 5 API
-- Result: **6 passed / 0 failed**
+- Result: **7 passed / 0 failed**
   - GET `/version.json` and GET `/api/health` system telemetry
   - Single-use invite registration, Argon2id password hashing, uniqueness checks
   - Rate limiting (5 attempts / 15m) & CSRF token protection
   - Workspace revision snapshot sync, idempotency, and 409 conflict detection
   - Multi-user isolation & media ownership verification
   - Admin password reset code (30m), session revocation, and generation rotation
+  - User backup export, history tracking, and history restore endpoints (`/api/backups/*`)
 
 ### 4. Disaster Recovery & Generation Rotation Drill (1 test)
 - Command: `npm run test:dr` (`node --import tsx --test tests/disaster-recovery.test.ts`)
