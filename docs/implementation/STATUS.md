@@ -54,10 +54,12 @@
 
 ## Production Deployment Telemetry
 - **Public Domain**: `https://work.ruyne.space`
-- **Reverse Proxy**: Nginx 1.24 (Ubuntu 24.04 LTS), SSL Cloudflare Origin CA, Strict-Transport-Security, HTTP/2, 50M upload limit
+- **Reverse Proxy**: Nginx 1.24 (Ubuntu 24.04 LTS), SSL Let's Encrypt (RSA/ECC official cert renewed via certbot), Strict-Transport-Security, HTTP/2, 50M upload limit
+- **Direct & Proxy Compatibility**: Works both under Cloudflare Proxy (with ECH disabled) and Direct A-Record (DNS Only to 18.224.72.68). Official trusted certificate prevents SSL errors on both native browsers and Android APK.
 - **Container**: `kaogong-potato-app` running image `kaogong-potato:latest` (Node 24 LTS, UID 1000 node user)
 - **Database**: SQLite WAL mode persisted at `/home/ubuntu/kaogong-app/data/potato.db`
 - **Media Storage**: `/home/ubuntu/kaogong-app/data/attachments/`
+- **Android APK Distribution**: `release/apk/kaogong-potato-v1.0.1.apk` (SHA256: `70b939badc4ea98854d97c680fdf60aa68cfaec99907b9a8a980a77c7f64a34b`) accessible via `/api/download/apk`.
 - **Automated Backup**: Daily cron at 03:00 UTC running `scripts/backup.sh`, logrotate configured
 - **Health Endpoint**: `https://work.ruyne.space/api/health` -> `status: healthy`
 - **Version Endpoint**: `https://work.ruyne.space/version.json` -> `version: 1.0.1`, `build: 20261026.02`
