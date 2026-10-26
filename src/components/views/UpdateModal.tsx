@@ -200,9 +200,18 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           );
           break;
         case 'cancelled':
+        case 'install_cancelled':
           setNativePhase('idle');
           setNativeMessage(event.message || '已取消更新下载');
           setProgress(null);
+          break;
+        case 'install_permission_denied':
+          setNativePhase('idle');
+          setNativeMessage(event.message || '未授予安装未知应用权限');
+          break;
+        case 'installed':
+          setNativePhase('idle');
+          setNativeMessage(event.message || '应用已成功安装更新');
           break;
         case 'update_busy':
           setNativeMessage(event.message || '已有更新任务正在进行，请稍候');

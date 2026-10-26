@@ -174,6 +174,9 @@ export type NativeUpdateEventType =
   | 'install_ready'
   | 'installer_launched'
   | 'install_permission_required'
+  | 'install_permission_denied'
+  | 'install_cancelled'
+  | 'installed'
   | 'cancelled'
   | 'update_busy'
   | 'download_needs_bridge'
@@ -1547,17 +1550,6 @@ export async function startNativeApkInstall(
     }
   }
 
-  // 新协议桥：安装未知应用权限检查
-  if (bridge.installPermission === 'denied') {
-    requestNativeInstallPermission();
-    return {
-      ok: false,
-      code: 'INSTALL_PERMISSION_REQUIRED',
-      requiresPermission: true,
-      message: '需要在系统页面允许“安装未知应用”，已打开授权设置；授权完成返回后会自动继续安装',
-    };
-  }
-
   if (typeof bridgeObject.installApkVerified !== 'function') {
     return {
       ok: false,
@@ -1566,23 +1558,20 @@ export async function startNativeApkInstall(
     };
   }
 
+  const operationId = `op_inst_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const requestPayload = {
     url: getOfficialApkUrl(remote),
     sha256: remote.apkSha256,
-    sizeBytes: typeof remote.apkSizeBytes === 'number' ? remote.apkSizeBytes : undefined,
+    sizeBytes: remote.apkSizeBytes,
     packageName: remote.apkPackageName || bridge.packageName,
     versionCode: remote.apkVersionCode,
     versionName: remote.apkVersion || remote.version,
     certFingerprint: remote.apkCertFingerprint,
+    operationId,
   };
 
   try {
     bridgeObject.installApkVerified(JSON.stringify(requestPayload));
-    return {
-      ok: true,
-      code: 'STARTED',
-      message: '已开始经官方加密通道下载安装包，下载完成后将自动校验并调起系统安装',
-    };
   } catch (err) {
     console.warn('[versionCheck] installApkVerified failed:', err);
     return {
@@ -1591,4 +1580,19 @@ export async function startNativeApkInstall(
       message: '原生桥接调用失败，无法启动安全下载；请复制官方安装包地址到系统浏览器安装',
     };
   }
+
+  if (bridge.installPermission === 'denied') {
+    return {
+      ok: false,
+      code: 'INSTALL_PERMISSION_REQUIRED',
+      requiresPermission: true,
+      message: '需要在系统页面允许“安装未知应用”，已打开授权设置；授权完成返回后会自动继续安装',
+    };
+  }
+
+  return {
+    ok: true,
+    code: 'STARTED',
+    message: '已开始经官方加密通道下载安装包，下载完成后将自动校验并调起系统安装',
+  };
 }

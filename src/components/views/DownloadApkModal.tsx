@@ -122,8 +122,17 @@ export const DownloadApkModal: React.FC<{
           setInstallMessage(event.message || '更新失败，请稍后重试');
           break;
         case 'cancelled':
+        case 'install_cancelled':
           setInstallPhase('idle');
           setInstallMessage(event.message || '已取消更新下载');
+          break;
+        case 'install_permission_denied':
+          setInstallPhase('idle');
+          setInstallMessage(event.message || '未授予安装未知应用权限');
+          break;
+        case 'installed':
+          setInstallPhase('idle');
+          setInstallMessage(event.message || '应用已成功安装更新');
           break;
         default:
           break;

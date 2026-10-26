@@ -91,13 +91,21 @@ public class MainActivity extends Activity {
 
     private static final int FILECHOOSER_RESULTCODE = 101;
     private static final int INSTALL_PERMISSION_RESULTCODE = 102;
+    private static final int INSTALL_ACTIVITY_REQUEST_CODE = 1003;
 
     private static final int STATE_IDLE = 0;
-    private static final int STATE_DOWNLOADING = 1;
-    private static final int STATE_VERIFYING = 2;
-    private static final int STATE_INSTALLING = 3;
-    private static final int STATE_FAILED = 4;
-    private static final int STATE_NEEDS_PERMISSION = 5;
+    private static final int STATE_NEEDS_PERMISSION = 1;
+    private static final int STATE_DOWNLOADING = 2;
+    private static final int STATE_VERIFYING = 3;
+    private static final int STATE_READY = 4;
+    private static final int STATE_INSTALLER_OPEN = 5;
+    private static final int STATE_INSTALLED = 6;
+    private static final int STATE_CANCELLED = 7;
+    private static final int STATE_FAILED = 8;
+    private static final int STATE_UNCONFIRMED = 9;
+    private static final int STATE_INTERRUPTED = 10;
+    // 兼容状态别名（STATE_INSTALLING 与 STATE_INSTALLER_OPEN 等价）
+    private static final int STATE_INSTALLING = STATE_INSTALLER_OPEN;
 
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
@@ -112,6 +120,7 @@ public class MainActivity extends Activity {
     private boolean downloadCompletionHandled = false;
     private volatile boolean destroyed = false;
     private int nativeUpdateState = STATE_IDLE;
+    private long installerLaunchTime = 0L;
 
     // R13：受信页面状态缓存。仅由 UI 线程（WebViewClient 回调）写入，JavascriptInterface 线程只读。
     private volatile String cachedPageUrl = null;
@@ -709,6 +718,10 @@ public class MainActivity extends Activity {
             try {
                 evt.put("type", "install_permission_required");
                 evt.put("reason", "opened_settings");
+                evt.put("sdkInt", Build.VERSION.SDK_INT);
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
                 evt.put("message", "请在系统页面允许“安装未知应用”，返回后会自动继续安装");
             } catch (Exception ignored) {
             }
@@ -733,10 +746,10 @@ public class MainActivity extends Activity {
     private void handleInstallRequest(JSONObject req) {
         if (destroyed) return;
         try {
-            // 1) 并发保护：下载/校验/安装期间不接受重复请求
+            // 1) 并发保护：下载/校验/安装器打开期间不接受重复请求
             if (nativeUpdateState == STATE_DOWNLOADING
                     || nativeUpdateState == STATE_VERIFYING
-                    || nativeUpdateState == STATE_INSTALLING) {
+                    || nativeUpdateState == STATE_INSTALLER_OPEN) {
                 JSONObject evt = new JSONObject();
                 evt.put("type", "update_busy");
                 evt.put("message", "已有更新任务正在进行，请稍候");
@@ -753,12 +766,6 @@ public class MainActivity extends Activity {
             // 3) Android 8+ 安装未知应用权限检查
             if (!hasInstallPermission()) {
                 nativeUpdateState = STATE_NEEDS_PERMISSION;
-                JSONObject evt = new JSONObject();
-                evt.put("type", "install_permission_required");
-                evt.put("reason", "denied");
-                evt.put("sdkInt", Build.VERSION.SDK_INT);
-                evt.put("message", "需要授予“安装未知应用”权限后才能覆盖更新");
-                emitBridgeEvent(evt);
                 resumeInstallAfterPermission = true;
                 openInstallPermissionSettings();
                 return;
@@ -820,7 +827,9 @@ public class MainActivity extends Activity {
                 }
             }
 
+            String operationId = req.optString("operationId", "op_" + System.currentTimeMillis());
             JSONObject out = new JSONObject();
+            out.put("operationId", operationId);
             out.put("url", fullUrl);
             out.put("sha256", sha256.toLowerCase(Locale.US));
             out.put("packageName", expectedPackage);
@@ -862,7 +871,8 @@ public class MainActivity extends Activity {
             deleteUpdateArtifacts();
 
             String url = req.getString("url");
-            pendingDownloadFilename = "kaogong-potato-update-" + System.currentTimeMillis() + ".apk";
+            String opId = req.optString("operationId", "op_" + System.currentTimeMillis());
+            pendingDownloadFilename = "update_" + opId + ".apk";
             File externalUpdatesDir = new File(getExternalFilesDir(null), UPDATES_DIR);
             //noinspection ResultOfMethodCallIgnored
             externalUpdatesDir.mkdirs();
@@ -885,6 +895,7 @@ public class MainActivity extends Activity {
             JSONObject evt = new JSONObject();
             evt.put("type", "download_started");
             evt.put("downloadId", activeDownloadId);
+            evt.put("operationId", opId);
             evt.put("message", "已开始安全下载更新包");
             emitBridgeEvent(evt);
         } catch (Exception e) {
@@ -1267,7 +1278,9 @@ public class MainActivity extends Activity {
             String signerCert = selfCert;
 
             // 5) TOCTOU 防御：复制到内部私有 cache + 复制后二次哈希
-            File safeApk = new File(getCacheDir(), VERIFIED_APK_FILENAME);
+            String opId = request == null ? "" : request.optString("operationId", "");
+            String safeApkName = opId.isEmpty() ? "update_verified.apk" : ("update_" + opId + ".apk");
+            File safeApk = new File(getCacheDir(), safeApkName);
             deleteFileQuietly(safeApk);
             InputStream in = new FileInputStream(apkFile);
             OutputStream out = new FileOutputStream(safeApk);
@@ -1298,6 +1311,9 @@ public class MainActivity extends Activity {
             verdict.put("certSha256", signerCert == null ? "" : signerCert);
             verdict.put("certFingerprint", signerCert == null ? "" : toColonFingerprint(signerCert));
             verdict.put("verifiedPath", safeApk.getAbsolutePath());
+            if (!opId.isEmpty()) {
+                verdict.put("operationId", opId);
+            }
             return verdict;
         } catch (Exception e) {
             Log.e(TAG, "verify downloaded apk failed", e);
@@ -1322,15 +1338,20 @@ public class MainActivity extends Activity {
                 evt.put("errorCode", verdict == null ? "verification_failed" : verdict.optString("errorCode", "verification_failed"));
                 evt.put("message", verdict == null ? "安装包校验失败" : verdict.optString("message", "安装包校验失败"));
                 evt.put("retryable", true);
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
             } catch (Exception ignored) {
             }
             emitBridgeEvent(evt);
+            deleteUpdateArtifacts();
             pendingInstallRequest = null;
             return;
         }
 
         pendingVerifiedMeta = verdict;
         pendingVerifiedApk = new File(verdict.optString("verifiedPath", ""));
+        nativeUpdateState = STATE_READY;
 
         JSONObject evt = new JSONObject();
         try {
@@ -1340,6 +1361,9 @@ public class MainActivity extends Activity {
             evt.put("packageName", verdict.optString("packageName", ""));
             evt.put("certFingerprint", verdict.optString("certFingerprint", ""));
             evt.put("sha256", verdict.optString("sha256", ""));
+            if (pendingInstallRequest != null) {
+                evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+            }
             evt.put("message", "安装包完整性、包名、版本号与签名证书校验全部通过");
         } catch (Exception ignored) {
         }
@@ -1379,20 +1403,47 @@ public class MainActivity extends Activity {
         Uri apkUri = Uri.parse("content://" + KaogongFileProvider.AUTHORITY + "/" + VERIFIED_APK_FILENAME);
         Intent installIntent = new Intent(Intent.ACTION_VIEW);
         installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-        installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        installIntent.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+        installIntent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+
         try {
-            startActivity(installIntent);
-            nativeUpdateState = STATE_INSTALLING;
+            startActivityForResult(installIntent, INSTALL_ACTIVITY_REQUEST_CODE);
+            nativeUpdateState = STATE_INSTALLER_OPEN;
+            installerLaunchTime = System.currentTimeMillis();
             JSONObject evt = new JSONObject();
             try {
                 evt.put("type", "installer_launched");
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
                 evt.put("message", "已调起系统安装程序，请按系统提示确认覆盖安装（不会清除本地数据与账号缓存）");
             } catch (Exception ignored) {
             }
             emitBridgeEvent(evt);
         } catch (ActivityNotFoundException e) {
-            nativeUpdateState = STATE_FAILED;
-            emitBridgeError("installer_unavailable", "未找到系统安装程序，请在系统文件管理器中手动安装");
+            try {
+                Intent fallbackIntent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+                fallbackIntent.setData(apkUri);
+                fallbackIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                fallbackIntent.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+                startActivityForResult(fallbackIntent, INSTALL_ACTIVITY_REQUEST_CODE);
+                nativeUpdateState = STATE_INSTALLER_OPEN;
+                installerLaunchTime = System.currentTimeMillis();
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "installer_launched");
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "已调起系统安装程序，请按系统提示确认覆盖安装（不会清除本地数据与账号缓存）");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+            } catch (Exception e2) {
+                nativeUpdateState = STATE_FAILED;
+                emitBridgeError("installer_unavailable", "未找到系统安装程序，请在系统文件管理器中手动安装");
+            }
         } catch (Exception e) {
             nativeUpdateState = STATE_FAILED;
             emitBridgeError("installer_launch_failed", "调起系统安装程序失败：" + e.getMessage());
@@ -1433,8 +1484,18 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         try {
+            File[] cacheFiles = getCacheDir().listFiles();
+            if (cacheFiles != null) {
+                for (File f : cacheFiles) {
+                    if (f.isFile() && f.getName().startsWith("update_") && f.getName().endsWith(".apk")) {
+                        deleteFileQuietly(f);
+                    }
+                }
+            }
             File downloaded = new File(getCacheDir(), "downloaded-update.apk");
             deleteFileQuietly(downloaded);
+            File verified = new File(getCacheDir(), VERIFIED_APK_FILENAME);
+            deleteFileQuietly(verified);
         } catch (Exception ignored) {
         }
     }
@@ -1592,16 +1653,26 @@ public class MainActivity extends Activity {
 
     private static String describeState(int state) {
         switch (state) {
+            case STATE_NEEDS_PERMISSION:
+                return "needs_permission";
             case STATE_DOWNLOADING:
                 return "downloading";
             case STATE_VERIFYING:
                 return "verifying";
-            case STATE_INSTALLING:
-                return "installing";
+            case STATE_READY:
+                return "ready";
+            case STATE_INSTALLER_OPEN:
+                return "installer_open";
+            case STATE_INSTALLED:
+                return "installed";
+            case STATE_CANCELLED:
+                return "cancelled";
             case STATE_FAILED:
                 return "failed";
-            case STATE_NEEDS_PERMISSION:
-                return "needs_permission";
+            case STATE_UNCONFIRMED:
+                return "unconfirmed";
+            case STATE_INTERRUPTED:
+                return "interrupted";
             case STATE_IDLE:
             default:
                 return "idle";
@@ -1666,8 +1737,87 @@ public class MainActivity extends Activity {
     }
 
     // ==================================================================================
-    // Activity 回调
+    // Activity 生命周期与回调
     // ==================================================================================
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (destroyed) return;
+
+        // 1) 权限设置返回兜底恢复（防止系统未触发 onActivityResult）
+        if (nativeUpdateState == STATE_NEEDS_PERMISSION || resumeInstallAfterPermission) {
+            if (hasInstallPermission()) {
+                if (resumeInstallAfterPermission && pendingInstallRequest != null) {
+                    resumeInstallAfterPermission = false;
+                    if (pendingVerifiedApk != null && pendingVerifiedApk.exists()) {
+                        nativeUpdateState = STATE_READY;
+                        launchSystemInstaller(pendingVerifiedApk);
+                    } else {
+                        handleInstallRequest(pendingInstallRequest);
+                    }
+                }
+            } else {
+                nativeUpdateState = STATE_IDLE;
+                resumeInstallAfterPermission = false;
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "install_permission_denied");
+                    evt.put("reason", "denied_by_user");
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "未授予“安装未知应用”权限，无法完成覆盖更新。可稍后在系统设置中开启后重试");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+            }
+            return;
+        }
+
+        // 2) 安装器返回兜底恢复与版本校验（防止取消安装后常驻 busy）
+        if (nativeUpdateState == STATE_INSTALLER_OPEN || nativeUpdateState == STATE_DOWNLOADING) {
+            int currentVersion = getInstalledVersionCode();
+            int targetVersion = -1;
+            if (pendingInstallRequest != null) {
+                targetVersion = pendingInstallRequest.optInt("versionCode", -1);
+            }
+            if (targetVersion > 0 && currentVersion >= targetVersion) {
+                nativeUpdateState = STATE_INSTALLED;
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "installed");
+                    evt.put("versionCode", currentVersion);
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "应用已成功安装更新");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+                deleteUpdateArtifacts();
+                pendingInstallRequest = null;
+                return;
+            }
+
+            if (nativeUpdateState == STATE_INSTALLER_OPEN) {
+                long elapsed = System.currentTimeMillis() - installerLaunchTime;
+                if (elapsed >= 1000L) {
+                    nativeUpdateState = STATE_IDLE;
+                    JSONObject evt = new JSONObject();
+                    try {
+                        evt.put("type", "install_cancelled");
+                        if (pendingInstallRequest != null) {
+                            evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                        }
+                        evt.put("message", "已返回应用，安装流程已重置就绪");
+                    } catch (Exception ignored) {
+                    }
+                    emitBridgeEvent(evt);
+                }
+            }
+        }
+    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -1675,6 +1825,8 @@ public class MainActivity extends Activity {
             handleFileChooserResult(resultCode, data);
         } else if (requestCode == INSTALL_PERMISSION_RESULTCODE) {
             handleInstallPermissionResult();
+        } else if (requestCode == INSTALL_ACTIVITY_REQUEST_CODE) {
+            handleInstallActivityResult(resultCode, data);
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
@@ -1712,21 +1864,107 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void handleInstallActivityResult(int resultCode, Intent data) {
+        Log.i(TAG, "install activity result: resultCode=" + resultCode);
+        int targetVersionCode = -1;
+        if (pendingInstallRequest != null) {
+            targetVersionCode = pendingInstallRequest.optInt("versionCode", -1);
+        }
+        int currentCode = getInstalledVersionCode();
+        if (resultCode == Activity.RESULT_OK || (targetVersionCode > 0 && currentCode >= targetVersionCode)) {
+            nativeUpdateState = STATE_INSTALLED;
+            JSONObject evt = new JSONObject();
+            try {
+                evt.put("type", "installed");
+                evt.put("versionCode", currentCode);
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
+                evt.put("message", "应用已成功安装更新");
+            } catch (Exception ignored) {
+            }
+            emitBridgeEvent(evt);
+            deleteUpdateArtifacts();
+            pendingInstallRequest = null;
+        } else if (resultCode == Activity.RESULT_CANCELED) {
+            if (targetVersionCode > 0 && currentCode >= targetVersionCode) {
+                nativeUpdateState = STATE_INSTALLED;
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "installed");
+                    evt.put("versionCode", currentCode);
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "应用已成功安装更新");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+                deleteUpdateArtifacts();
+                pendingInstallRequest = null;
+            } else {
+                nativeUpdateState = STATE_IDLE;
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "install_cancelled");
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "用户已取消安装或系统安装未完成");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+            }
+        } else {
+            if (targetVersionCode > 0 && currentCode >= targetVersionCode) {
+                nativeUpdateState = STATE_INSTALLED;
+                JSONObject evt = new JSONObject();
+                try {
+                    evt.put("type", "installed");
+                    evt.put("versionCode", currentCode);
+                    if (pendingInstallRequest != null) {
+                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                    }
+                    evt.put("message", "应用已成功安装更新");
+                } catch (Exception ignored) {
+                }
+                emitBridgeEvent(evt);
+                deleteUpdateArtifacts();
+                pendingInstallRequest = null;
+            } else {
+                nativeUpdateState = STATE_IDLE;
+            }
+        }
+    }
+
     private void handleInstallPermissionResult() {
         boolean granted = hasInstallPermission();
         Log.i(TAG, "install permission result: granted=" + granted);
         if (!granted) {
             resumeInstallAfterPermission = false;
+            nativeUpdateState = STATE_IDLE;
+            JSONObject evt = new JSONObject();
+            try {
+                evt.put("type", "install_permission_denied");
+                evt.put("reason", "denied_by_user");
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
+                evt.put("message", "未授予“安装未知应用”权限，无法完成覆盖更新。可稍后在系统设置中开启后重试");
+            } catch (Exception ignored) {
+            }
+            emitBridgeEvent(evt);
             emitBridgeError("install_permission_denied",
                     "未授予“安装未知应用”权限，无法完成覆盖更新。可稍后在系统设置中开启后重试");
             return;
         }
-        if (resumeInstallAfterPermission) {
+        if (resumeInstallAfterPermission && pendingInstallRequest != null) {
             resumeInstallAfterPermission = false;
             if (pendingVerifiedApk != null && pendingVerifiedApk.exists()) {
+                nativeUpdateState = STATE_READY;
                 launchSystemInstaller(pendingVerifiedApk);
-            } else if (pendingInstallRequest != null) {
-                startVerifiedDownload(pendingInstallRequest);
+            } else {
+                handleInstallRequest(pendingInstallRequest);
             }
         }
     }
