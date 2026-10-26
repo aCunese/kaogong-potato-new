@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import {
   createInviteCode,
   listUsers,
@@ -8,7 +9,13 @@ import {
   resetPasswordWithCode,
   restoreUserWorkspace,
 } from './admin';
-import { rotateGenerationId, getCurrentGenerationId, closeDb } from './db';
+import {
+  rotateGenerationId,
+  getCurrentGenerationId,
+  backupDatabaseOnline,
+  getAttachmentsDir,
+  closeDb,
+} from './db';
 
 const [,, command, ...args] = process.argv;
 
@@ -87,6 +94,74 @@ async function run() {
       break;
     }
 
+    case 'hot-backup': {
+      const targetDir = args[0]
+        ? path.resolve(args[0])
+        : path.resolve(process.cwd(), 'data', 'backups', `backup_${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+      }
+
+      console.log(`\n📦 开始热备份到: ${targetDir}`);
+      const dbFile = path.join(targetDir, 'potato.db');
+      await backupDatabaseOnline(dbFile);
+
+      // Copy attachments if any
+      const srcAttDir = getAttachmentsDir();
+      const destAttDir = path.join(targetDir, 'attachments');
+      if (!fs.existsSync(destAttDir)) {
+        fs.mkdirSync(destAttDir, { recursive: true, mode: 0o700 });
+      }
+
+      const attachmentsManifest: Array<{ filename: string; sha256: string; byteSize: number }> = [];
+      if (fs.existsSync(srcAttDir)) {
+        const files = fs.readdirSync(srcAttDir);
+        for (const file of files) {
+          const srcFilePath = path.join(srcAttDir, file);
+          const stat = fs.statSync(srcFilePath);
+          if (stat.isFile()) {
+            const destFilePath = path.join(destAttDir, file);
+            fs.copyFileSync(srcFilePath, destFilePath);
+            const content = fs.readFileSync(destFilePath);
+            const hash = crypto.createHash('sha256').update(content).digest('hex');
+            attachmentsManifest.push({
+              filename: file,
+              sha256: hash,
+              byteSize: stat.size,
+            });
+          }
+        }
+      }
+
+      // Compute database hash
+      const dbBuffer = fs.readFileSync(dbFile);
+      const dbHash = crypto.createHash('sha256').update(dbBuffer).digest('hex');
+      const genId = getCurrentGenerationId();
+
+      const manifest = {
+        version: '1.0.0',
+        schemaVersion: 3,
+        createdAt: new Date().toISOString(),
+        generationId: genId,
+        database: {
+          filename: 'potato.db',
+          sha256: dbHash,
+          byteSize: dbBuffer.length,
+        },
+        attachmentsCount: attachmentsManifest.length,
+        attachments: attachmentsManifest,
+      };
+
+      fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8');
+      console.log(`✅ 热备份完成:`);
+      console.log(`   - 数据库文件: ${dbFile} (${(dbBuffer.length / 1024).toFixed(1)} KB)`);
+      console.log(`   - 附件数量: ${attachmentsManifest.length} 个`);
+      console.log(`   - 代际标识: ${genId}`);
+      console.log(`   - 清单文件: ${path.join(targetDir, 'manifest.json')}\n`);
+      break;
+    }
+
     default:
       console.log(`
 考公工作台 · 管理员维护命令行工具
@@ -100,6 +175,7 @@ async function run() {
   reset-password <code> <newPassword>   使用重置码设置新密码
   rotate-gen                            轮换同步代际（整机灾备恢复后使用）
   restore-user <userId> <backupPath>    针对单个用户安全执行备份快照恢复
+  hot-backup [targetDir]                执行在线热备份并导出校验清单
 `);
   }
 }

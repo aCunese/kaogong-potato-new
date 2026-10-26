@@ -1,0 +1,41 @@
+# ==============================================================================
+# 考公工作台 · Docker Compose 生产部署配置
+# ==============================================================================
+
+services:
+  kaogong-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kaogong-potato:latest
+    container_name: kaogong-potato-app
+    restart: unless-stopped
+    ports:
+      # 仅绑定宿主机本地回路，强制所有外部流量经由 HTTPS 反向代理（Nginx / Caddy）接入
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/app/data
+    volumes:
+      # 持久化存储目录：挂载 SQLite 数据库及附件存储
+      - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

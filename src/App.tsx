@@ -65,6 +65,11 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     currentUser,
     logout,
     triggerSync,
+    updateInfo,
+    dismissUpdate,
+    applyUpdate,
+    isAnyTimerRunning,
+    offlineReady,
   } = useApp();
 
   // Navigation state
@@ -565,6 +570,38 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
       <main
         className={`${getContainerClasses()} transition-all duration-300`}
       >
+        {/* 新版本发布热更新通知横条（绝不打断正在计时的任务） */}
+        {updateInfo && (
+          <div className="flex-none bg-potato/20 border-b border-potato/30 px-3.5 py-2 flex items-center justify-between z-40 text-xs">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-potato shrink-0 animate-pulse" />
+              <span className="font-bold text-ink-main shrink-0">发现新版本 {updateInfo.version}</span>
+              <span className="text-[11px] text-ink-muted truncate hidden sm:inline">({updateInfo.summary})</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  if (isAnyTimerRunning()) {
+                    showToast('当前有正在运行的计时器，请先暂停计时再更新');
+                    return;
+                  }
+                  applyUpdate();
+                }}
+                className="px-2.5 py-1 bg-potato text-ink-main font-bold rounded-lg text-xs hover:bg-potato-dark hover:text-white transition-all shadow-sm"
+              >
+                立即更新
+              </button>
+              <button
+                onClick={dismissUpdate}
+                className="p-1 text-ink-muted hover:text-ink-main text-xs"
+                title="稍后更新"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 顶部移动端小工具条（屏幕宽度较小时提供轻量直达入口） */}
         {preview && <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
           <span className="font-bold text-ink-main flex items-center gap-1">

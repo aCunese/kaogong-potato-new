@@ -150,6 +150,24 @@ export function rotateGenerationId(): string {
   return nextGenId;
 }
 
+/**
+ * Perform safe hot backup using SQLite Online Backup API.
+ * Guarantees zero-corruption checkpointing even under concurrent WAL writes.
+ */
+export async function backupDatabaseOnline(targetFile: string): Promise<void> {
+  const db = getDb();
+  const resolved = path.resolve(targetFile);
+  const dir = path.dirname(resolved);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  // Remove destination if it already exists
+  if (fs.existsSync(resolved)) {
+    fs.unlinkSync(resolved);
+  }
+  await db.backup(resolved);
+}
+
 export function closeDb(): void {
   if (dbInstance) {
     dbInstance.close();

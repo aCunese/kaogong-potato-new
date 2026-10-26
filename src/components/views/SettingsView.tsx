@@ -40,6 +40,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     selfCheck,
     storageError,
     clearStorageError,
+    offlineReady,
   } = useApp();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string; details: string[] } | null>(null);
   const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
@@ -142,9 +143,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   {isGuest ? '离线模式' : `@${state.profile.username}`}
                 </Tag>
               </div>
-              <p className="text-xs text-ink-muted mt-0.5">
-                {isGuest ? '数据仅保存在当前设备，支持随时备份' : '已连接专属账号，支持多端数据同步'}
-              </p>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className="text-xs text-ink-muted">
+                  {isGuest ? '数据仅保存在当前设备，支持随时备份' : '已连接专属账号，支持多端数据同步'}
+                </span>
+                {offlineReady && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-sage-light text-sage-dark rounded text-[10px] font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
+                    离线已就绪
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={onOpenProfile}>
@@ -160,7 +169,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="flex items-center gap-2 mb-1">
               <Smartphone size={16} className="text-sage" />
               <h3 className="text-sm font-bold text-ink-main">手机 App 安装包</h3>
-              <Tag variant="potato">Android 独立版</Tag>
+              <Tag variant={offlineReady ? 'sage' : 'potato'}>
+                {offlineReady ? '离线就绪' : 'Android 独立版'}
+              </Tag>
             </div>
             <p className="text-xs text-ink-muted leading-relaxed">
               专为 Android 打造的 WebView 独立壳，全屏沉浸操作，桌面一触即发。
@@ -180,8 +191,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <Cloud size={16} className="text-sage" />
             <h3 className="text-sm font-bold text-ink-main">云端多用户同步</h3>
           </div>
-          <Tag variant="gray">
-            离线单机模式（未接入云端）
+          <Tag variant={isGuest ? 'gray' : 'sage'}>
+            {isGuest ? '离线单机模式（未接入云端）' : '已连接云端同步'}
           </Tag>
         </div>
 

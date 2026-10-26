@@ -115,6 +115,13 @@ export interface AppContextType {
   logout: () => Promise<void>;
   triggerSync: () => Promise<SyncResult>;
   resolveConflict: (choice: 'keep_local' | 'keep_remote') => Promise<MutationResult<void>>;
+
+  // Offline & Auto-Update
+  offlineReady: boolean;
+  updateInfo: { version: string; build: string; summary: string } | null;
+  dismissUpdate: () => void;
+  applyUpdate: () => boolean;
+  isAnyTimerRunning: () => boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -147,6 +154,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const [syncStatus, setSyncStatus] = useState<SyncState>('idle');
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [conflictData, setConflictData] = useState<{ serverRevision: number; serverState: AppState | null } | null>(null);
+
+  // Offline & Auto-Update States
+  const [offlineReady, setOfflineReady] = useState<boolean>(false);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; build: string; summary: string } | null>(null);
 
   // Local Date Management: Initialize with getLocalDateString()
   const [activeDate, setActiveDate] = useState<string>(() => preview ? '2026-10-25' : getLocalDateString());
@@ -211,7 +222,54 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     };
   }, [preview]);
 
-  // 2. Cross-day, Midnight Rollover, and Network Sync Listeners
+  // 2. Cross-day, Midnight Rollover, Network Sync, and Auto-Update Check Listeners
+  const checkVersion = useCallback(async () => {
+    if (preview || typeof window === 'undefined') return;
+    try {
+      const res = await fetch('/version.json?_t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const currentBuild = '20261026.01';
+      if (data.build && data.build > currentBuild) {
+        setUpdateInfo({
+          version: data.version || '1.0.0',
+          build: data.build,
+          summary: data.summary || '发现新版本发布',
+        });
+      }
+    } catch {}
+  }, [preview]);
+
+  const dismissUpdate = useCallback(() => {
+    setUpdateInfo(null);
+  }, []);
+
+  const isAnyTimerRunning = useCallback((): boolean => {
+    return state.plans.some(p => !p.done && p.timerStart > 0);
+  }, [state.plans]);
+
+  const applyUpdate = useCallback((): boolean => {
+    if (isAnyTimerRunning()) {
+      return false;
+    }
+    window.location.reload();
+    return true;
+  }, [isAnyTimerRunning]);
+
+  // Offline Readiness Check: lights up when IndexedDB is loaded and SW is ready
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isLoading && !storageError) {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready
+          .then(() => setOfflineReady(true))
+          .catch(() => setOfflineReady(true));
+      } else {
+        setOfflineReady(true);
+      }
+    }
+  }, [isLoading, storageError]);
+
   useEffect(() => {
     if (preview) return;
     const checkMidnightRollover = () => {
@@ -227,31 +285,39 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     const handleWindowFocus = () => {
       checkMidnightRollover();
       triggerSyncRef.current().catch(() => {});
+      checkVersion().catch(() => {});
     };
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         checkMidnightRollover();
         triggerSyncRef.current().catch(() => {});
+        checkVersion().catch(() => {});
       }
     };
 
     const handleOnline = () => {
       triggerSyncRef.current().catch(() => {});
+      checkVersion().catch(() => {});
     };
+
+    // Run initial version check
+    checkVersion().catch(() => {});
 
     window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibility);
     const interval = setInterval(checkMidnightRollover, 30000);
+    const updateInterval = setInterval(() => checkVersion().catch(() => {}), 30 * 60 * 1000);
 
     return () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(interval);
+      clearInterval(updateInterval);
     };
-  }, [preview]);
+  }, [preview, checkVersion]);
 
   // 3. Trigger Sync implementation
   const triggerSync = useCallback(async (): Promise<SyncResult> => {
@@ -272,6 +338,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       setSyncStatus('synced');
       setSyncMessage('已完成云端同步');
       setConflictData(null);
+      if (result.serverState) {
+        setState(result.serverState);
+      }
     } else if (result.status === 'offline') {
       setSyncStatus('idle');
       setSyncMessage('已离线保存');
@@ -751,6 +820,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       setSyncMessage('已采用云端最新数据覆盖本地');
       return { ok: true, value: undefined };
     } else {
+      // Clear outdated outbox items that caused the 409 conflict before enqueuing forced local state
+      await clearOutbox(currentUser.id);
       await commitMutation<void>(draft => ({
         nextState: draft,
         value: undefined,
@@ -822,6 +893,11 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         logout,
         triggerSync,
         resolveConflict,
+        offlineReady,
+        updateInfo,
+        dismissUpdate,
+        applyUpdate,
+        isAnyTimerRunning,
       }}
     >
       {children}

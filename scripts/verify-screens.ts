@@ -40,9 +40,9 @@ async function seed(page: Page, source: typeof BLANK_STATE) {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.evaluate(async state => {
     await new Promise<void>((resolve, reject) => {
-      const req = indexedDB.open('kaogong_potato_v3', 1);
+      const req = indexedDB.open('kaogong_potato_v3', 2);
       req.onupgradeneeded = () => {
-        for (const [name, keyPath] of [['snapshots', 'key'], ['media', 'id'], ['damaged_cache', 'id']]) {
+        for (const [name, keyPath] of [['snapshots', 'key'], ['media', 'id'], ['damaged_cache', 'id'], ['outbox', 'id']]) {
           if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath });
         }
       };
@@ -61,7 +61,7 @@ async function seed(page: Page, source: typeof BLANK_STATE) {
 }
 async function snapshot(page: Page) {
   return page.evaluate(async () => new Promise<any>((resolve, reject) => {
-    const req = indexedDB.open('kaogong_potato_v3', 1);
+    const req = indexedDB.open('kaogong_potato_v3', 2);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => {
       const db = req.result, tx = db.transaction('snapshots');

@@ -11,7 +11,8 @@
     "admin": "node --import tsx server/cli.ts",
     "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts",
     "test:server": "node --import tsx --test tests/server.test.ts",
-    "test": "npm run test:unit && npm run test:server"
+    "test:dr": "node --import tsx --test tests/disaster-recovery.test.ts",
+    "test": "npm run test:unit && npm run test:server && npm run test:dr"
   },
   "dependencies": {
     "argon2": "^0.45.1",
@@ -22,7 +23,8 @@
     "lucide-react": "^1.16.0",
     "multer": "^2.5.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -37,7 +39,6 @@
     "playwright": "1.62.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vite": "^6.0.3"
   }

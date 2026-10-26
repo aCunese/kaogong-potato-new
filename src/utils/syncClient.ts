@@ -103,7 +103,7 @@ export async function pullLatestFromServer(userId: string): Promise<SyncResult> 
           nextState: data.state,
           value: undefined,
         };
-      }, { targetRevision: data.revision });
+      }, { userId, targetRevision: data.revision });
     }
 
     return {

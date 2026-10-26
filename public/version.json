@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "build": "20261026.01",
+  "schemaVersion": 3,
+  "apkVersion": "1.0.0",
+  "deployedAt": "2026-10-26T15:00:00Z",
+  "summary": "正式上线：多账号邀请制、云端快照幂等同步与防冲突保护"
+}

@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.KaogongPotato" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#ECEAE1</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#ECEAE1</item>
+    </style>
+</resources>

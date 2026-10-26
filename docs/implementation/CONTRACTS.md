@@ -36,7 +36,7 @@
   - Built-in avatars (`pose-0`~`pose-7`), data URLs, HTTP URLs, and relative paths MUST NOT be resolved against the `media` store.
   - In `preview` mode, no resolution against live IndexedDB is permitted.
 
-## 4. API & Sync Contracts (M2 Target)
+## 4. API & Sync Contracts (M2 & M3)
 - Auth:
   - `POST /api/auth/register` (single-use invite code, username, Argon2id password)
   - `POST /api/auth/login` (rate-limited, returns HttpOnly session cookie)
@@ -46,6 +46,27 @@
   - `GET /api/workspace` (returns latest snapshot revision, updated_at, etag)
   - `POST /api/workspace` (pushes new snapshot revision with idempotency key `requestId`, `expectedRevision`)
   - 409 Conflict: Returns remote revision and snapshot when revision mismatch occurs.
+  - Generation Guard: When server restores from disaster, `generationId` increments and old client outbox pushes are rejected with `GENERATION_MISMATCH` (HTTP 409).
 - Media:
-  - `POST /api/media/upload` (multipart/form-data, ownership verification, quota enforcement)
+  - `POST /api/media/upload` (multipart/form-data, magic byte check JPEG/PNG/WebP, quota enforcement 500MB)
   - `GET /api/media/:id` (session authenticated, strictly verifies resource belongs to user)
+
+## 5. Offline & Service Worker Contracts (M4)
+- App Shell Cache: `kaogong-shell-v1.0.0`
+- Pre-cached resources: `/`, `/index.html`, `/manifest.json`, `/version.json`, `/assets/potato-poses.png`.
+- Route Isolation:
+  - `/api/*`: Network-only / network-first. CRITICAL: NEVER fallback to `index.html` on network errors or 5xx; returns JSON `{ ok: false, offline: true }` with HTTP 503.
+  - `/version.json`: Network-first, cache fallback.
+  - `/assets/*` and static hashed assets: Cache-first with dynamic runtime caching.
+  - Navigate mode: Network-first, fallback to cached `/index.html` for offline cold start.
+- Readiness Condition: "离线已就绪" badge is only displayed when IndexedDB is successfully opened and Service Worker cache is active.
+- Non-Intrusive Update: Auto-updates query `/version.json`. If a newer build is discovered, an update banner is displayed; updating is deferred if any timer is running (`isAnyTimerRunning() === true`) to protect active study segments.
+
+## 6. Android WebView Container Contracts (M4)
+- SSL Security: Strict certificate validation (`handler.cancel()` on `onReceivedSslError`); no bypass permitted.
+- Mixed Content: `WebSettings.MIXED_CONTENT_NEVER_ALLOW`.
+- Physical Back Button:
+  1. Calls `window.handleBack()` in WebView.
+  2. If handled (modal closed or subview popped, returns `true`), native back is consumed.
+  3. If not handled: if `webView.canGoBack()`, calls `webView.goBack()`.
+  4. If at root view: double-press within 2000ms exits app with toast notification.
