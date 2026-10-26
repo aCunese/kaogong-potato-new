@@ -37,12 +37,12 @@ export const FocusModal: React.FC<FocusModalProps> = ({
   const isActuallyRunning = livePlan.timerStart > 0 && variantOverride !== 'paused';
   const isPaused = livePlan.timerStart === 0 || variantOverride === 'paused';
 
-  const elapsedSeconds = isActuallyRunning ? Math.floor((Date.now() - livePlan.timerStart) / 1000) : 0;
-  const currentActual = (livePlan.actualMinutes || 0) + Math.floor(elapsedSeconds / 60);
-
-  const displayMinutes = Math.floor(elapsedSeconds / 60);
-  const displaySeconds = elapsedSeconds % 60;
+  const totalElapsedMs = (livePlan.accumulatedMs || 0) + (isActuallyRunning ? Math.max(0, Date.now() - livePlan.timerStart) : 0);
+  const totalSeconds = Math.floor(totalElapsedMs / 1000);
+  const displayMinutes = Math.floor(totalSeconds / 60);
+  const displaySeconds = totalSeconds % 60;
   const formattedTime = `${String(displayMinutes).padStart(2, '0')}:${String(displaySeconds).padStart(2, '0')}`;
+  const currentActual = Math.floor(totalElapsedMs / 60000);
 
   const poseIndex = livePlan.type === 'course' ? 2 : livePlan.type === 'custom' ? 7 : 1;
 
@@ -97,7 +97,7 @@ export const FocusModal: React.FC<FocusModalProps> = ({
         {/* 大时钟数字 */}
         <div className="my-3">
           <div className="text-5xl font-extrabold text-ink-main font-mono tracking-tight">
-            {isActuallyRunning ? formattedTime : `${String(livePlan.actualMinutes || 0).padStart(2, '0')}:00`}
+            {formattedTime}
           </div>
           <div className="text-xs text-ink-muted mt-1.5 flex items-center justify-center gap-2">
             <span>计划 {livePlan.plannedMinutes} 分钟</span>
@@ -134,21 +134,22 @@ export const FocusModal: React.FC<FocusModalProps> = ({
             variant="primary"
             size="lg"
             fullWidth
-            onClick={() => {
+            onClick={async () => {
               let finalPlan = livePlan;
               if (isActuallyRunning) {
-                pauseTimer(livePlan.id);
+                await pauseTimer(livePlan.id);
                 finalPlan = {
                   ...livePlan,
                   timerStart: 0,
-                  actualMinutes: currentActual,
+                  accumulatedMs: totalElapsedMs,
+                  actualMinutes: Math.floor(totalElapsedMs / 60000),
                 };
               }
               onComplete(finalPlan);
             }}
           >
             <CheckCircle2 size={18} />
-            完成登记
+            完成打卡
           </Button>
         </div>
       </div>

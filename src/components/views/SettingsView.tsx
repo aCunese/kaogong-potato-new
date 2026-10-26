@@ -65,14 +65,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     e.target.value = '';
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!pendingBackup) return;
-    const res = importBackup(pendingBackup.content);
-    if (res.success) {
+    const res = await importBackup(pendingBackup.content);
+    if (res.ok) {
       onToast('备份导入成功，已完整恢复数据！');
       setPendingBackup(null);
     } else {
-      onToast(`导入失败: ${res.error}`);
+      onToast(`导入失败: ${res.message}`);
     }
   };
 

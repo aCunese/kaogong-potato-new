@@ -38,6 +38,7 @@ import {
   Sparkles,
   CheckCircle2,
   Info,
+  AlertCircle,
 } from 'lucide-react';
 import { MainTab, Plan, Book, Course, WrongRecord, LearningSubTab, AnalysisSubTab } from './types';
 
@@ -46,6 +47,9 @@ type ScreenSize = '412' | '393' | '360' | 'full';
 export const App: React.FC = () => {
   const {
     state,
+    activeDate,
+    corruptedRaw,
+    clearCorruptedRaw,
     resetState,
     exportBackup,
     deletePlan,
@@ -435,6 +439,23 @@ export const App: React.FC = () => {
 
         {/* 视图主体内容区：独立平滑内部滚动，底部留出足够 padding 防止导航遮挡 */}
         <div className="flex-1 px-4 pt-3 pb-4 overflow-y-auto">
+          {corruptedRaw && (
+            <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900 shadow-sm animate-fade-in">
+              <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold">检测到受损的历史缓存数据</div>
+                <div className="mt-0.5 leading-relaxed text-[11px] text-amber-800">
+                  已将原始异常数据安全归档至受损缓存库，当前使用空白安全状态，未覆盖初始数据。您可以前往“设置”导入标准备份或重置。
+                </div>
+              </div>
+              <button
+                onClick={clearCorruptedRaw}
+                className="text-[11px] font-medium text-amber-700 underline shrink-0 hover:text-amber-900"
+              >
+                我知道了
+              </button>
+            </div>
+          )}
           {showStatesPreview ? (
             <StatesPreviewView
               initialTab={statesPreviewTab}

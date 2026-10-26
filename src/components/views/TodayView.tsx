@@ -33,16 +33,34 @@ export const TodayView: React.FC<TodayViewProps> = ({
     return () => clearInterval(interval);
   }, [state.plans]);
 
-  // Filter plans for today
-  const todayPlans = state.plans.filter(p => p.date === activeDate);
-  const doneCount = todayPlans.filter(p => p.done).length;
-  const totalMinutes = todayPlans.reduce((sum, p) => {
-    let m = p.actualMinutes || 0;
-    if (p.timerStart > 0 && !p.done) {
-      m += Math.floor((Date.now() - p.timerStart) / 60000);
-    }
-    return sum + m;
+  // Filter plans for today, PLUS any unfinished cross-day plans
+  const relevantPlans = state.plans.filter(
+    p => p.date === activeDate || (!p.done && p.date < activeDate && (p.timerStart > 0 || (p.accumulatedMs && p.accumulatedMs > 0)))
+  );
+
+  // Determine display list based on forcedMode
+  let displayedPlans = relevantPlans;
+  if (forcedMode === 'empty') {
+    displayedPlans = [];
+  } else if (forcedMode === 'multi') {
+    displayedPlans = relevantPlans.map((p, idx) => {
+      if (idx === 0 || idx === 1) {
+        return {
+          ...p,
+          done: false,
+          timerStart: p.timerStart > 0 ? p.timerStart : Date.now() - (idx + 1) * 320000,
+        };
+      }
+      return p;
+    });
+  }
+
+  const doneCount = displayedPlans.filter(p => p.done).length;
+  const totalElapsedMs = displayedPlans.reduce((sum, p) => {
+    const elapsed = (p.accumulatedMs || 0) + (p.timerStart > 0 ? Math.max(0, Date.now() - p.timerStart) : 0);
+    return sum + elapsed;
   }, 0);
+  const totalMinutes = Math.floor(totalElapsedMs / 60000);
 
   // Calculate days left for countdowns
   const getDaysLeft = (targetDate: string) => {
@@ -54,30 +72,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
     return days >= 0 ? days : 0;
   };
 
-  const formatTimer = (start: number) => {
-    if (!start) return '00:00';
-    const sec = Math.floor((Date.now() - start) / 1000);
+  const formatTimer = (start: number, accumulatedMs: number = 0) => {
+    const elapsed = accumulatedMs + (start > 0 ? Math.max(0, Date.now() - start) : 0);
+    const sec = Math.floor(elapsed / 1000);
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
-
-  // Determine display list based on forcedMode
-  let displayedPlans = todayPlans;
-  if (forcedMode === 'empty') {
-    displayedPlans = [];
-  } else if (forcedMode === 'multi') {
-    displayedPlans = todayPlans.map((p, idx) => {
-      if (idx === 0 || idx === 1) {
-        return {
-          ...p,
-          done: false,
-          timerStart: p.timerStart > 0 ? p.timerStart : Date.now() - (idx + 1) * 320000,
-        };
-      }
-      return p;
-    });
-  }
 
   return (
     <div className="space-y-4 pb-24">
@@ -186,6 +187,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
                         {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
                       </Tag>
                       <Tag variant="gray">{plan.subject}</Tag>
+                      {plan.date !== activeDate && (
+                        <Tag variant="danger">跨日 · {plan.date}</Tag>
+                      )}
                       {plan.done && <Tag variant="sage">已完成</Tag>}
                     </div>
 
@@ -219,13 +223,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
                   <span>计划 {plan.plannedMinutes} 分钟</span>
                   <span>·</span>
-                  <span>已累计 {plan.actualMinutes} 分钟</span>
+                  <span>已累计 {Math.floor(((plan.accumulatedMs || 0) + (isRunning ? Math.max(0, Date.now() - plan.timerStart) : 0)) / 60000)} 分钟</span>
                 </div>
 
                 {/* 正在计时状态：原版大数字行展示 (Fixes A08) */}
                 {isRunning && (
                   <div
-                    onClick={() => onOpenFocus(plan)}
+                    onClick={() => !plan.done && onOpenFocus(plan)}
                     className="mt-3 p-2.5 bg-sage-light/70 rounded-xl flex items-center justify-between cursor-pointer hover:bg-sage-light transition-colors"
                   >
                     <div className="flex items-center gap-2 text-xs font-bold text-sage-dark">
@@ -233,7 +237,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       <span>正在专注进行中</span>
                     </div>
                     <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
-                      {formatTimer(plan.timerStart)}
+                      {formatTimer(plan.timerStart, plan.accumulatedMs || 0)}
                     </div>
                   </div>
                 )}

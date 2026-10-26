@@ -1,508 +1,410 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { AppState, Book, Course, LibraryItem, Plan, StudyRecord, WrongRecord, Subject } from '../types';
-import { INITIAL_STATE, buildLibraryFromSources } from '../constants/initialData';
+import {
+  AppState,
+  Book,
+  Course,
+  LibraryItem,
+  Plan,
+  StudyRecord,
+  WrongRecord,
+  Subject,
+  Profile,
+  MutationResult,
+  CompletionInput,
+} from '../types';
+import { INITIAL_STATE, BLANK_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup } from '../utils/backupValidator';
-import { safeSaveState } from '../utils/imageCompressor';
+import {
+  loadLatestState,
+  commitMutation,
+  resetDatabase,
+} from '../utils/db';
+import {
+  applyStartTimer,
+  applyPauseTimer,
+  applyCompletePlan,
+  applyAddPlan,
+  applyQuickAddPlan,
+  applyDeletePlan,
+  applyAddBook,
+  applyEditBook,
+  applyDeleteBook,
+  applyAddCourse,
+  applyEditCourse,
+  applyDeleteCourse,
+  applyAddCustomItem,
+  applyUpdateLibraryMinutes,
+  applyDeleteCustomItem,
+  applyAddWrongRecords,
+  applyDeleteWrongRecord,
+  applyUpdateProfile,
+  applyUpdateCountdown,
+  MutatorReturn,
+} from '../utils/workflowMutators';
 
-const STORAGE_KEY = 'potato_study_v2';
-
-interface AppContextType {
+export interface AppContextType {
   state: AppState;
   activeDate: string;
   setActiveDate: (d: string) => void;
   storageError: string | null;
   clearStorageError: () => void;
+  isLoading: boolean;
+  corruptedRaw: string | null;
+  clearCorruptedRaw: () => void;
+
   // Countdowns
-  updateCountdown: (id: string, date: string) => void;
+  updateCountdown: (id: string, date: string) => Promise<MutationResult<void>>;
+
   // Plans & Timers
-  addPlan: (libraryId: string, plannedMinutes: number) => void;
-  quickAddPlan: (libraryId: string) => void;
-  startTimer: (planId: string) => void;
-  pauseTimer: (planId: string) => void;
-  deletePlan: (planId: string) => void;
-  completeBookPlan: (planId: string, questions: number, errors: number, actualMinutes: number) => { success: boolean; error?: string };
-  completeCoursePlan: (planId: string, completedLessons: number, actualMinutes: number) => { success: boolean; error?: string };
-  completeCustomPlan: (planId: string, actualMinutes: number) => { success: boolean; error?: string };
+  addPlan: (libraryId: string, plannedMinutes?: number) => Promise<MutationResult<Plan>>;
+  quickAddPlan: (libraryId: string) => Promise<MutationResult<Plan>>;
+  startTimer: (planId: string) => Promise<MutationResult<void>>;
+  pauseTimer: (planId: string) => Promise<MutationResult<void>>;
+  deletePlan: (planId: string) => Promise<MutationResult<void>>;
+
+  // Unified Atomic Completion
+  completePlan: (input: CompletionInput) => Promise<MutationResult<{ recordId: string; record: StudyRecord }>>;
+
+  // Backward-compatible Completion Wrappers
+  completeBookPlan: (planId: string, questions: number, errors: number, actualMinutes: number) => Promise<{ success: boolean; error?: string }>;
+  completeCoursePlan: (planId: string, completedLessons: number, actualMinutes: number) => Promise<{ success: boolean; error?: string }>;
+  completeCustomPlan: (planId: string, actualMinutes: number) => Promise<{ success: boolean; error?: string }>;
+
   // Books
-  addBook: (book: Omit<Book, 'id'>) => string;
-  editBook: (id: string, updates: Partial<Book>) => void;
-  deleteBook: (id: string) => void;
+  addBook: (book: Omit<Book, 'id'>) => Promise<MutationResult<string>>;
+  editBook: (id: string, updates: Partial<Book>) => Promise<MutationResult<void>>;
+  deleteBook: (id: string) => Promise<MutationResult<void>>;
+
   // Courses
-  addCourse: (course: Omit<Course, 'id'>) => string;
-  editCourse: (id: string, updates: Partial<Course>) => void;
-  deleteCourse: (id: string) => void;
+  addCourse: (course: Omit<Course, 'id'>) => Promise<MutationResult<string>>;
+  editCourse: (id: string, updates: Partial<Course>) => Promise<MutationResult<void>>;
+  deleteCourse: (id: string) => Promise<MutationResult<void>>;
+
   // Library
-  addCustomItem: (name: string, subject: Subject, defaultMinutes: number) => void;
-  updateLibraryMinutes: (id: string, defaultMinutes: number) => void;
-  deleteCustomItem: (id: string) => void;
+  addCustomItem: (name: string, subject: Subject, defaultMinutes: number) => Promise<MutationResult<LibraryItem>>;
+  updateLibraryMinutes: (id: string, defaultMinutes: number) => Promise<MutationResult<void>>;
+  deleteCustomItem: (id: string) => Promise<MutationResult<void>>;
+
   // Wrong records
-  addWrongRecords: (bookId: string, note: string, images: string[]) => { success: boolean; error?: string };
-  deleteWrongRecord: (id: string) => void;
+  addWrongRecords: (bookId: string, note: string, images: string[]) => Promise<MutationResult<WrongRecord[]>>;
+  deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
+
   // Profile
-  updateProfile: (name: string, avatar?: string) => void;
+  updateProfile: (name: string, avatar?: string) => Promise<MutationResult<Profile>>;
+
   // System
-  resetState: () => void;
+  resetState: () => Promise<MutationResult<void>>;
   exportBackup: () => void;
-  importBackup: (jsonContent: string) => { success: boolean; error?: string };
+  importBackup: (jsonContent: string) => Promise<MutationResult<{ summary: string }>>;
   selfCheck: () => { ok: boolean; message: string; details: string[] };
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<AppState>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        // Robust migration & schema check (Fixes A02)
-        const validated = validateAndMigrateBackup(saved);
-        if (validated.valid && validated.migratedState) {
-          return validated.migratedState;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load local state, using initial state', e);
-    }
-    return INITIAL_STATE;
-  });
-
-  // Dynamic system date instead of hardcoded demo date (Fixes A09)
-  const getTodayDate = () => new Date().toISOString().slice(0, 10);
-  const [activeDate, setActiveDate] = useState<string>(getTodayDate);
+  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [corruptedRaw, setCorruptedRaw] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
+
+  // Local Date Management: Initialize with getLocalDateString()
+  const [activeDate, setActiveDate] = useState<string>(() => getLocalDateString());
 
   const clearStorageError = useCallback(() => {
     setStorageError(null);
   }, []);
 
-  // Sync to localStorage safely with quota overflow detection (Fixes A01)
+  const clearCorruptedRaw = useCallback(() => {
+    setCorruptedRaw(null);
+  }, []);
+
+  // 1. Initial State Load from IndexedDB (loadLatestState)
   useEffect(() => {
-    const res = safeSaveState(STORAGE_KEY, state);
-    if (!res.success && res.error) {
-      setStorageError(res.error);
-    } else {
-      setStorageError(null);
-    }
-  }, [state]);
+    let mounted = true;
+    loadLatestState()
+      .then(res => {
+        if (!mounted) return;
+        setState(res.state);
+        if (res.corruptedRaw) {
+          setCorruptedRaw(res.corruptedRaw);
+          setStorageError('检测到受损的旧版数据缓存，已安全隔离至受损数据表，未覆盖初始空白状态。');
+        }
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error('加载本地数据库异常:', err);
+        if (mounted) setIsLoading(false);
+      });
 
-  // Reconcile helper ensuring 1-1 library mapping
-  const reconcileState = useCallback((prev: AppState): AppState => {
-    const updatedLib = buildLibraryFromSources(prev.books, prev.courses, prev.library);
-    return {
-      ...prev,
-      library: updatedLib,
+    return () => {
+      mounted = false;
     };
   }, []);
 
-  // Update countdown with strict ID check to prevent updating all undefined IDs (Fixes A04)
-  const updateCountdown = useCallback((id: string, date: string) => {
-    if (!id) return;
-    setState(prev => ({
-      ...prev,
-      countdowns: prev.countdowns.map(cd => (cd.id && cd.id === id) ? { ...cd, date } : cd),
-    }));
-  }, []);
-
-  const addPlan = useCallback((libraryId: string, plannedMinutes: number) => {
-    setState(prev => {
-      const item = prev.library.find(l => l.id === libraryId);
-      if (!item) return prev;
-      const newPlan: Plan = {
-        id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        date: activeDate,
-        libraryId: item.id,
-        name: item.name,
-        type: item.type,
-        sourceId: item.sourceId,
-        subject: item.subject,
-        plannedMinutes: plannedMinutes > 0 ? plannedMinutes : item.defaultMinutes,
-        actualMinutes: 0,
-        accumulatedMs: 0,
-        done: false,
-        timerStart: 0,
-      };
-      return {
-        ...prev,
-        plans: [...prev.plans, newPlan],
-      };
-    });
-  }, [activeDate]);
-
-  const quickAddPlan = useCallback((libraryId: string) => {
-    setState(prev => {
-      const item = prev.library.find(l => l.id === libraryId);
-      if (!item) return prev;
-      const newPlan: Plan = {
-        id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        date: activeDate,
-        libraryId: item.id,
-        name: item.name,
-        type: item.type,
-        sourceId: item.sourceId,
-        subject: item.subject,
-        plannedMinutes: item.defaultMinutes,
-        actualMinutes: 0,
-        accumulatedMs: 0,
-        done: false,
-        timerStart: 0,
-      };
-      return {
-        ...prev,
-        plans: [...prev.plans, newPlan],
-      };
-    });
-  }, [activeDate]);
-
-  // Idempotent startTimer: does not overwrite starting timestamp if already running (Fixes A03)
-  const startTimer = useCallback((planId: string) => {
-    setState(prev => ({
-      ...prev,
-      plans: prev.plans.map(p => {
-        if (p.id === planId && !p.done) {
-          if (p.timerStart > 0) return p;
-          return { ...p, timerStart: Date.now() };
+  // 2. Cross-day and Midnight Rollover Listener
+  useEffect(() => {
+    const checkMidnightRollover = () => {
+      const today = getLocalDateString();
+      setActiveDate(prev => {
+        if (prev !== today) {
+          return today;
         }
-        return p;
-      }),
-    }));
-  }, []);
-
-  // Precise millisecond accumulation without fragment 1-minute inflation (Fixes A10)
-  const pauseTimer = useCallback((planId: string) => {
-    setState(prev => ({
-      ...prev,
-      plans: prev.plans.map(p => {
-        if (p.id === planId && p.timerStart > 0) {
-          const elapsedMs = Math.max(0, Date.now() - p.timerStart);
-          const prevAccumulated = typeof p.accumulatedMs === 'number'
-            ? p.accumulatedMs
-            : (p.actualMinutes || 0) * 60000;
-          const newAccumulated = prevAccumulated + elapsedMs;
-          const actualMinutes = Math.floor(newAccumulated / 60000);
-          return {
-            ...p,
-            accumulatedMs: newAccumulated,
-            actualMinutes,
-            timerStart: 0,
-          };
-        }
-        return p;
-      }),
-    }));
-  }, []);
-
-  const deletePlan = useCallback((planId: string) => {
-    setState(prev => ({
-      ...prev,
-      plans: prev.plans.filter(p => p.id !== planId),
-    }));
-  }, []);
-
-  // Complete book plan with source existence check (Fixes A05)
-  const completeBookPlan = useCallback((planId: string, questions: number, errors: number, actualMinutes: number) => {
-    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
-    setState(prev => {
-      const plan = prev.plans.find(p => p.id === planId);
-      if (!plan || plan.done) return prev;
-
-      // Check if source book still exists before adding record
-      const sourceBook = prev.books.find(b => b.id === plan.sourceId);
-      if (!sourceBook) {
-        console.warn(`[Data Integrity] Cannot complete plan ${planId}: source book ${plan.sourceId} has been deleted.`);
-        outcome = { success: false, error: '关联题本已被删除，无法生成学习记录。建议直接移除该计划。' };
         return prev;
+      });
+    };
+
+    window.addEventListener('focus', checkMidnightRollover);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkMidnightRollover();
       }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    const interval = setInterval(checkMidnightRollover, 30000);
 
-      const recordId = `rec-${Date.now()}`;
-      const q = Math.max(0, questions);
-      const e = Math.min(q, Math.max(0, errors));
-      const m = Math.max(0, actualMinutes);
+    return () => {
+      window.removeEventListener('focus', checkMidnightRollover);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(interval);
+    };
+  }, []);
 
-      // Update book totals
-      const updatedBooks = prev.books.map(b => {
-        if (b.id === plan.sourceId) {
-          return {
-            ...b,
-            done: b.done + q,
-            errors: b.errors + e,
-            minutes: b.minutes + m,
-          };
+  // Serial transaction executor via commitMutation (db.ts)
+  const executeMutation = useCallback(
+    async <T,>(
+      mutator: (draft: AppState) => Promise<MutatorReturn<T>> | MutatorReturn<T>
+    ): Promise<MutationResult<T>> => {
+      let appliedNextState: AppState | null = null;
+      const result = await commitMutation<T>(async draft => {
+        const res = await mutator(draft);
+        if ('nextState' in res) {
+          appliedNextState = res.nextState;
         }
-        return b;
+        return res;
       });
 
-      // Update plan
-      const updatedPlans = prev.plans.map(p => {
-        if (p.id === planId) {
-          return {
-            ...p,
-            done: true,
-            timerStart: 0,
-            actualMinutes: m,
-            accumulatedMs: m * 60000,
-            recordId,
-          };
-        }
-        return p;
-      });
+      if (result.ok && appliedNextState) {
+        setState(appliedNextState);
+      }
+      return result;
+    },
+    []
+  );
 
-      // Add record
-      const newRecord: StudyRecord = {
-        id: recordId,
-        planId,
-        date: plan.date,
+  // ----------------------------------------------------------------------
+  // Countdowns
+  // ----------------------------------------------------------------------
+  const updateCountdown = useCallback(
+    async (id: string, date: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyUpdateCountdown(draft, id, date));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Plans & Timers
+  // ----------------------------------------------------------------------
+  const addPlan = useCallback(
+    async (libraryId: string, plannedMinutes?: number): Promise<MutationResult<Plan>> => {
+      return executeMutation(draft => applyAddPlan(draft, libraryId, activeDate, plannedMinutes));
+    },
+    [activeDate, executeMutation]
+  );
+
+  const quickAddPlan = useCallback(
+    async (libraryId: string): Promise<MutationResult<Plan>> => {
+      return executeMutation(draft => applyQuickAddPlan(draft, libraryId, activeDate));
+    },
+    [activeDate, executeMutation]
+  );
+
+  const startTimer = useCallback(
+    async (planId: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyStartTimer(draft, planId));
+    },
+    [executeMutation]
+  );
+
+  const pauseTimer = useCallback(
+    async (planId: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyPauseTimer(draft, planId));
+    },
+    [executeMutation]
+  );
+
+  const deletePlan = useCallback(
+    async (planId: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeletePlan(draft, planId));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Unified Atomic Completion
+  // ----------------------------------------------------------------------
+  const completePlan = useCallback(
+    async (
+      input: CompletionInput
+    ): Promise<MutationResult<{ recordId: string; record: StudyRecord }>> => {
+      return executeMutation(draft => applyCompletePlan(draft, input));
+    },
+    [executeMutation]
+  );
+
+  // Backward-compatible delegates
+  const completeBookPlan = useCallback(
+    async (planId: string, questions: number, errors: number, actualMinutes: number) => {
+      const res = await completePlan({
         type: 'book',
-        sourceId: plan.sourceId,
-        subject: plan.subject,
-        minutes: m,
-        questions: q,
-        errors: e,
-      };
-
-      outcome = { success: true };
-      return {
-        ...prev,
-        books: updatedBooks,
-        plans: updatedPlans,
-        records: [...prev.records, newRecord],
-      };
-    });
-    return outcome;
-  }, []);
-
-  // Complete course plan with source existence check (Fixes A05)
-  const completeCoursePlan = useCallback((planId: string, completedLessons: number, actualMinutes: number) => {
-    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
-    setState(prev => {
-      const plan = prev.plans.find(p => p.id === planId);
-      if (!plan || plan.done) return prev;
-
-      // Check if source course still exists
-      const sourceCourse = prev.courses.find(c => c.id === plan.sourceId);
-      if (!sourceCourse) {
-        console.warn(`[Data Integrity] Cannot complete plan ${planId}: source course ${plan.sourceId} has been deleted.`);
-        outcome = { success: false, error: '关联课程已被删除，无法生成学习记录。建议直接移除该计划。' };
-        return prev;
-      }
-
-      const recordId = `rec-${Date.now()}`;
-      const l = Math.max(0, completedLessons);
-      const m = Math.max(0, actualMinutes);
-
-      const updatedCourses = prev.courses.map(c => {
-        if (c.id === plan.sourceId) {
-          return {
-            ...c,
-            completedLessons: Math.min(c.totalLessons, c.completedLessons + l),
-            minutes: c.minutes + m,
-          };
-        }
-        return c;
-      });
-
-      const updatedPlans = prev.plans.map(p => {
-        if (p.id === planId) {
-          return {
-            ...p,
-            done: true,
-            timerStart: 0,
-            actualMinutes: m,
-            accumulatedMs: m * 60000,
-            recordId,
-          };
-        }
-        return p;
-      });
-
-      const newRecord: StudyRecord = {
-        id: recordId,
         planId,
-        date: plan.date,
+        questions,
+        errors,
+        minutes: actualMinutes,
+      });
+      return { success: res.ok, error: res.ok ? undefined : res.message };
+    },
+    [completePlan]
+  );
+
+  const completeCoursePlan = useCallback(
+    async (planId: string, completedLessons: number, actualMinutes: number) => {
+      const res = await completePlan({
         type: 'course',
-        sourceId: plan.sourceId,
-        subject: plan.subject,
-        minutes: m,
-        questions: 0,
-        errors: 0,
-      };
-
-      outcome = { success: true };
-      return {
-        ...prev,
-        courses: updatedCourses,
-        plans: updatedPlans,
-        records: [...prev.records, newRecord],
-      };
-    });
-    return outcome;
-  }, []);
-
-  const completeCustomPlan = useCallback((planId: string, actualMinutes: number) => {
-    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
-    setState(prev => {
-      const plan = prev.plans.find(p => p.id === planId);
-      if (!plan || plan.done) return prev;
-
-      const recordId = `rec-${Date.now()}`;
-      const m = Math.max(0, actualMinutes);
-
-      const updatedPlans = prev.plans.map(p => {
-        if (p.id === planId) {
-          return {
-            ...p,
-            done: true,
-            timerStart: 0,
-            actualMinutes: m,
-            accumulatedMs: m * 60000,
-            recordId,
-          };
-        }
-        return p;
-      });
-
-      const newRecord: StudyRecord = {
-        id: recordId,
         planId,
-        date: plan.date,
+        lessons: completedLessons,
+        minutes: actualMinutes,
+      });
+      return { success: res.ok, error: res.ok ? undefined : res.message };
+    },
+    [completePlan]
+  );
+
+  const completeCustomPlan = useCallback(
+    async (planId: string, actualMinutes: number) => {
+      const res = await completePlan({
         type: 'custom',
-        sourceId: plan.sourceId || '',
-        subject: plan.subject,
-        minutes: m,
-        questions: 0,
-        errors: 0,
-      };
+        planId,
+        minutes: actualMinutes,
+      });
+      return { success: res.ok, error: res.ok ? undefined : res.message };
+    },
+    [completePlan]
+  );
 
-      outcome = { success: true };
+  // ----------------------------------------------------------------------
+  // Books
+  // ----------------------------------------------------------------------
+  const addBook = useCallback(
+    async (bookData: Omit<Book, 'id'>): Promise<MutationResult<string>> => {
+      return executeMutation(draft => applyAddBook(draft, bookData));
+    },
+    [executeMutation]
+  );
+
+  const editBook = useCallback(
+    async (id: string, updates: Partial<Book>): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyEditBook(draft, id, updates));
+    },
+    [executeMutation]
+  );
+
+  const deleteBook = useCallback(
+    async (id: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeleteBook(draft, id));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Courses
+  // ----------------------------------------------------------------------
+  const addCourse = useCallback(
+    async (courseData: Omit<Course, 'id'>): Promise<MutationResult<string>> => {
+      return executeMutation(draft => applyAddCourse(draft, courseData));
+    },
+    [executeMutation]
+  );
+
+  const editCourse = useCallback(
+    async (id: string, updates: Partial<Course>): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyEditCourse(draft, id, updates));
+    },
+    [executeMutation]
+  );
+
+  const deleteCourse = useCallback(
+    async (id: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeleteCourse(draft, id));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Library
+  // ----------------------------------------------------------------------
+  const addCustomItem = useCallback(
+    async (name: string, subject: Subject, defaultMinutes: number): Promise<MutationResult<LibraryItem>> => {
+      return executeMutation(draft => applyAddCustomItem(draft, name, subject, defaultMinutes));
+    },
+    [executeMutation]
+  );
+
+  const updateLibraryMinutes = useCallback(
+    async (id: string, defaultMinutes: number): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyUpdateLibraryMinutes(draft, id, defaultMinutes));
+    },
+    [executeMutation]
+  );
+
+  const deleteCustomItem = useCallback(
+    async (id: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeleteCustomItem(draft, id));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Wrong records
+  // ----------------------------------------------------------------------
+  const addWrongRecords = useCallback(
+    async (bookId: string, note: string, images: string[]): Promise<MutationResult<WrongRecord[]>> => {
+      return executeMutation(draft => applyAddWrongRecords(draft, bookId, activeDate, note, images));
+    },
+    [activeDate, executeMutation]
+  );
+
+  const deleteWrongRecord = useCallback(
+    async (id: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeleteWrongRecord(draft, id));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // Profile
+  // ----------------------------------------------------------------------
+  const updateProfile = useCallback(
+    async (name: string, avatar?: string): Promise<MutationResult<Profile>> => {
+      return executeMutation(draft => applyUpdateProfile(draft, name, avatar));
+    },
+    [executeMutation]
+  );
+
+  // ----------------------------------------------------------------------
+  // System: Reset, Backup, Import
+  // ----------------------------------------------------------------------
+  const resetState = useCallback(async (): Promise<MutationResult<void>> => {
+    try {
+      await resetDatabase();
+      setState(BLANK_STATE);
+      return { ok: true, value: undefined };
+    } catch (err) {
       return {
-        ...prev,
-        plans: updatedPlans,
-        records: [...prev.records, newRecord],
+        ok: false,
+        code: 'RESET_FAILED',
+        message: err instanceof Error ? err.message : String(err),
       };
-    });
-    return outcome;
-  }, []);
-
-  const addBook = useCallback((bookData: Omit<Book, 'id'>) => {
-    const id = `book-${Date.now()}`;
-    const newBook: Book = { ...bookData, id };
-    setState(prev => reconcileState({
-      ...prev,
-      books: [...prev.books, newBook],
-    }));
-    return id;
-  }, [reconcileState]);
-
-  const editBook = useCallback((id: string, updates: Partial<Book>) => {
-    setState(prev => reconcileState({
-      ...prev,
-      books: prev.books.map(b => b.id === id ? { ...b, ...updates } : b),
-    }));
-  }, [reconcileState]);
-
-  const deleteBook = useCallback((id: string) => {
-    setState(prev => reconcileState({
-      ...prev,
-      books: prev.books.filter(b => b.id !== id),
-    }));
-  }, [reconcileState]);
-
-  const addCourse = useCallback((courseData: Omit<Course, 'id'>) => {
-    const id = `course-${Date.now()}`;
-    const newCourse: Course = { ...courseData, id };
-    setState(prev => reconcileState({
-      ...prev,
-      courses: [...prev.courses, newCourse],
-    }));
-    return id;
-  }, [reconcileState]);
-
-  const editCourse = useCallback((id: string, updates: Partial<Course>) => {
-    setState(prev => reconcileState({
-      ...prev,
-      courses: prev.courses.map(c => c.id === id ? { ...c, ...updates } : c),
-    }));
-  }, [reconcileState]);
-
-  const deleteCourse = useCallback((id: string) => {
-    setState(prev => reconcileState({
-      ...prev,
-      courses: prev.courses.filter(c => c.id !== id),
-    }));
-  }, [reconcileState]);
-
-  const addCustomItem = useCallback((name: string, subject: Subject, defaultMinutes: number) => {
-    const newItem: LibraryItem = {
-      id: `lib-custom-${Date.now()}`,
-      type: 'custom',
-      sourceId: '',
-      name,
-      subject,
-      defaultMinutes: Math.max(1, defaultMinutes),
-    };
-    setState(prev => ({
-      ...prev,
-      library: [...prev.library, newItem],
-    }));
-  }, []);
-
-  const updateLibraryMinutes = useCallback((id: string, defaultMinutes: number) => {
-    setState(prev => ({
-      ...prev,
-      library: prev.library.map(l => l.id === id ? { ...l, defaultMinutes: Math.max(1, defaultMinutes) } : l),
-    }));
-  }, []);
-
-  const deleteCustomItem = useCallback((id: string) => {
-    setState(prev => ({
-      ...prev,
-      library: prev.library.filter(l => l.id !== id),
-    }));
-  }, []);
-
-  // Add wrong records with storage capacity verification (Fixes A01)
-  const addWrongRecords = useCallback((bookId: string, note: string, images: string[]) => {
-    const date = activeDate;
-    const newRecords: WrongRecord[] = images.map(img => ({
-      id: `wrong-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      date,
-      bookId,
-      note,
-      image: img,
-    }));
-
-    const nextWrong = [...newRecords, ...state.wrong];
-    const nextState = { ...state, wrong: nextWrong };
-    const checkSave = safeSaveState(STORAGE_KEY, nextState);
-    if (!checkSave.success) {
-      setStorageError(checkSave.error || '本地存储容量不足，无法保存照片');
-      return { success: false, error: checkSave.error || '本地存储容量不足，无法保存照片' };
     }
-
-    setState(nextState);
-    setStorageError(null);
-    return { success: true };
-  }, [activeDate, state]);
-
-  const deleteWrongRecord = useCallback((id: string) => {
-    setState(prev => ({
-      ...prev,
-      wrong: prev.wrong.filter(w => w.id !== id),
-    }));
-  }, []);
-
-  const updateProfile = useCallback((name: string, avatar?: string) => {
-    setState(prev => ({
-      ...prev,
-      profile: {
-        ...prev.profile,
-        name: name.trim() || prev.profile.name,
-        avatar: avatar !== undefined ? avatar : prev.profile.avatar,
-      },
-    }));
-  }, []);
-
-  const resetState = useCallback(() => {
-    setState(INITIAL_STATE);
   }, []);
 
   const exportBackup = useCallback(() => {
@@ -521,15 +423,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     URL.revokeObjectURL(url);
   }, [state]);
 
-  // Robust importBackup using complete schema validator & migration (Fixes A02, A04)
-  const importBackup = useCallback((jsonContent: string) => {
-    const validated = validateAndMigrateBackup(jsonContent);
-    if (!validated.valid || !validated.migratedState) {
-      return { success: false, error: validated.error || '备份文件校验失败' };
-    }
-    setState(validated.migratedState);
-    return { success: true };
-  }, []);
+  const importBackup = useCallback(
+    async (jsonContent: string): Promise<MutationResult<{ summary: string }>> => {
+      const validated = validateAndMigrateBackup(jsonContent);
+      if (!validated.valid || !validated.migratedState) {
+        return {
+          ok: false,
+          code: 'INVALID_BACKUP',
+          message: validated.error || '备份文件校验失败',
+        };
+      }
+      const nextState = validated.migratedState;
+      return executeMutation(async () => {
+        return {
+          nextState,
+          value: {
+            summary: `成功恢复备份，含 ${nextState.plans.length} 条日程与 ${nextState.records.length} 条做题记录`,
+          },
+        };
+      });
+    },
+    [executeMutation]
+  );
 
   const selfCheck = useCallback(() => {
     const bookIds = new Set(state.books.map(b => b.id));
@@ -551,7 +466,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     return {
       ok,
-      message: ok ? '自检通过：题本与网课均与事项库一对一绑定，3个倒计时完整。' : '检测到映射异常，建议执行自检修复。',
+      message: ok
+        ? '自检通过：题本与网课均与事项库一对一绑定，3个倒计时完整。'
+        : '检测到映射异常，建议执行自检修复。',
       details,
     };
   }, [state]);
@@ -564,12 +481,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveDate,
         storageError,
         clearStorageError,
+        isLoading,
+        corruptedRaw,
+        clearCorruptedRaw,
         updateCountdown,
         addPlan,
         quickAddPlan,
         startTimer,
         pauseTimer,
         deletePlan,
+        completePlan,
         completeBookPlan,
         completeCoursePlan,
         completeCustomPlan,

@@ -20,7 +20,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   onToast,
   initialSuccess = false,
 }) => {
-  const { completeBookPlan, completeCoursePlan, completeCustomPlan } = useApp();
+  const { completePlan, activeDate } = useApp();
 
   // Form states with dynamic per-task reset (Fixes A12)
   const [questions, setQuestions] = useState<number>(30);
@@ -59,7 +59,10 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       return;
     }
 
-    const defaultMins = plan.actualMinutes > 0 ? plan.actualMinutes : (plan.plannedMinutes || 30);
+    const defaultMins = (plan.accumulatedMs && plan.accumulatedMs > 0)
+      ? Math.max(1, Math.round(plan.accumulatedMs / 60000))
+      : (plan.actualMinutes > 0 ? plan.actualMinutes : (plan.plannedMinutes || 30));
+
     setActualMinutes(defaultMins);
     setQuestions(plan.type === 'book' ? 20 : 0);
     setErrors(0);
@@ -76,9 +79,11 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     onClose();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
+    let res;
 
     if (plan.type === 'book') {
       if (questions < 0 || errors < 0 || actualMinutes < 0) {
@@ -89,59 +94,55 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('错题数不能大于本次做题总数');
         return;
       }
-      const res = completeBookPlan(plan.id, questions, errors, actualMinutes);
-      if (!res.success) {
-        setErrorMsg(res.error || '登记失败');
-        return;
-      }
-      setLastCompletedData({
-        name: plan.name,
+      res = await completePlan({
         type: 'book',
-        subject: plan.subject,
+        planId: plan.id,
+        questions,
+        errors,
         minutes: actualMinutes,
-        summary: `完成 ${questions} 题 · 错题 ${errors} 道 · 正确率 ${questions > 0 ? Math.round(((questions - errors) / questions) * 100) : 0}%`,
       });
-      setIsSuccess(true);
-      onToast('刷题登记已保存！');
     } else if (plan.type === 'course') {
       if (lessons <= 0 || actualMinutes < 0) {
         setErrorMsg('课时数必须大于0，用时不能为负数');
         return;
       }
-      const res = completeCoursePlan(plan.id, lessons, actualMinutes);
-      if (!res.success) {
-        setErrorMsg(res.error || '登记失败');
-        return;
-      }
-      setLastCompletedData({
-        name: plan.name,
+      res = await completePlan({
         type: 'course',
-        subject: plan.subject,
+        planId: plan.id,
+        lessons,
         minutes: actualMinutes,
-        summary: `听完 ${lessons} 讲课时 · 用时 ${actualMinutes} 分钟`,
       });
-      setIsSuccess(true);
-      onToast('网课登记已保存！');
     } else {
       if (actualMinutes < 0) {
         setErrorMsg('学习用时不能为负数');
         return;
       }
-      const res = completeCustomPlan(plan.id, actualMinutes);
-      if (!res.success) {
-        setErrorMsg(res.error || '登记失败');
-        return;
-      }
-      setLastCompletedData({
-        name: plan.name,
+      res = await completePlan({
         type: 'custom',
-        subject: plan.subject,
+        planId: plan.id,
         minutes: actualMinutes,
-        summary: `完成自定义事项 · 累计投入 ${actualMinutes} 分钟`,
       });
-      setIsSuccess(true);
-      onToast('自定义事项已登记！');
     }
+
+    if (!res.ok) {
+      setErrorMsg(res.message);
+      return;
+    }
+
+    const record = res.value.record;
+    setLastCompletedData({
+      name: plan.name,
+      type: plan.type,
+      subject: plan.subject,
+      minutes: record.minutes,
+      summary: plan.type === 'book'
+        ? `完成 ${record.questions} 题 · 错题 ${record.errors} 道 · 正确率 ${record.questions > 0 ? Math.round(((record.questions - record.errors) / record.questions) * 100) : 0}%`
+        : plan.type === 'course'
+        ? `听完 ${record.lessons ?? lessons} 讲课时 · 用时 ${record.minutes} 分钟`
+        : `完成自定义事项 · 累计投入 ${record.minutes} 分钟`,
+    });
+    setIsSuccess(true);
+    onToast(plan.type === 'book' ? '刷题登记已保存！' : plan.type === 'course' ? '网课登记已保存！' : '自定义事项已登记！');
   };
 
   return (
@@ -175,7 +176,14 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
             <div className="p-3.5 bg-cream/70 rounded-2xl border border-line text-left space-y-1.5">
               <div className="text-xs text-ink-muted font-medium flex items-center justify-between">
                 <span>{lastCompletedData?.name}</span>
-                <Tag variant="gray">{lastCompletedData?.subject}</Tag>
+                <div className="flex items-center gap-1.5">
+                  {plan.date !== activeDate && (
+                    <span className="text-[11px] text-amber-700 bg-amber-100/60 px-1.5 py-0.5 rounded font-normal">
+                      计入原计划日期: {plan.date}
+                    </span>
+                  )}
+                  <Tag variant="gray">{lastCompletedData?.subject}</Tag>
+                </div>
               </div>
               <div className="text-sm font-bold text-sage">
                 {lastCompletedData?.summary}
@@ -204,6 +212,11 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
               <p className="text-xs text-ink-muted mt-0.5">
                 记录本次实际投入的题量与时间，供后续复盘
               </p>
+              {plan.date !== activeDate && (
+                <div className="mt-2 text-xs text-amber-800 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200 inline-flex items-center gap-1 font-medium">
+                  <span>计入原计划日期: {plan.date}</span>
+                </div>
+              )}
             </div>
 
             {errorMsg && (

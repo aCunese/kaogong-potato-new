@@ -540,7 +540,7 @@ export const PhotoImportModal: React.FC<{
     setPreviewImages(prev => [...prev, svgData]);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!bookId) {
       alert('请先创建题本');
       return;
@@ -551,9 +551,9 @@ export const PhotoImportModal: React.FC<{
     }
 
     // Attempt persistent write with safety check (Fixes A01)
-    const result = addWrongRecords(bookId, note, previewImages);
-    if (!result.success) {
-      alert(result.error || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
+    const result = await addWrongRecords(bookId, note, previewImages);
+    if (!result.ok) {
+      alert(result.message || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
       // Keep user's input intact without closing modal
       return;
     }
