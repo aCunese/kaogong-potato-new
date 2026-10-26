@@ -38,7 +38,7 @@ body {
 
 /* Potato sprite sheet styling */
 .potato-pose {
-  background-image: url('/assets/potato-poses.png');
+  background-image: url('./assets/potato-poses.png');
   background-repeat: no-repeat;
   background-size: 400% 200%;
   display: inline-block;

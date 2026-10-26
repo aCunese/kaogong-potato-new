@@ -49,9 +49,10 @@ export default {
         'sheet': '0 -10px 30px rgba(52, 60, 47, 0.08)',
       },
       screens: {
-        'xs': '360px',
-        'sm': '393px',
-        'md': '412px',
+        'sm': '640px',
+        'md': '768px',
+        'lg': '1024px',
+        'xl': '1280px',
       },
     },
   },

@@ -29,6 +29,7 @@ export interface Plan {
   subject: Subject;
   plannedMinutes: number;
   actualMinutes: number;
+  accumulatedMs?: number; // Exact elapsed milliseconds, prevents fractional pause inflation (Fixes A10)
   done: boolean;
   timerStart: number; // timestamp in ms, 0 if paused/not running
   recordId?: string;

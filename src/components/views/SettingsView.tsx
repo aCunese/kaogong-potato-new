@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Button, Tag, Modal } from '../common/UIComponents';
-import { Smartphone, Cloud, Download, Upload, ShieldCheck, RefreshCw, User, LogIn, UserPlus, LogOut, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { validateAndMigrateBackup, BackupValidationResult } from '../../utils/backupValidator';
+import { Smartphone, Cloud, Download, Upload, ShieldCheck, RefreshCw, User, LogIn, UserPlus, LogOut, FileText, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface SettingsViewProps {
   onOpenLogin: () => void;
@@ -14,6 +15,7 @@ interface SettingsViewProps {
   onOpenResetConfirm: () => void;
   onOpenLogoutConfirm: () => void;
   onToast: (msg: string) => void;
+  forcedGuestMode?: boolean; // For isolated guest preview (Fixes A07)
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -26,13 +28,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenResetConfirm,
   onOpenLogoutConfirm,
   onToast,
+  forcedGuestMode = false,
 }) => {
-  const { state, exportBackup, importBackup, selfCheck } = useApp();
+  const { state, exportBackup, importBackup, selfCheck, storageError, clearStorageError } = useApp();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; message: string; details: string[] } | null>(null);
+  const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Check login status (in this new isolated project, we display state.profile.username)
-  const isGuest = !state.profile.username || state.profile.username === 'guest';
+  // Check login status (supports forcedGuestMode for A07 guest matrix inspection)
+  const isGuest = forcedGuestMode || !state.profile.username || state.profile.username === 'guest';
 
   const handleSelfCheck = () => {
     const res = selfCheck();
@@ -45,19 +49,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const result = importBackup(reader.result as string);
-      if (result.success) {
-        onToast('数据导入成功，已自动重新关联事项库！');
-      } else {
-        onToast(`导入失败: ${result.error}`);
+      const content = reader.result as string;
+      // Pre-flight Schema validation and migration inspection (Fixes A02)
+      const validation = validateAndMigrateBackup(content);
+      if (!validation.valid || !validation.summary) {
+        onToast(`备份文件校验失败: ${validation.error || '格式不正确'}`);
+        alert(`导入被拒绝：\n${validation.error || '无法解析的备份文件'}`);
+        return;
       }
+
+      // Open explicit confirmation modal before overwriting user state
+      setPendingBackup({ content, validation });
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
+  const handleConfirmImport = () => {
+    if (!pendingBackup) return;
+    const res = importBackup(pendingBackup.content);
+    if (res.success) {
+      onToast('备份导入成功，已完整恢复数据！');
+      setPendingBackup(null);
+    } else {
+      onToast(`导入失败: ${res.error}`);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-24">
+      {/* Storage Quota Warning Card if any (Fixes A01) */}
+      {storageError && (
+        <div className="p-3 bg-alarm/10 border border-alarm/30 rounded-2xl flex items-start gap-2.5 text-xs text-alarm">
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-bold">本地存储异常</div>
+            <div className="mt-0.5 leading-relaxed">{storageError}</div>
+          </div>
+          <button onClick={clearStorageError} className="underline text-[11px] shrink-0">关闭提示</button>
+        </div>
+      )}
       {/* 头部与用户身份卡片 */}
       <Card className="p-4 bg-gradient-to-br from-paper to-cream/70 border-line">
         <div className="flex items-center justify-between">
@@ -237,6 +268,78 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           恢复初始数据
         </Button>
       </Card>
+
+      {/* 导入确认覆盖弹窗 (Fixes A02) */}
+      {pendingBackup && pendingBackup.validation.summary && (
+        <Modal
+          isOpen={true}
+          onClose={() => setPendingBackup(null)}
+          title="用这份备份恢复？"
+        >
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <PotatoSprite pose={5} size={70} />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-ink-main">
+                即将覆盖当前本地数据
+              </div>
+              <p className="text-xs text-ink-muted mt-1 leading-relaxed">
+                导入后将使用备份中的数据完全替换当前工作台内容。建议在恢复前先导出当前进度的本地备份。
+              </p>
+            </div>
+
+            <div className="bg-cream/70 rounded-xl p-3 text-xs text-left space-y-1.5 border border-line">
+              <div className="font-bold text-ink-main border-b border-line pb-1 mb-1">
+                备份内容预览
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>用户昵称</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.profileName}</span>
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>题本数量</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.bookCount} 本</span>
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>网课课程</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.courseCount} 门</span>
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>学习记录</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.recordCount} 条</span>
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>错题笔记</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.wrongCount} 条</span>
+              </div>
+              <div className="flex justify-between text-ink-muted">
+                <span>倒计时目标</span>
+                <span className="font-medium text-ink-main">{pendingBackup.validation.summary.countdownCount} 个</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 pt-2">
+              <Button
+                variant="secondary"
+                size="md"
+                fullWidth
+                onClick={() => setPendingBackup(null)}
+              >
+                再想想
+              </Button>
+              <Button
+                variant="danger"
+                size="md"
+                fullWidth
+                onClick={handleConfirmImport}
+              >
+                确认导入覆盖
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

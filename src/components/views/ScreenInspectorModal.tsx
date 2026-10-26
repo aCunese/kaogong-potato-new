@@ -47,35 +47,35 @@ export const ALL_50_SCREENS: ScreenDef[] = [
   { id: 'today-empty', nodeId: '13:1312', name: '今日空态', category: 'flow', desc: '今日无日程时的空态插画与挑选引导', hasRefScreenshot: true, refScreenshotFile: '27-today-empty.png' },
   { id: 'delete-confirm', nodeId: '13:1459', name: '删除确认', category: 'flow', desc: '通用删除确认交互', hasRefScreenshot: true, refScreenshotFile: '28-delete-confirm.png' },
 
-  // 29-34 Extra Variants
-  { id: 'book-add', nodeId: '13:1656', name: '新增空白题本', category: 'extra', desc: '空白新增题本表单变体', hasRefScreenshot: false },
-  { id: 'course-add', nodeId: '13:1791', name: '新增空白网课', category: 'extra', desc: '空白新增网课表单变体', hasRefScreenshot: false },
-  { id: 'today-multi', nodeId: '13:1924', name: '多任务同时计时', category: 'extra', desc: '多任务并发计时状态展示', hasRefScreenshot: false },
-  { id: 'focus-paused', nodeId: '13:2191', name: '专注计时已暂停', category: 'extra', desc: '计时暂停状态与继续操作', hasRefScreenshot: false },
-  { id: 'complete-course-success', nodeId: '13:2294', name: '网课完成成功反馈', category: 'extra', desc: '网课课时登记成功反馈', hasRefScreenshot: false },
-  { id: 'complete-custom-success', nodeId: '13:2378', name: '事项完成成功反馈', category: 'extra', desc: '自定义学习时间登记成功', hasRefScreenshot: false },
+  // 29-34 Extra Variants (supplementary reference screens attached)
+  { id: 'book-add', nodeId: '13:1656', name: '新增空白题本', category: 'extra', desc: '空白新增题本表单变体', hasRefScreenshot: true, refScreenshotFile: '29-book-add.png' },
+  { id: 'course-add', nodeId: '13:1791', name: '新增空白网课', category: 'extra', desc: '空白新增网课表单变体', hasRefScreenshot: true, refScreenshotFile: '30-course-add.png' },
+  { id: 'today-multi', nodeId: '13:1924', name: '多任务同时计时', category: 'extra', desc: '多任务并发计时状态展示', hasRefScreenshot: true, refScreenshotFile: '31-today-multi.png' },
+  { id: 'focus-paused', nodeId: '13:2191', name: '专注计时已暂停', category: 'extra', desc: '计时暂停状态与继续操作', hasRefScreenshot: true, refScreenshotFile: '32-focus-paused.png' },
+  { id: 'complete-course-success', nodeId: '13:2294', name: '网课完成成功反馈', category: 'extra', desc: '网课课时登记成功反馈', hasRefScreenshot: true, refScreenshotFile: '33-complete-course-success.png' },
+  { id: 'complete-custom-success', nodeId: '13:2378', name: '事项完成成功反馈', category: 'extra', desc: '自定义学习时间登记成功', hasRefScreenshot: true, refScreenshotFile: '34-complete-custom-success.png' },
 
   // 35-37 States long boards
-  { id: 'states-empty', nodeId: '13:2470', name: '空态集合画板', category: 'states', desc: '日程/错题/学情空态合集', hasRefScreenshot: false },
-  { id: 'states-sync', nodeId: '13:2700', name: '同步状态集合画板', category: 'states', desc: '同步中/离线/过期/冲突状态合集', hasRefScreenshot: false },
-  { id: 'states-form', nodeId: '13:2847', name: '表单校验集合画板', category: 'states', desc: '必填/超限/格式校验合集', hasRefScreenshot: false },
+  { id: 'states-empty', nodeId: '13:2470', name: '空态集合画板', category: 'states', desc: '日程/错题/学情空态合集', hasRefScreenshot: true, refScreenshotFile: '35-states-empty.png' },
+  { id: 'states-sync', nodeId: '13:2700', name: '同步状态集合画板', category: 'states', desc: '同步中/离线/过期/冲突状态合集', hasRefScreenshot: true, refScreenshotFile: '36-states-sync.png' },
+  { id: 'states-form', nodeId: '13:2847', name: '表单校验集合画板', category: 'states', desc: '必填/超限/格式校验合集', hasRefScreenshot: true, refScreenshotFile: '37-states-form.png' },
 
   // 38-45 8 Confirm dialogs
-  { id: 'confirm-book', nodeId: '13:3182', name: '删除题本确认', category: 'confirm', desc: '说明移除题本与对应事项，保留历史记录', hasRefScreenshot: false },
-  { id: 'confirm-course', nodeId: '13:3249', name: '删除网课确认', category: 'confirm', desc: '说明移除网课与对应事项', hasRefScreenshot: false },
-  { id: 'confirm-photo', nodeId: '13:3316', name: '删除错题照片确认', category: 'confirm', desc: '说明不影响题本做题与错题总数', hasRefScreenshot: false },
-  { id: 'confirm-reset', nodeId: '13:3383', name: '恢复初始数据确认', category: 'confirm', desc: '高危提示导出备份，说明恢复默认', hasRefScreenshot: false },
-  { id: 'confirm-import', nodeId: '13:3453', name: '导入覆盖确认', category: 'confirm', desc: '校验后覆盖提醒', hasRefScreenshot: false },
-  { id: 'confirm-upload', nodeId: '13:3523', name: '上传覆盖云端确认', category: 'confirm', desc: '云端覆盖影响提示', hasRefScreenshot: false },
-  { id: 'confirm-pull', nodeId: '13:3593', name: '从云端拉取覆盖确认', category: 'confirm', desc: '本地未同步数据被覆盖提示', hasRefScreenshot: false },
-  { id: 'confirm-logout', nodeId: '13:3663', name: '退出登录确认', category: 'confirm', desc: '转入离线单机模式提示', hasRefScreenshot: false },
+  { id: 'confirm-book', nodeId: '13:3182', name: '删除题本确认', category: 'confirm', desc: '说明移除题本与对应事项，保留历史记录', hasRefScreenshot: true, refScreenshotFile: '38-confirm-book.png' },
+  { id: 'confirm-course', nodeId: '13:3249', name: '删除网课确认', category: 'confirm', desc: '说明移除网课与对应事项', hasRefScreenshot: true, refScreenshotFile: '39-confirm-course.png' },
+  { id: 'confirm-photo', nodeId: '13:3316', name: '删除错题照片确认', category: 'confirm', desc: '说明不影响题本做题与错题总数', hasRefScreenshot: true, refScreenshotFile: '40-confirm-photo.png' },
+  { id: 'confirm-reset', nodeId: '13:3383', name: '恢复初始数据确认', category: 'confirm', desc: '高危提示导出备份，说明恢复默认', hasRefScreenshot: true, refScreenshotFile: '41-confirm-reset.png' },
+  { id: 'confirm-import', nodeId: '13:3453', name: '导入覆盖确认', category: 'confirm', desc: '校验后覆盖提醒', hasRefScreenshot: true, refScreenshotFile: '42-confirm-import.png' },
+  { id: 'confirm-upload', nodeId: '13:3523', name: '上传覆盖云端确认', category: 'confirm', desc: '云端覆盖影响提示', hasRefScreenshot: true, refScreenshotFile: '43-confirm-upload.png' },
+  { id: 'confirm-pull', nodeId: '13:3593', name: '从云端拉取覆盖确认', category: 'confirm', desc: '本地未同步数据被覆盖提示', hasRefScreenshot: true, refScreenshotFile: '44-confirm-pull.png' },
+  { id: 'confirm-logout', nodeId: '13:3663', name: '退出登录确认', category: 'confirm', desc: '转入离线单机模式提示', hasRefScreenshot: true, refScreenshotFile: '45-confirm-logout.png' },
 
   // 46-50 Remaining screens
-  { id: 'download-apk', nodeId: '13:3730', name: 'APK 下载页面', category: 'extra', desc: '专属安卓安装包介绍与下载', hasRefScreenshot: false },
-  { id: 'month-picker', nodeId: '13:3828', name: '月度选择器', category: 'extra', desc: '月度切换弹窗', hasRefScreenshot: false },
-  { id: 'overall-legend', nodeId: '13:3931', name: '总体分析图例详情', category: 'extra', desc: '八科投入分钟明细表', hasRefScreenshot: false },
-  { id: 'focus-course', nodeId: '13:4135', name: '网课专注计时', category: 'extra', desc: '网课听课专注计时变体', hasRefScreenshot: false },
-  { id: 'focus-custom', nodeId: '13:4220', name: '自定义专注计时', category: 'extra', desc: '自定义事项专注计时变体', hasRefScreenshot: false },
+  { id: 'download-apk', nodeId: '13:3730', name: 'APK 下载页面', category: 'extra', desc: '专属安卓安装包介绍与下载', hasRefScreenshot: true, refScreenshotFile: '46-download-apk.png' },
+  { id: 'month-picker', nodeId: '13:3828', name: '月度选择器', category: 'extra', desc: '月度切换弹窗', hasRefScreenshot: true, refScreenshotFile: '47-month-picker.png' },
+  { id: 'overall-legend', nodeId: '13:3931', name: '总体分析图例详情', category: 'extra', desc: '八科投入分钟明细表', hasRefScreenshot: true, refScreenshotFile: '48-overall-legend.png' },
+  { id: 'focus-course', nodeId: '13:4135', name: '网课专注计时', category: 'extra', desc: '网课听课专注计时变体', hasRefScreenshot: true, refScreenshotFile: '49-focus-course.png' },
+  { id: 'focus-custom', nodeId: '13:4220', name: '自定义专注计时', category: 'extra', desc: '自定义事项专注计时变体', hasRefScreenshot: true, refScreenshotFile: '50-focus-custom.png' },
 ];
 
 interface ScreenInspectorModalProps {
@@ -103,7 +103,7 @@ export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
       <div className="space-y-4">
         <div className="flex items-center justify-between text-xs text-ink-muted">
           <span>共收录 50 个独立画板与状态</span>
-          <span className="text-sage font-bold font-mono">100% 完整覆盖</span>
+          <span className="text-sage font-bold font-mono">50 画面交互已就绪</span>
         </div>
 
         {/* 筛选与搜索 */}

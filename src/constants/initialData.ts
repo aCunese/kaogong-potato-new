@@ -70,20 +70,20 @@ export function buildLibraryFromSources(books: Book[], courses: Course[], existi
     });
   }
 
-  // Preserve existing custom items
+  // Preserve existing custom items without resurrecting deliberately deleted ones (Fixes A13)
   for (const item of existingLib) {
     if (item.type === 'custom') {
       result.push(item);
     }
   }
 
-  // If no custom items existed, add default
-  if (!result.some(item => item.type === 'custom')) {
-    result.push(...INITIAL_CUSTOM_ITEMS);
-  }
-
   return result;
 }
+
+export const INITIAL_LIBRARY: LibraryItem[] = [
+  ...buildLibraryFromSources(INITIAL_BOOKS, INITIAL_COURSES, []),
+  ...INITIAL_CUSTOM_ITEMS,
+];
 
 export const INITIAL_PLANS: Plan[] = [
   {
@@ -203,12 +203,14 @@ export const INITIAL_WRONG: WrongRecord[] = [
   },
 ];
 
+export const INITIAL_PROFILE: { name: string; username: string; avatar: string } = {
+  name: '土豆的备考空间',
+  username: 'potato_01',
+  avatar: '',
+};
+
 export const INITIAL_STATE: AppState = {
-  profile: {
-    name: '土豆的备考空间',
-    username: 'potato_01',
-    avatar: '',
-  },
+  profile: INITIAL_PROFILE,
   countdowns: INITIAL_COUNTDOWNS,
   books: INITIAL_BOOKS,
   courses: INITIAL_COURSES,

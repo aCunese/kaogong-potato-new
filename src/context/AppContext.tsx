@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { AppState, Book, Course, LibraryItem, Plan, StudyRecord, WrongRecord, Subject } from '../types';
 import { INITIAL_STATE, buildLibraryFromSources } from '../constants/initialData';
+import { validateAndMigrateBackup } from '../utils/backupValidator';
+import { safeSaveState } from '../utils/imageCompressor';
 
 const STORAGE_KEY = 'potato_study_v2';
 
@@ -8,6 +10,8 @@ interface AppContextType {
   state: AppState;
   activeDate: string;
   setActiveDate: (d: string) => void;
+  storageError: string | null;
+  clearStorageError: () => void;
   // Countdowns
   updateCountdown: (id: string, date: string) => void;
   // Plans & Timers
@@ -16,9 +20,9 @@ interface AppContextType {
   startTimer: (planId: string) => void;
   pauseTimer: (planId: string) => void;
   deletePlan: (planId: string) => void;
-  completeBookPlan: (planId: string, questions: number, errors: number, actualMinutes: number) => void;
-  completeCoursePlan: (planId: string, completedLessons: number, actualMinutes: number) => void;
-  completeCustomPlan: (planId: string, actualMinutes: number) => void;
+  completeBookPlan: (planId: string, questions: number, errors: number, actualMinutes: number) => { success: boolean; error?: string };
+  completeCoursePlan: (planId: string, completedLessons: number, actualMinutes: number) => { success: boolean; error?: string };
+  completeCustomPlan: (planId: string, actualMinutes: number) => { success: boolean; error?: string };
   // Books
   addBook: (book: Omit<Book, 'id'>) => string;
   editBook: (id: string, updates: Partial<Book>) => void;
@@ -32,7 +36,7 @@ interface AppContextType {
   updateLibraryMinutes: (id: string, defaultMinutes: number) => void;
   deleteCustomItem: (id: string) => void;
   // Wrong records
-  addWrongRecords: (bookId: string, note: string, images: string[]) => void;
+  addWrongRecords: (bookId: string, note: string, images: string[]) => { success: boolean; error?: string };
   deleteWrongRecord: (id: string) => void;
   // Profile
   updateProfile: (name: string, avatar?: string) => void;
@@ -50,25 +54,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed.books) && Array.isArray(parsed.courses)) {
-          return parsed;
+        // Robust migration & schema check (Fixes A02)
+        const validated = validateAndMigrateBackup(saved);
+        if (validated.valid && validated.migratedState) {
+          return validated.migratedState;
         }
       }
     } catch (e) {
-      console.warn('Failed to load local state, using demo data', e);
+      console.warn('Failed to load local state, using initial state', e);
     }
     return INITIAL_STATE;
   });
 
-  const [activeDate, setActiveDate] = useState<string>('2026-10-25');
+  // Dynamic system date instead of hardcoded demo date (Fixes A09)
+  const getTodayDate = () => new Date().toISOString().slice(0, 10);
+  const [activeDate, setActiveDate] = useState<string>(getTodayDate);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
-  // Sync to localStorage
+  const clearStorageError = useCallback(() => {
+    setStorageError(null);
+  }, []);
+
+  // Sync to localStorage safely with quota overflow detection (Fixes A01)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      console.error('Failed to persist state', e);
+    const res = safeSaveState(STORAGE_KEY, state);
+    if (!res.success && res.error) {
+      setStorageError(res.error);
+    } else {
+      setStorageError(null);
     }
   }, [state]);
 
@@ -81,10 +94,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, []);
 
+  // Update countdown with strict ID check to prevent updating all undefined IDs (Fixes A04)
   const updateCountdown = useCallback((id: string, date: string) => {
+    if (!id) return;
     setState(prev => ({
       ...prev,
-      countdowns: prev.countdowns.map(cd => cd.id === id ? { ...cd, date } : cd),
+      countdowns: prev.countdowns.map(cd => (cd.id && cd.id === id) ? { ...cd, date } : cd),
     }));
   }, []);
 
@@ -102,6 +117,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         subject: item.subject,
         plannedMinutes: plannedMinutes > 0 ? plannedMinutes : item.defaultMinutes,
         actualMinutes: 0,
+        accumulatedMs: 0,
         done: false,
         timerStart: 0,
       };
@@ -126,6 +142,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         subject: item.subject,
         plannedMinutes: item.defaultMinutes,
         actualMinutes: 0,
+        accumulatedMs: 0,
         done: false,
         timerStart: 0,
       };
@@ -136,11 +153,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   }, [activeDate]);
 
+  // Idempotent startTimer: does not overwrite starting timestamp if already running (Fixes A03)
   const startTimer = useCallback((planId: string) => {
     setState(prev => ({
       ...prev,
       plans: prev.plans.map(p => {
         if (p.id === planId && !p.done) {
+          if (p.timerStart > 0) return p;
           return { ...p, timerStart: Date.now() };
         }
         return p;
@@ -148,15 +167,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
   }, []);
 
+  // Precise millisecond accumulation without fragment 1-minute inflation (Fixes A10)
   const pauseTimer = useCallback((planId: string) => {
     setState(prev => ({
       ...prev,
       plans: prev.plans.map(p => {
         if (p.id === planId && p.timerStart > 0) {
-          const elapsedMin = Math.max(1, Math.round((Date.now() - p.timerStart) / 60000));
+          const elapsedMs = Math.max(0, Date.now() - p.timerStart);
+          const prevAccumulated = typeof p.accumulatedMs === 'number'
+            ? p.accumulatedMs
+            : (p.actualMinutes || 0) * 60000;
+          const newAccumulated = prevAccumulated + elapsedMs;
+          const actualMinutes = Math.floor(newAccumulated / 60000);
           return {
             ...p,
-            actualMinutes: (p.actualMinutes || 0) + elapsedMin,
+            accumulatedMs: newAccumulated,
+            actualMinutes,
             timerStart: 0,
           };
         }
@@ -172,10 +198,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
   }, []);
 
+  // Complete book plan with source existence check (Fixes A05)
   const completeBookPlan = useCallback((planId: string, questions: number, errors: number, actualMinutes: number) => {
+    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
     setState(prev => {
       const plan = prev.plans.find(p => p.id === planId);
       if (!plan || plan.done) return prev;
+
+      // Check if source book still exists before adding record
+      const sourceBook = prev.books.find(b => b.id === plan.sourceId);
+      if (!sourceBook) {
+        console.warn(`[Data Integrity] Cannot complete plan ${planId}: source book ${plan.sourceId} has been deleted.`);
+        outcome = { success: false, error: '关联题本已被删除，无法生成学习记录。建议直接移除该计划。' };
+        return prev;
+      }
 
       const recordId = `rec-${Date.now()}`;
       const q = Math.max(0, questions);
@@ -203,6 +239,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             done: true,
             timerStart: 0,
             actualMinutes: m,
+            accumulatedMs: m * 60000,
             recordId,
           };
         }
@@ -222,6 +259,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         errors: e,
       };
 
+      outcome = { success: true };
       return {
         ...prev,
         books: updatedBooks,
@@ -229,12 +267,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         records: [...prev.records, newRecord],
       };
     });
+    return outcome;
   }, []);
 
+  // Complete course plan with source existence check (Fixes A05)
   const completeCoursePlan = useCallback((planId: string, completedLessons: number, actualMinutes: number) => {
+    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
     setState(prev => {
       const plan = prev.plans.find(p => p.id === planId);
       if (!plan || plan.done) return prev;
+
+      // Check if source course still exists
+      const sourceCourse = prev.courses.find(c => c.id === plan.sourceId);
+      if (!sourceCourse) {
+        console.warn(`[Data Integrity] Cannot complete plan ${planId}: source course ${plan.sourceId} has been deleted.`);
+        outcome = { success: false, error: '关联课程已被删除，无法生成学习记录。建议直接移除该计划。' };
+        return prev;
+      }
 
       const recordId = `rec-${Date.now()}`;
       const l = Math.max(0, completedLessons);
@@ -258,6 +307,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             done: true,
             timerStart: 0,
             actualMinutes: m,
+            accumulatedMs: m * 60000,
             recordId,
           };
         }
@@ -276,6 +326,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         errors: 0,
       };
 
+      outcome = { success: true };
       return {
         ...prev,
         courses: updatedCourses,
@@ -283,9 +334,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         records: [...prev.records, newRecord],
       };
     });
+    return outcome;
   }, []);
 
   const completeCustomPlan = useCallback((planId: string, actualMinutes: number) => {
+    let outcome: { success: boolean; error?: string } = { success: false, error: '计划未找到或已完成' };
     setState(prev => {
       const plan = prev.plans.find(p => p.id === planId);
       if (!plan || plan.done) return prev;
@@ -300,6 +353,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             done: true,
             timerStart: 0,
             actualMinutes: m,
+            accumulatedMs: m * 60000,
             recordId,
           };
         }
@@ -318,12 +372,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         errors: 0,
       };
 
+      outcome = { success: true };
       return {
         ...prev,
         plans: updatedPlans,
         records: [...prev.records, newRecord],
       };
     });
+    return outcome;
   }, []);
 
   const addBook = useCallback((bookData: Omit<Book, 'id'>) => {
@@ -403,6 +459,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
   }, []);
 
+  // Add wrong records with storage capacity verification (Fixes A01)
   const addWrongRecords = useCallback((bookId: string, note: string, images: string[]) => {
     const date = activeDate;
     const newRecords: WrongRecord[] = images.map(img => ({
@@ -412,11 +469,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       note,
       image: img,
     }));
-    setState(prev => ({
-      ...prev,
-      wrong: [...newRecords, ...prev.wrong],
-    }));
-  }, [activeDate]);
+
+    const nextWrong = [...newRecords, ...state.wrong];
+    const nextState = { ...state, wrong: nextWrong };
+    const checkSave = safeSaveState(STORAGE_KEY, nextState);
+    if (!checkSave.success) {
+      setStorageError(checkSave.error || '本地存储容量不足，无法保存照片');
+      return { success: false, error: checkSave.error || '本地存储容量不足，无法保存照片' };
+    }
+
+    setState(nextState);
+    setStorageError(null);
+    return { success: true };
+  }, [activeDate, state]);
 
   const deleteWrongRecord = useCallback((id: string) => {
     setState(prev => ({
@@ -456,19 +521,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     URL.revokeObjectURL(url);
   }, [state]);
 
+  // Robust importBackup using complete schema validator & migration (Fixes A02, A04)
   const importBackup = useCallback((jsonContent: string) => {
-    try {
-      const data = JSON.parse(jsonContent);
-      const targetState = data.state || data;
-      if (!Array.isArray(targetState.books) || !Array.isArray(targetState.courses) || !Array.isArray(targetState.countdowns)) {
-        return { success: false, error: '备份文件结构不完整，缺少必要的 books/courses 列表' };
-      }
-      setState(reconcileState(targetState));
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message || 'JSON 解析失败' };
+    const validated = validateAndMigrateBackup(jsonContent);
+    if (!validated.valid || !validated.migratedState) {
+      return { success: false, error: validated.error || '备份文件校验失败' };
     }
-  }, [reconcileState]);
+    setState(validated.migratedState);
+    return { success: true };
+  }, []);
 
   const selfCheck = useCallback(() => {
     const bookIds = new Set(state.books.map(b => b.id));
@@ -501,6 +562,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         state,
         activeDate,
         setActiveDate,
+        storageError,
+        clearStorageError,
         updateCountdown,
         addPlan,
         quickAddPlan,

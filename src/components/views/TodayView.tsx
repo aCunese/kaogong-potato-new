@@ -2,50 +2,61 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Button, Tag } from '../common/UIComponents';
-import { Plus, Play, Pause, CheckCircle2, Trash2, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
 import { Plan } from '../../types';
 
 interface TodayViewProps {
+  forcedMode?: 'normal' | 'empty' | 'multi';
   onOpenAddPlan: () => void;
   onOpenFocus: (plan: Plan) => void;
   onOpenComplete: (plan: Plan) => void;
-  onOpenCountdownEdit: (cdIndex: number) => void;
-  forcedMode?: 'normal' | 'empty' | 'multi';
+  onOpenCountdownEdit: (index: number) => void;
+  onOpenDeleteConfirm?: (plan: Plan) => void;
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({
+  forcedMode = 'normal',
   onOpenAddPlan,
   onOpenFocus,
   onOpenComplete,
   onOpenCountdownEdit,
-  forcedMode = 'normal',
+  onOpenDeleteConfirm,
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
   const [, setTick] = useState(0);
 
-  // Re-render every second to update running timer displays
+  // Keep live timer tick
   useEffect(() => {
-    const timer = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    const hasRunning = state.plans.some(p => p.timerStart > 0 && !p.done);
+    if (!hasRunning) return;
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [state.plans]);
 
+  // Filter plans for today
   const todayPlans = state.plans.filter(p => p.date === activeDate);
   const doneCount = todayPlans.filter(p => p.done).length;
   const totalMinutes = todayPlans.reduce((sum, p) => {
-    const running = p.timerStart > 0 ? Math.floor((Date.now() - p.timerStart) / 60000) : 0;
-    return sum + (p.actualMinutes || 0) + running;
+    let m = p.actualMinutes || 0;
+    if (p.timerStart > 0 && !p.done) {
+      m += Math.floor((Date.now() - p.timerStart) / 60000);
+    }
+    return sum + m;
   }, 0);
 
-  // Calculate days remaining
-  const getDaysLeft = (dateStr: string) => {
-    if (!dateStr) return '--';
-    const target = new Date(dateStr + 'T00:00:00').getTime();
-    const today = new Date(activeDate + 'T00:00:00').getTime();
-    return Math.max(0, Math.ceil((target - today) / (1000 * 60 * 60 * 24)));
+  // Calculate days left for countdowns
+  const getDaysLeft = (targetDate: string) => {
+    if (!targetDate) return '--';
+    const today = new Date(activeDate + 'T00:00:00');
+    const target = new Date(targetDate + 'T00:00:00');
+    const diff = target.getTime() - today.getTime();
+    const days = Math.ceil(diff / (1000 * 3600 * 24));
+    return days >= 0 ? days : 0;
   };
 
-  const formatTimer = (startMs: number) => {
-    const sec = Math.floor((Date.now() - startMs) / 1000);
+  const formatTimer = (start: number) => {
+    if (!start) return '00:00';
+    const sec = Math.floor((Date.now() - start) / 1000);
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
@@ -56,7 +67,6 @@ export const TodayView: React.FC<TodayViewProps> = ({
   if (forcedMode === 'empty') {
     displayedPlans = [];
   } else if (forcedMode === 'multi') {
-    // Multi mode shows at least two running tasks for demonstration of multi-tasking
     displayedPlans = todayPlans.map((p, idx) => {
       if (idx === 0 || idx === 1) {
         return {
@@ -71,93 +81,81 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
-      {/* 顶部打招呼与土豆吉祥物 */}
-      <div className="flex items-center justify-between pt-1">
-        <div>
-          <h1 className="text-2xl font-bold text-ink-main flex items-center gap-2">
-            今日日程
-          </h1>
-          <p className="text-xs text-ink-muted mt-1">
-            从事项库挑选今天要完成的任务，正向累计学习用时
-          </p>
+      {/* 1. 1:1 还原原设计：浅鼠尾草绿 65分钟大汇总卡 + 右下角读书土豆 (Pose 1) (Fixes A08) */}
+      <div className="relative bg-[#E5ECD9] border border-[#DDE5CE] rounded-[24px] p-5 overflow-hidden shadow-soft">
+        {/* 背景大圆形底斑 */}
+        <div
+          className="absolute -top-10 -right-10 w-44 h-44 rounded-full pointer-events-none"
+          style={{ background: '#EDF1E2' }}
+        />
+
+        {/* 左侧内容区 */}
+        <div className="relative z-10 max-w-[210px]">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[#69785B] mb-1">
+            <Sparkles size={13} className="text-sage" />
+            <span>今日已累计学习</span>
+          </div>
+
+          <div className="flex items-baseline gap-1 my-0.5">
+            <span className="text-5xl font-extrabold text-ink-main font-mono tracking-tight">
+              {totalMinutes}
+            </span>
+            <span className="text-sm font-semibold text-[#69785B]">分钟</span>
+          </div>
+
+          <div className="text-xs text-[#657657] mt-1.5 font-medium">
+            <strong>{doneCount} / {displayedPlans.length}</strong> 项日程已完成
+          </div>
         </div>
-        <div className="cursor-pointer active:scale-95 transition-transform">
-          <PotatoSprite pose={0} size={70} />
+
+        {/* 右侧摆放读书土豆 (Pose 1) */}
+        <div className="absolute right-3 -bottom-2 z-10 pointer-events-none select-none">
+          <PotatoSprite pose={1} size={106} />
         </div>
       </div>
 
-      {/* 三考试倒计时横排卡片 */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* 2. 原设计次序：倒计时轻量网格紧随大汇总卡下方 (Fixes A08) */}
+      <div className="bg-paper border border-line rounded-2xl p-2.5 shadow-sm grid grid-cols-3 divide-x divide-line/70">
         {state.countdowns.map((cd, idx) => {
           const days = getDaysLeft(cd.date);
           return (
-            <Card
+            <div
               key={cd.id}
               onClick={() => onOpenCountdownEdit(idx)}
-              className="p-3 bg-paper border-line text-center hover:border-sage transition-colors"
+              className="px-2 py-1 text-center cursor-pointer hover:bg-cream/50 rounded-xl transition-colors"
             >
-              <div className="text-xs text-ink-muted font-medium">{cd.name}</div>
-              <div className="text-xl font-bold text-sage my-0.5 font-mono">
-                {days} <span className="text-xs font-normal text-ink-muted">天</span>
+              <div className="text-[11px] text-ink-muted font-medium">{cd.name}</div>
+              <div className="text-lg font-extrabold text-sage font-mono my-0.5">
+                {days} <span className="text-[11px] font-normal text-ink-muted">天</span>
               </div>
               <div className="text-[10px] text-ink-muted/80 truncate">
-                {cd.date || '点击设置'}
+                {cd.date || '设置日期'}
               </div>
-            </Card>
+            </div>
           );
         })}
       </div>
 
-      {/* 今日进度概览卡片 */}
-      <Card className="p-4 bg-gradient-to-br from-paper to-cream/60">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-bold text-ink-main">今日备考概览</div>
-          <Tag variant="sage">
-            {doneCount}/{displayedPlans.length} 完成
-          </Tag>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-cream/50 rounded-xl p-3 border border-line/70">
-            <div className="text-xs text-ink-muted flex items-center gap-1">
-              <CheckCircle2 size={13} className="text-sage" />
-              已完成任务
-            </div>
-            <div className="text-xl font-bold text-ink-main mt-1 font-mono">
-              {doneCount} <span className="text-xs font-normal text-ink-muted">/ {displayedPlans.length} 项</span>
-            </div>
-          </div>
-          <div className="bg-cream/50 rounded-xl p-3 border border-line/70">
-            <div className="text-xs text-ink-muted flex items-center gap-1">
-              <Clock size={13} className="text-potato-dark" />
-              实际学习用时
-            </div>
-            <div className="text-xl font-bold text-ink-main mt-1 font-mono">
-              {totalMinutes} <span className="text-xs font-normal text-ink-muted">分钟</span>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* 计划列表头部与操作 */}
+      {/* 3. 待执行日程列表头部 */}
       <div className="flex items-center justify-between pt-1">
         <h2 className="text-base font-bold text-ink-main flex items-center gap-1.5">
-          <span>待执行日程</span>
+          <span>今日日程</span>
           <span className="text-xs font-normal text-ink-muted">({displayedPlans.length})</span>
         </h2>
         <Button variant="primary" size="sm" onClick={onOpenAddPlan}>
           <Plus size={14} />
-          从事项库添加
+          从事项库挑选
         </Button>
       </div>
 
-      {/* 计划列表 */}
+      {/* 4. 计划列表 */}
       {displayedPlans.length === 0 ? (
         <Card className="py-12 text-center bg-paper/80 border-dashed border-line">
           <div className="flex justify-center mb-3">
             <PotatoSprite pose={7} size={84} />
           </div>
           <div className="text-base font-bold text-ink-main mb-1">今天还没有日程</div>
-          <p className="text-xs text-ink-muted max-w-[240px] mx-auto mb-4">
+          <p className="text-xs text-ink-muted max-w-[240px] mx-auto mb-4 leading-relaxed">
             从题本、网课或自定义事项库中挑选一项加入今天吧
           </p>
           <Button variant="primary" size="md" onClick={onOpenAddPlan}>
@@ -166,13 +164,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </Button>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3.5">
           {displayedPlans.map(plan => {
             const isRunning = plan.timerStart > 0;
             return (
               <Card
                 key={plan.id}
-                className={`p-3.5 border transition-all ${
+                className={`p-4 border transition-all rounded-[20px] ${
                   plan.done
                     ? 'bg-[#F8FAF5] border-sage-light opacity-90'
                     : isRunning
@@ -180,88 +178,115 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     : 'bg-paper border-line'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
+                {/* 顶栏：标签 + 标题 + 右上角操作 */}
+                <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                       <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
                         {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
                       </Tag>
                       <Tag variant="gray">{plan.subject}</Tag>
-                      {plan.done && (
-                        <Tag variant="sage">已完成</Tag>
-                      )}
+                      {plan.done && <Tag variant="sage">已完成</Tag>}
                     </div>
+
                     <h3
                       onClick={() => !plan.done && onOpenFocus(plan)}
-                      className={`text-sm font-bold truncate cursor-pointer hover:text-sage transition-colors ${
+                      className={`text-base font-bold truncate cursor-pointer hover:text-sage transition-colors ${
                         plan.done ? 'line-through text-ink-muted' : 'text-ink-main'
                       }`}
                     >
                       {plan.name}
                     </h3>
-                    <div className="text-xs text-ink-muted mt-1 flex items-center gap-2">
-                      <span>计划 {plan.plannedMinutes} 分钟</span>
-                      <span>·</span>
-                      <span>已累计 {plan.actualMinutes} 分钟</span>
-                    </div>
-
-                    {/* 运行中即时计时提示 */}
-                    {isRunning && (
-                      <div className="mt-2.5 inline-flex items-center gap-2 bg-sage-light px-2.5 py-1 rounded-md text-sage-dark font-mono text-xs font-bold animate-pulse">
-                        <Clock size={12} />
-                        <span>正向计时中: {formatTimer(plan.timerStart)}</span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* 快捷按钮操作区 */}
-                  <div className="flex items-center gap-1.5 shrink-0 self-center">
-                    {!plan.done ? (
-                      <>
-                        {isRunning ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => pauseTimer(plan.id)}
-                            title="暂停计时"
-                          >
-                            <Pause size={14} className="text-sage" />
-                            暂停
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => startTimer(plan.id)}
-                            title="开始计时"
-                          >
-                            <Play size={14} className="text-sage" />
-                            计时
-                          </Button>
-                        )}
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => onOpenComplete(plan)}
-                        >
-                          完成
-                        </Button>
-                      </>
+                  {/* 右上角更多操作按钮 */}
+                  <button
+                    onClick={() => {
+                      if (onOpenDeleteConfirm) {
+                        onOpenDeleteConfirm(plan);
+                      } else {
+                        deletePlan(plan.id);
+                      }
+                    }}
+                    className="p-1.5 text-ink-muted hover:text-alarm rounded-lg hover:bg-black/5 shrink-0"
+                    title="移除日程"
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                </div>
+
+                {/* 次行：计划与累计指标 */}
+                <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
+                  <span>计划 {plan.plannedMinutes} 分钟</span>
+                  <span>·</span>
+                  <span>已累计 {plan.actualMinutes} 分钟</span>
+                </div>
+
+                {/* 正在计时状态：原版大数字行展示 (Fixes A08) */}
+                {isRunning && (
+                  <div
+                    onClick={() => onOpenFocus(plan)}
+                    className="mt-3 p-2.5 bg-sage-light/70 rounded-xl flex items-center justify-between cursor-pointer hover:bg-sage-light transition-colors"
+                  >
+                    <div className="flex items-center gap-2 text-xs font-bold text-sage-dark">
+                      <span className="w-2.5 h-2.5 rounded-full bg-sage animate-ping" />
+                      <span>正在专注进行中</span>
+                    </div>
+                    <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
+                      {formatTimer(plan.timerStart)}
+                    </div>
+                  </div>
+                )}
+
+                {/* 底部操作区：原版 1:1 双大按钮铺满卡片底部 (Fixes A08) */}
+                {!plan.done ? (
+                  <div className="grid grid-cols-2 gap-2.5 mt-3.5 pt-2 border-t border-line/50">
+                    {isRunning ? (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        fullWidth
+                        onClick={() => pauseTimer(plan.id)}
+                      >
+                        <Pause size={16} className="text-sage" />
+                        暂停计时
+                      </Button>
                     ) : (
-                      <span className="text-xs text-sage font-medium flex items-center gap-1 py-1 px-2 bg-sage-light rounded-md">
-                        <CheckCircle2 size={13} />
-                        已登记
-                      </span>
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        fullWidth
+                        onClick={() => startTimer(plan.id)}
+                      >
+                        <Play size={16} className="text-sage" />
+                        开始计时
+                      </Button>
                     )}
-                    <button
-                      onClick={() => deletePlan(plan.id)}
-                      className="p-2 text-ink-muted hover:text-alarm rounded-lg hover:bg-black/5"
-                      title="删除日程"
+
+                    <Button
+                      variant="primary"
+                      size="md"
+                      fullWidth
+                      onClick={() => onOpenComplete(plan)}
                     >
-                      <Trash2 size={15} />
+                      <CheckCircle2 size={16} />
+                      完成登记
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="mt-3 pt-2 border-t border-line/40 flex items-center justify-between text-xs text-sage font-medium">
+                    <span className="flex items-center gap-1">
+                      <CheckCircle2 size={14} />
+                      今日学习目标已达成
+                    </span>
+                    <button
+                      onClick={() => onOpenComplete(plan)}
+                      className="text-ink-muted hover:text-ink-main underline text-[11px]"
+                    >
+                      查看登记总结
                     </button>
                   </div>
-                </div>
+                )}
               </Card>
             );
           })}

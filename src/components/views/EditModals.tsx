@@ -3,7 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
 import { SUBJECTS, Subject, Book, Course, WrongRecord } from '../../types';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompressor';
 
 /* =========================================================================
    1. Add Plan Modal (add-plan: 12:1867)
@@ -511,19 +512,26 @@ export const PhotoImportModal: React.FC<{
   const [bookId, setBookId] = useState(state.books[0]?.id || '');
   const [note, setNote] = useState('');
   const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const [isCompressing, setIsCompressing] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        // Simple client compression simulation
-        setPreviewImages(prev => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
+    setIsCompressing(true);
+    try {
+      // Real Canvas compression: limit to max 1200px, quality 0.75, keeping text sharp while shrinking from 5-10MB to ~80-120KB (Fixes A01)
+      const compressedList = await Promise.all(
+        files.map(file => compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.75 }))
+      );
+      setPreviewImages(prev => [...prev, ...compressedList]);
+    } catch (err: any) {
+      console.error('Image compression failed:', err);
+      alert(`照片压缩处理失败: ${err?.message || '未知错误'}`);
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
+    }
   };
 
   const handleAddSample = () => {
@@ -541,7 +549,15 @@ export const PhotoImportModal: React.FC<{
       alert('请选择至少一张错题照片');
       return;
     }
-    addWrongRecords(bookId, note, previewImages);
+
+    // Attempt persistent write with safety check (Fixes A01)
+    const result = addWrongRecords(bookId, note, previewImages);
+    if (!result.success) {
+      alert(result.error || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
+      // Keep user's input intact without closing modal
+      return;
+    }
+
     onToast(`成功归档 ${previewImages.length} 张错题照片！`);
     setPreviewImages([]);
     setNote('');
@@ -572,10 +588,16 @@ export const PhotoImportModal: React.FC<{
               <span className="text-xs text-ink-muted">点击选择系统相册图片</span>
               <input type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
             </label>
-            <Button variant="secondary" size="sm" onClick={handleAddSample} className="shrink-0">
+            <Button variant="secondary" size="sm" onClick={handleAddSample} className="shrink-0" disabled={isCompressing}>
               加入示例错题
             </Button>
           </div>
+          {isCompressing && (
+            <div className="flex items-center gap-1.5 text-xs text-sage mt-2">
+              <Loader2 size={13} className="animate-spin" />
+              <span>正在智能压缩并缩放照片（保留字迹，节约内存）...</span>
+            </div>
+          )}
         </div>
 
         {/* 缩略图预览网格 */}

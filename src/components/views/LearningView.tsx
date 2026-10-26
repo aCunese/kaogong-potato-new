@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Button, Tag, Segment, ProgressBar } from '../common/UIComponents';
@@ -24,6 +24,13 @@ export const LearningView: React.FC<LearningViewProps> = ({
 }) => {
   const { state, updateLibraryMinutes, quickAddPlan } = useApp();
   const [subTab, setSubTab] = useState<LearningSubTab>(initialSubTab);
+
+  // Sync internal subTab whenever parent initialSubTab changes (Fixes A14)
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   const subTabOptions = [
     { label: '题本进度', value: 'books' },

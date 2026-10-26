@@ -4,10 +4,17 @@ import { AlertTriangle, Trash2, RotateCcw, UploadCloud, DownloadCloud, LogOut, F
 
 interface ConfirmModalsViewProps {
   onBack: () => void;
+  initialActiveModal?: string | null;
 }
 
-export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({ onBack }) => {
-  const [activeModal, setActiveModal] = useState<string | null>(null);
+export const ConfirmModalsView: React.FC<ConfirmModalsViewProps> = ({ onBack, initialActiveModal = null }) => {
+  const [activeModal, setActiveModal] = useState<string | null>(initialActiveModal);
+
+  React.useEffect(() => {
+    if (initialActiveModal) {
+      setActiveModal(initialActiveModal);
+    }
+  }, [initialActiveModal]);
 
   const confirmItems = [
     {

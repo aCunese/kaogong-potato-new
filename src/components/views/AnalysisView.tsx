@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
@@ -18,27 +18,39 @@ const SUBJECT_COLORS: Record<Subject, string> = {
 
 interface AnalysisViewProps {
   initialSubTab?: AnalysisSubTab;
+  selectedMonth?: string;
   onOpenMonthPicker: () => void;
   onOpenLegendDetail: () => void;
 }
 
 export const AnalysisView: React.FC<AnalysisViewProps> = ({
   initialSubTab = 'overall',
+  selectedMonth: controlledMonth,
   onOpenMonthPicker,
   onOpenLegendDetail,
 }) => {
-  const { state } = useApp();
+  const { state, activeDate } = useApp();
   const [subTab, setSubTab] = useState<AnalysisSubTab>(initialSubTab);
   const [range, setRange] = useState<'30' | '90' | 'all'>('30');
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
+  const [localMonth, setLocalMonth] = useState<string>(activeDate.slice(0, 7) || '2026-10');
 
-  // Filter records by range for overall
+  const selectedMonth = controlledMonth || localMonth;
+
+  // Sync internal subTab whenever initialSubTab prop updates (Fixes A14)
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  // Filter records by range for overall with dynamic current timestamp (Fixes A09)
   const getOverallRecords = () => {
     if (range === 'all') return state.records;
-    const now = new Date('2026-10-25T23:59:59');
-    const days = parseInt(range);
+    const now = new Date();
+    const days = parseInt(range, 10);
     const startDate = new Date(now.getTime() - (days - 1) * 24 * 3600 * 1000);
-    return state.records.filter(r => new Date(r.date + 'T00:00:00') >= startDate);
+    const startStr = startDate.toISOString().slice(0, 10);
+    return state.records.filter(r => r.date >= startStr);
   };
 
   const overallRecords = getOverallRecords();

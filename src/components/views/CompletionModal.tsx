@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
@@ -10,6 +10,7 @@ interface CompletionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onToast: (msg: string) => void;
+  initialSuccess?: boolean; // For 50-screen direct inspection of complete-success variants (Fixes A07)
 }
 
 export const CompletionModal: React.FC<CompletionModalProps> = ({
@@ -17,13 +18,14 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   isOpen,
   onClose,
   onToast,
+  initialSuccess = false,
 }) => {
   const { completeBookPlan, completeCoursePlan, completeCustomPlan } = useApp();
 
-  // Form states
+  // Form states with dynamic per-task reset (Fixes A12)
   const [questions, setQuestions] = useState<number>(30);
-  const [errors, setErrors] = useState<number>(6);
-  const [actualMinutes, setActualMinutes] = useState<number>(40);
+  const [errors, setErrors] = useState<number>(0);
+  const [actualMinutes, setActualMinutes] = useState<number>(30);
   const [lessons, setLessons] = useState<number>(1);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
@@ -36,6 +38,35 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     minutes: number;
     summary: string;
   } | null>(null);
+
+  // Sync form inputs to current plan on open to eliminate cross-task residue (Fixes A12)
+  useEffect(() => {
+    if (!isOpen || !plan) return;
+
+    if (initialSuccess) {
+      setIsSuccess(true);
+      setLastCompletedData({
+        name: plan.name,
+        type: plan.type,
+        subject: plan.subject,
+        minutes: plan.actualMinutes || plan.plannedMinutes || 40,
+        summary: plan.type === 'book'
+          ? '完成 30 题 · 错题 6 道 · 正确率 80%'
+          : plan.type === 'course'
+          ? '完成 1 讲课时 · 重点笔记已标记'
+          : '今日自定义事项已完成 · 投入专注 30 分钟',
+      });
+      return;
+    }
+
+    const defaultMins = plan.actualMinutes > 0 ? plan.actualMinutes : (plan.plannedMinutes || 30);
+    setActualMinutes(defaultMins);
+    setQuestions(plan.type === 'book' ? 20 : 0);
+    setErrors(0);
+    setLessons(1);
+    setIsSuccess(false);
+    setErrorMsg('');
+  }, [isOpen, plan?.id, initialSuccess]);
 
   if (!isOpen || !plan) return null;
 
@@ -58,7 +89,11 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('错题数不能大于本次做题总数');
         return;
       }
-      completeBookPlan(plan.id, questions, errors, actualMinutes);
+      const res = completeBookPlan(plan.id, questions, errors, actualMinutes);
+      if (!res.success) {
+        setErrorMsg(res.error || '登记失败');
+        return;
+      }
       setLastCompletedData({
         name: plan.name,
         type: 'book',
@@ -69,11 +104,15 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       setIsSuccess(true);
       onToast('刷题登记已保存！');
     } else if (plan.type === 'course') {
-      if (lessons < 0 || actualMinutes < 0) {
-        setErrorMsg('课时数与用时不能为负数');
+      if (lessons <= 0 || actualMinutes < 0) {
+        setErrorMsg('课时数必须大于0，用时不能为负数');
         return;
       }
-      completeCoursePlan(plan.id, lessons, actualMinutes);
+      const res = completeCoursePlan(plan.id, lessons, actualMinutes);
+      if (!res.success) {
+        setErrorMsg(res.error || '登记失败');
+        return;
+      }
       setLastCompletedData({
         name: plan.name,
         type: 'course',
@@ -88,7 +127,11 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         setErrorMsg('学习用时不能为负数');
         return;
       }
-      completeCustomPlan(plan.id, actualMinutes);
+      const res = completeCustomPlan(plan.id, actualMinutes);
+      if (!res.success) {
+        setErrorMsg(res.error || '登记失败');
+        return;
+      }
       setLastCompletedData({
         name: plan.name,
         type: 'custom',

@@ -20,7 +20,7 @@ export const FocusModal: React.FC<FocusModalProps> = ({
   onComplete,
   variantOverride,
 }) => {
-  const { startTimer, pauseTimer } = useApp();
+  const { state, startTimer, pauseTimer } = useApp();
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -31,17 +31,20 @@ export const FocusModal: React.FC<FocusModalProps> = ({
 
   if (!isOpen || !plan) return null;
 
-  const isActuallyRunning = plan.timerStart > 0 && variantOverride !== 'paused';
-  const isPaused = plan.timerStart === 0 || variantOverride === 'paused';
+  // Derive live plan state dynamically from context by ID (Fixes A03)
+  const livePlan = state.plans.find(p => p.id === plan.id) || plan;
 
-  const elapsedSeconds = isActuallyRunning ? Math.floor((Date.now() - plan.timerStart) / 1000) : 0;
-  const currentActual = (plan.actualMinutes || 0) + Math.floor(elapsedSeconds / 60);
+  const isActuallyRunning = livePlan.timerStart > 0 && variantOverride !== 'paused';
+  const isPaused = livePlan.timerStart === 0 || variantOverride === 'paused';
+
+  const elapsedSeconds = isActuallyRunning ? Math.floor((Date.now() - livePlan.timerStart) / 1000) : 0;
+  const currentActual = (livePlan.actualMinutes || 0) + Math.floor(elapsedSeconds / 60);
 
   const displayMinutes = Math.floor(elapsedSeconds / 60);
   const displaySeconds = elapsedSeconds % 60;
   const formattedTime = `${String(displayMinutes).padStart(2, '0')}:${String(displaySeconds).padStart(2, '0')}`;
 
-  const poseIndex = plan.type === 'course' ? 2 : plan.type === 'custom' ? 7 : 1;
+  const poseIndex = livePlan.type === 'course' ? 2 : livePlan.type === 'custom' ? 7 : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in">
@@ -60,15 +63,15 @@ export const FocusModal: React.FC<FocusModalProps> = ({
 
         {/* 标签 */}
         <div className="flex items-center gap-2 mb-3 mt-1">
-          <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
-            {plan.type === 'book' ? '题本刷题' : plan.type === 'course' ? '听网课' : '自定义事项'}
+          <Tag variant={livePlan.type === 'book' ? 'potato' : livePlan.type === 'course' ? 'course' : 'gray'}>
+            {livePlan.type === 'book' ? '题本刷题' : livePlan.type === 'course' ? '听网课' : '自定义事项'}
           </Tag>
-          <Tag variant="gray">{plan.subject}</Tag>
+          <Tag variant="gray">{livePlan.subject}</Tag>
         </div>
 
         {/* 任务名称 */}
         <h2 className="text-lg font-bold text-ink-main max-w-[260px] truncate mb-4">
-          {plan.name}
+          {livePlan.name}
         </h2>
 
         {/* 土豆吉祥物 */}
@@ -94,10 +97,10 @@ export const FocusModal: React.FC<FocusModalProps> = ({
         {/* 大时钟数字 */}
         <div className="my-3">
           <div className="text-5xl font-extrabold text-ink-main font-mono tracking-tight">
-            {isActuallyRunning ? formattedTime : `${String(plan.actualMinutes || 0).padStart(2, '0')}:00`}
+            {isActuallyRunning ? formattedTime : `${String(livePlan.actualMinutes || 0).padStart(2, '0')}:00`}
           </div>
           <div className="text-xs text-ink-muted mt-1.5 flex items-center justify-center gap-2">
-            <span>计划 {plan.plannedMinutes} 分钟</span>
+            <span>计划 {livePlan.plannedMinutes} 分钟</span>
             <span>·</span>
             <span>累计已学 {currentActual} 分钟</span>
           </div>
@@ -110,7 +113,7 @@ export const FocusModal: React.FC<FocusModalProps> = ({
               variant="secondary"
               size="lg"
               fullWidth
-              onClick={() => pauseTimer(plan.id)}
+              onClick={() => pauseTimer(livePlan.id)}
             >
               <Pause size={18} className="text-sage" />
               暂停
@@ -120,7 +123,7 @@ export const FocusModal: React.FC<FocusModalProps> = ({
               variant="primary"
               size="lg"
               fullWidth
-              onClick={() => startTimer(plan.id)}
+              onClick={() => startTimer(livePlan.id)}
             >
               <Play size={18} />
               继续计时
@@ -132,8 +135,16 @@ export const FocusModal: React.FC<FocusModalProps> = ({
             size="lg"
             fullWidth
             onClick={() => {
-              if (isActuallyRunning) pauseTimer(plan.id);
-              onComplete(plan);
+              let finalPlan = livePlan;
+              if (isActuallyRunning) {
+                pauseTimer(livePlan.id);
+                finalPlan = {
+                  ...livePlan,
+                  timerStart: 0,
+                  actualMinutes: currentActual,
+                };
+              }
+              onComplete(finalPlan);
             }}
           >
             <CheckCircle2 size={18} />

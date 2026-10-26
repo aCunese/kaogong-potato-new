@@ -5,10 +5,15 @@ import { AlertCircle, CheckCircle2, CloudOff, RefreshCw, AlertTriangle, ShieldAl
 
 interface StatesPreviewProps {
   onBack: () => void;
+  initialTab?: 'empty' | 'sync' | 'form';
 }
 
-export const StatesPreviewView: React.FC<StatesPreviewProps> = ({ onBack }) => {
-  const [tab, setTab] = useState<'empty' | 'sync' | 'form'>('empty');
+export const StatesPreviewView: React.FC<StatesPreviewProps> = ({ onBack, initialTab = 'empty' }) => {
+  const [tab, setTab] = useState<'empty' | 'sync' | 'form'>(initialTab);
+
+  React.useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   return (
     <div className="space-y-4 pb-24">
