@@ -303,16 +303,17 @@ describe('Milestone 3: Frontend Back Contract (window.handleBack)', () => {
 });
 
 describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
-  it('DownloadApkModal states offline static phase and has disabled download button', () => {
+  it('DownloadApkModal delivers official Android Release APK download link and v1.0.1 info', () => {
     const html = renderToStaticMarkup(
       React.createElement(DownloadApkModal, {
         isOpen: true,
         onClose: () => {},
       })
     );
-    expect(html).toContain('当前阶段为纯前端离线阶段，Android 独立安装包将在后续真机打包阶段生成交付。');
-    expect(html).toContain('未生成安装包（纯前端离线阶段）');
-    expect(html).toContain('disabled');
+    expect(html).toContain('考公工作台 · 安卓正式独立版');
+    expect(html).toContain('/api/download/apk');
+    expect(html).toContain('立即下载 Android 安装包 (APK)');
+    expect(html).toContain('v1.0.1');
   });
 
   it('SyncModal clearly states "单机离线模式（云端服务未接入）"', () => {

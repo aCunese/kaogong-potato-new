@@ -29,3 +29,7 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Android Release Keystore & Secrets
+*.keystore
+release/*.keystore

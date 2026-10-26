@@ -49,6 +49,18 @@ describe('Backend Server API & Security Suite', () => {
     assert.equal(hJson.ok, true);
     assert.equal(hJson.status, 'healthy');
     assert.ok(hJson.generationId.startsWith('gen_'));
+
+    // Test /api/download/apk endpoint
+    const apkRes = await fetch(`${baseUrl}/api/download/apk`);
+    // Should return 200 (if file exists) or 404 with structured JSON
+    assert.ok(apkRes.status === 200 || apkRes.status === 404);
+    if (apkRes.status === 200) {
+      assert.equal(apkRes.headers.get('content-type'), 'application/vnd.android.package-archive');
+      assert.ok(apkRes.headers.get('content-disposition')?.includes('kaogong-potato-v1.0.1.apk'));
+    } else {
+      const apkJson = await apkRes.json();
+      assert.equal(apkJson.code, 'APK_NOT_FOUND');
+    }
   });
 
   test('Single-use invitation registration, Argon2id hashing and uniqueness', async () => {

@@ -16,7 +16,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
-import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * 考公工作台 · Android WebView 生产宿主容器
@@ -27,7 +26,7 @@ import androidx.appcompat.app.AppCompatActivity;
  * 3. 拦截 Android 物理返回键，优先交付网页端弹窗与多级视图处理 (window.handleBack)；
  * 4. 离线依赖 Service Worker 本地持久化缓存，保障断网环境冷启动与查看。
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private final static int FILECHOOSER_RESULTCODE = 101;

@@ -84,6 +84,28 @@ app.get('/api/health', (_req: Request, res: Response) => {
   }
 });
 
+app.get('/api/download/apk', (_req: Request, res: Response) => {
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'release', 'apk', 'kaogong-potato-v1.0.1.apk'),
+    path.resolve(process.cwd(), 'release', 'apk', 'app-release.apk'),
+    path.resolve(process.cwd(), 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk'),
+  ];
+
+  for (const apkPath of possiblePaths) {
+    if (fs.existsSync(apkPath)) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="kaogong-potato-v1.0.1.apk"');
+      return res.sendFile(apkPath);
+    }
+  }
+
+  res.status(404).json({
+    ok: false,
+    code: 'APK_NOT_FOUND',
+    message: 'APK 安装包尚未放置于 release/apk 目录。',
+  });
+});
+
 // ----------------------------------------------------------------------
 // Auth Endpoints (/api/auth/*)
 // ----------------------------------------------------------------------

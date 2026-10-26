@@ -40,9 +40,10 @@ RUN apt-get purge -y --auto-remove python3 make g++ && \
 COPY --from=builder /app/dist ./dist
 COPY server/ ./server
 COPY tsconfig.json ./
+COPY tsconfig.server.json ./
 
 # Setup data directory permissions for non-root node user
-RUN mkdir -p /app/data/attachments /app/data/backups && \
+RUN mkdir -p /app/data/attachments /app/data/backups /app/release/apk && \
     chown -R node:node /app
 
 USER node
