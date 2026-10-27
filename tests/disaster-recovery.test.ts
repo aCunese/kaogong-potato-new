@@ -3,11 +3,164 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import Database, { Database as DatabaseType } from 'better-sqlite3';
+import { BLANK_STATE } from '../src/constants/initialData';
 
 describe('Disaster Recovery & Hot Backup Drill', () => {
   const testRoot = path.resolve(process.cwd(), 'tests', '.tmp_dr_' + Date.now());
   const testDataDir = path.join(testRoot, 'live_data');
   const testBackupDir = path.join(testRoot, 'backup_target');
+
+  function initTestAppDb(dbPath: string): DatabaseType {
+    const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('foreign_keys = ON');
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS server_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        nickname TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS invites (
+        code TEXT PRIMARY KEY,
+        created_by TEXT NOT NULL,
+        used_by TEXT,
+        used_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        csrf_token TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS reset_codes (
+        code TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS workspaces (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL DEFAULT 0,
+        generation_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        schema_version INTEGER NOT NULL DEFAULT 3,
+        seed_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_idempotency (
+        user_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        expected_revision INTEGER NOT NULL,
+        result_revision INTEGER NOT NULL,
+        payload_sha256 TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, request_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS media_records (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_history (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_media_user ON media_records(user_id);
+      CREATE INDEX IF NOT EXISTS idx_history_user_rev ON workspace_history(user_id, revision);
+      CREATE INDEX IF NOT EXISTS idx_history_user_created ON workspace_history(user_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_idempotency_user_created ON sync_idempotency(user_id, created_at);
+    `);
+
+    try {
+      db.exec('ALTER TABLE workspaces ADD COLUMN seed_version INTEGER NOT NULL DEFAULT 0');
+    } catch {}
+    try {
+      db.exec('ALTER TABLE workspaces ADD COLUMN init_choice TEXT');
+    } catch {}
+
+    const initialGenId = `gen_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+    db.prepare("INSERT OR REPLACE INTO server_meta (key, value) VALUES ('generation_id', ?)").run(initialGenId);
+
+    return db;
+  }
+
+  function writeValidManifest(
+    targetDir: string,
+    dbFile: string,
+    attachments: Array<{ filename: string; sha256: string; byteSize: number }> = [],
+    overrides?: Record<string, any>
+  ) {
+    const dbBuf = fs.readFileSync(dbFile);
+    const dbHash = crypto.createHash('sha256').update(dbBuf).digest('hex');
+    const manifest = {
+      version: '1.0.4',
+      schemaVersion: 3,
+      createdAt: new Date().toISOString(),
+      generationId: 'gen_test',
+      database: {
+        filename: 'potato.db',
+        sha256: dbHash,
+        byteSize: dbBuf.length,
+      },
+      attachments,
+      ...overrides,
+    };
+    fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+    return manifest;
+  }
+
+  function populateTestUser(db: DatabaseType, userId = 'u_test_1', username = 'testuser') {
+    db.prepare(`
+      INSERT INTO users (id, username, nickname, password_hash, created_at, updated_at)
+      VALUES (?, ?, ?, 'hash123', datetime('now'), datetime('now'))
+    `).run(userId, username, username);
+
+    const genId = (db.prepare("SELECT value FROM server_meta WHERE key = 'generation_id'").get() as any)?.value || 'gen_test';
+    db.prepare(`
+      INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, seed_version, updated_at)
+      VALUES (?, 1, ?, ?, 3, 0, datetime('now'))
+    `).run(userId, genId, JSON.stringify({
+      ...BLANK_STATE,
+      profile: { name: username, username, avatar: 'pose-1' },
+    }));
+  }
 
   before(() => {
     fs.mkdirSync(testDataDir, { recursive: true });
@@ -26,11 +179,10 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
   });
 
   it('performs end-to-end hot backup, simulates disaster, executes restore and rotates generation ID', async () => {
-    const { getDb, getCurrentGenerationId, rotateGenerationId, backupDatabaseOnline, getAttachmentsDir, closeDb } = await import('../server/db');
+    const { getDb, getCurrentGenerationId, backupDatabaseOnline, closeDb } = await import('../server/db');
     const { hashPassword, createSession } = await import('../server/auth');
     const { syncUserWorkspace, getUserWorkspace } = await import('../server/workspace');
     const { saveUserMedia, getUserMediaFile } = await import('../server/media');
-    const { BLANK_STATE } = await import('../src/constants/initialData');
 
     const db = getDb();
     const initialGenId = getCurrentGenerationId();
@@ -44,7 +196,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
     `).run(userId, 'dr_tester', '灾备演练测试员', passwordHash);
 
-    const session = createSession(userId);
+    createSession(userId);
 
     // Initial state: Revision 1
     const initialWorkspace = {
@@ -90,7 +242,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     const attHash = crypto.createHash('sha256').update(attBuf).digest('hex');
 
     const manifest = {
-      version: '1.0.0',
+      version: '1.0.4',
       schemaVersion: 3,
       createdAt: new Date().toISOString(),
       generationId: initialGenId,
@@ -153,14 +305,12 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     assert.ok(restoredAtt && fs.existsSync(restoredAtt.diskPath));
 
     // 9. VERIFY STALE CLIENT PROTECTION:
-    // A client holding the dirty state (attempting expectedRevision 1 or with old generation ID)
-    // is blocked from silently overwriting the restored state!
     const stalePush = syncUserWorkspace({
       userId,
-      expectedRevision: 2, // client thinks server is at rev 2
+      expectedRevision: 2,
       requestId: 'stale_req_after_dr',
       schemaVersion: 3,
-      generationId: initialGenId, // client sends old generation
+      generationId: initialGenId,
       state: dirtyWorkspace as any,
     });
 
@@ -177,7 +327,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     const { getDb, closeDb } = await import('../server/db');
     const db = getDb();
 
-    // Insert a dangling media_records entry that points to a non-existent file on disk
     const fakeMediaId = 'media_missing_' + Date.now();
     const fakeFilename = 'non_existent_attachment.png';
     db.prepare(`
@@ -187,7 +336,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     closeDb();
 
-    // Run hot-backup via child_process
     const { execSync } = await import('node:child_process');
     const faultyBackupDir = path.join(testRoot, 'faulty_backup_' + Date.now());
 
@@ -206,7 +354,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     assert.equal(failed, true, 'hot-backup must fail and reject backup when attachment is missing');
     assert.equal(fs.existsSync(faultyBackupDir), false, 'incomplete backup directory must be deleted');
 
-    // Clean up the fake row so it doesn't affect other tests
     const db2 = getDb();
     db2.prepare('DELETE FROM media_records WHERE id = ?').run(fakeMediaId);
     closeDb();
@@ -214,34 +361,23 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
   it('restore script strictly rejects backup if an attachment referenced in db is missing', async () => {
     const { execSync } = await import('node:child_process');
-    const Database = (await import('better-sqlite3')).default;
 
-    // Create a mock backup directory with a database that references an attachment, but the attachment is missing
     const mockBackupDir = path.join(testRoot, 'mock_incomplete_backup');
     const mockAttDir = path.join(mockBackupDir, 'attachments');
     fs.mkdirSync(mockAttDir, { recursive: true });
 
     const mockDbFile = path.join(mockBackupDir, 'potato.db');
-    const mockDb = new Database(mockDbFile);
-    mockDb.exec(`
-      CREATE TABLE media_records (
-        id TEXT PRIMARY KEY,
-        filename TEXT NOT NULL,
-        byte_size INTEGER NOT NULL,
-        sha256 TEXT NOT NULL
-      );
-      INSERT INTO media_records VALUES ('m_missing', 'ghost.png', 100, 'somehash');
-    `);
+    const mockDb = initTestAppDb(mockDbFile);
+    populateTestUser(mockDb, 'u_missing_att', 'user_missing');
+    mockDb.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES ('m_missing', 'u_missing_att', 'ghost.png', 'ghost.png', 'image/png', 100, 'somehash', datetime('now'))
+    `).run();
     mockDb.close();
 
-    const dbBuf = fs.readFileSync(mockDbFile);
-    const dbHash = crypto.createHash('sha256').update(dbBuf).digest('hex');
-    const manifest = {
-      version: '1.0.1',
-      database: { filename: 'potato.db', sha256: dbHash },
-      attachments: [],
-    };
-    fs.writeFileSync(path.join(mockBackupDir, 'manifest.json'), JSON.stringify(manifest), 'utf8');
+    writeValidManifest(mockBackupDir, mockDbFile, [
+      { filename: 'ghost.png', sha256: 'somehash', byteSize: 100 },
+    ]);
 
     let restoreFailed = false;
     try {
@@ -260,7 +396,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
   it('injected attachment copy / verification failure in staging aborts restore with non-zero exit and preserves original DB and attachments', async () => {
     const { execSync } = await import('node:child_process');
-    const Database = (await import('better-sqlite3')).default;
 
     const testDir = path.join(testRoot, 'injected_failure_test');
     const liveDir = path.join(testDir, 'live_data');
@@ -270,40 +405,33 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // 1. Prepare live database with initial user and attachment
     const origDbFile = path.join(liveDir, 'potato.db');
-    const origDb = new Database(origDbFile);
-    origDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      CREATE TABLE workspaces (user_id TEXT PRIMARY KEY, revision INTEGER, generation_id TEXT);
-      CREATE TABLE media_records (id TEXT PRIMARY KEY, user_id TEXT, filename TEXT, byte_size INTEGER, sha256 TEXT);
-      CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT);
-      INSERT INTO users VALUES ('u_orig', 'orig_user');
-      INSERT INTO workspaces VALUES ('u_orig', 10, 'gen_orig');
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_orig');
-      INSERT INTO media_records VALUES ('m_orig', 'u_orig', 'original.png', 16, 'orig_hash');
-    `);
-    origDb.close();
+    const origDb = initTestAppDb(origDbFile);
+    populateTestUser(origDb, 'u_orig', 'orig_user');
     const origAttFile = path.join(liveDir, 'attachments', 'original.png');
     const origAttContent = Buffer.from('original-file-bytes-1234');
     fs.writeFileSync(origAttFile, origAttContent);
-    const origDbHash = crypto.createHash('sha256').update(fs.readFileSync(origDbFile)).digest('hex');
     const origAttHash = crypto.createHash('sha256').update(origAttContent).digest('hex');
+    origDb.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES ('m_orig', 'u_orig', 'original.png', 'original.png', 'image/png', ?, ?, datetime('now'))
+    `).run(origAttContent.length, origAttHash);
+    origDb.close();
+    const origDbHash = crypto.createHash('sha256').update(fs.readFileSync(origDbFile)).digest('hex');
 
     // 2. Prepare backup source directory where media_records references a file whose hash doesn't match
     const backupDbFile = path.join(backupDir, 'potato.db');
-    const backupDb = new Database(backupDbFile);
-    backupDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      CREATE TABLE workspaces (user_id TEXT PRIMARY KEY, revision INTEGER, generation_id TEXT);
-      CREATE TABLE media_records (id TEXT PRIMARY KEY, user_id TEXT, filename TEXT, byte_size INTEGER, sha256 TEXT);
-      CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT);
-      INSERT INTO users VALUES ('u_new', 'restored_user');
-      INSERT INTO workspaces VALUES ('u_new', 1, 'gen_backup');
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_backup');
-      INSERT INTO media_records VALUES ('m_corrupt', 'u_new', 'corrupt.png', 20, 'expected_valid_hash_9999');
-    `);
+    const backupDb = initTestAppDb(backupDbFile);
+    populateTestUser(backupDb, 'u_new', 'restored_user');
+    backupDb.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES ('m_corrupt', 'u_new', 'corrupt.png', 'corrupt.png', 'image/png', 20, 'expected_valid_hash_9999', datetime('now'))
+    `).run();
     backupDb.close();
-    // Injected failure: file content has sha256 that does NOT match expected_valid_hash_9999
+
     fs.writeFileSync(path.join(backupDir, 'attachments', 'corrupt.png'), Buffer.from('injected-corrupt-data'));
+    writeValidManifest(backupDir, backupDbFile, [
+      { filename: 'corrupt.png', sha256: 'expected_valid_hash_9999', byteSize: 20 },
+    ]);
 
     // 3. Attempt restore via scripts/restore.sh
     let scriptFailed = false;
@@ -347,7 +475,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
   it('successful offline restore with restoreOffline({ sourceDir, dataDir, offlineConfirmed: true }) correctly stages, rotates generation, revokes sessions, swaps DB atomically, and verifies all attachments', async () => {
     const { restoreOffline } = await import('../server/disasterRecovery');
-    const Database = (await import('better-sqlite3')).default;
 
     const testDir = path.join(testRoot, 'successful_restore_test');
     const liveDir = path.join(testDir, 'live_data');
@@ -357,36 +484,31 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // 1. Pre-existing healthy database in liveDir
     const preDbFile = path.join(liveDir, 'potato.db');
-    const preDb = new Database(preDbFile);
-    preDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT);
-      INSERT INTO users VALUES ('u_old', 'old_user');
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_old');
-    `);
+    const preDb = initTestAppDb(preDbFile);
+    populateTestUser(preDb, 'u_old', 'old_user');
     preDb.close();
 
     // 2. Backup source with valid DB and attachments
     const backupDbFile = path.join(backupDir, 'potato.db');
-    const backupDb = new Database(backupDbFile);
+    const backupDb = initTestAppDb(backupDbFile);
     const attData = Buffer.from('photo-bytes-for-successful-restore');
     const attHash = crypto.createHash('sha256').update(attData).digest('hex');
     fs.writeFileSync(path.join(backupDir, 'attachments', 'pic.png'), attData);
 
-    backupDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      CREATE TABLE workspaces (user_id TEXT PRIMARY KEY, revision INTEGER, generation_id TEXT);
-      CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id TEXT);
-      CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT);
-      CREATE TABLE media_records (id TEXT PRIMARY KEY, user_id TEXT, filename TEXT, original_name TEXT, mime_type TEXT, byte_size INTEGER, sha256 TEXT);
-
-      INSERT INTO users VALUES ('u_restored', 'restored_user');
-      INSERT INTO workspaces VALUES ('u_restored', 5, 'gen_pre_restore');
-      INSERT INTO sessions VALUES ('sess_token_123', 'u_restored');
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_pre_restore');
-      INSERT INTO media_records VALUES ('m_1', 'u_restored', 'pic.png', 'pic.png', 'image/png', ${attData.length}, '${attHash}');
-    `);
+    populateTestUser(backupDb, 'u_restored', 'restored_user');
+    backupDb.prepare(`
+      INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at, last_seen_at)
+      VALUES ('sess_token_123', 'u_restored', 'csrf_123', datetime('now'), datetime('now', '+1 day'), datetime('now'))
+    `).run();
+    backupDb.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES ('m_1', 'u_restored', 'pic.png', 'pic.png', 'image/png', ?, ?, datetime('now'))
+    `).run(attData.length, attHash);
     backupDb.close();
+
+    writeValidManifest(backupDir, backupDbFile, [
+      { filename: 'pic.png', sha256: attHash, byteSize: attData.length },
+    ]);
 
     // 3. Reject if offlineConfirmed is false
     await assert.rejects(
@@ -414,7 +536,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // Workspaces generation updated
     const wsRow = restoredDb.prepare('SELECT revision, generation_id FROM workspaces WHERE user_id = ?').get('u_restored') as any;
-    assert.equal(wsRow.revision, 5);
+    assert.equal(wsRow.revision, 1);
     assert.equal(wsRow.generation_id, res.generationId, 'workspaces.generation_id must be updated to new generationId');
 
     // Meta generation updated
@@ -436,7 +558,6 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
   it('rejects existing attachment with same name but different SHA-256 (同名不同内容直接拒绝)', async () => {
     const { restoreOffline } = await import('../server/disasterRecovery');
-    const Database = (await import('better-sqlite3')).default;
 
     const testDir = path.join(testRoot, 'conflict_attachment_test');
     const liveDir = path.join(testDir, 'live_data');
@@ -446,11 +567,8 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // 1. Live directory has photo.png with content AAA
     const liveDbFile = path.join(liveDir, 'potato.db');
-    const liveDb = new Database(liveDbFile);
-    liveDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      INSERT INTO users VALUES ('u_original', 'orig');
-    `);
+    const liveDb = initTestAppDb(liveDbFile);
+    populateTestUser(liveDb, 'u_original', 'orig');
     liveDb.close();
     const liveDbHash = crypto.createHash('sha256').update(fs.readFileSync(liveDbFile)).digest('hex');
 
@@ -460,18 +578,21 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // 2. Backup directory has photo.png with content BBB
     const backupDbFile = path.join(backupDir, 'potato.db');
-    const backupDb = new Database(backupDbFile);
+    const backupDb = initTestAppDb(backupDbFile);
     const backupPhotoBytes = Buffer.from('CONTENT_VERSION_BBB_DIFFERENT_HASH');
     const backupPhotoHash = crypto.createHash('sha256').update(backupPhotoBytes).digest('hex');
     fs.writeFileSync(path.join(backupDir, 'attachments', 'photo.png'), backupPhotoBytes);
 
-    backupDb.exec(`
-      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-      CREATE TABLE media_records (id TEXT PRIMARY KEY, user_id TEXT, filename TEXT, byte_size INTEGER, sha256 TEXT);
-      INSERT INTO users VALUES ('u_backup', 'backup_user');
-      INSERT INTO media_records VALUES ('m_conflict', 'u_backup', 'photo.png', ${backupPhotoBytes.length}, '${backupPhotoHash}');
-    `);
+    populateTestUser(backupDb, 'u_backup', 'backup_user');
+    backupDb.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES ('m_conflict', 'u_backup', 'photo.png', 'photo.png', 'image/png', ?, ?, datetime('now'))
+    `).run(backupPhotoBytes.length, backupPhotoHash);
     backupDb.close();
+
+    writeValidManifest(backupDir, backupDbFile, [
+      { filename: 'photo.png', sha256: backupPhotoHash, byteSize: backupPhotoBytes.length },
+    ]);
 
     // 3. Attempt restore: must be directly rejected due to attachment conflict
     let failed = false;
@@ -496,5 +617,547 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     const afterDbHash = crypto.createHash('sha256').update(fs.readFileSync(liveDbFile)).digest('hex');
     assert.equal(afterDbHash, liveDbHash, 'live database must not be overwritten');
+  });
+
+  describe('Task 5 Manifest & Application Schema Validation Regressions (S07)', () => {
+    function setupPreservedTarget(baseDir: string) {
+      const liveDir = path.join(baseDir, 'live_data');
+      const backupDir = path.join(baseDir, 'backup_source');
+      fs.mkdirSync(path.join(liveDir, 'attachments'), { recursive: true });
+      fs.mkdirSync(path.join(backupDir, 'attachments'), { recursive: true });
+
+      const liveDbFile = path.join(liveDir, 'potato.db');
+      const liveDb = initTestAppDb(liveDbFile);
+      populateTestUser(liveDb, 'u_target_keeper', 'target_user');
+      liveDb.prepare(`
+        INSERT INTO sessions (token, user_id, csrf_token, created_at, expires_at, last_seen_at)
+        VALUES ('sess_preserved_1', 'u_target_keeper', 'csrf_p1', datetime('now'), datetime('now', '+1 day'), datetime('now'))
+      `).run();
+      const liveAttBytes = Buffer.from('target-keeper-photo');
+      const liveAttHash = crypto.createHash('sha256').update(liveAttBytes).digest('hex');
+      const liveAttFile = path.join(liveDir, 'attachments', 'target_pic.png');
+      fs.writeFileSync(liveAttFile, liveAttBytes);
+      liveDb.prepare(`
+        INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+        VALUES ('m_target', 'u_target_keeper', 'target_pic.png', 'target_pic.png', 'image/png', ?, ?, datetime('now'))
+      `).run(liveAttBytes.length, liveAttHash);
+      liveDb.close();
+
+      const liveDbHash = crypto.createHash('sha256').update(fs.readFileSync(liveDbFile)).digest('hex');
+      const liveDbGen = (() => {
+        const d = new Database(liveDbFile, { readonly: true });
+        const g = (d.prepare("SELECT value FROM server_meta WHERE key = 'generation_id'").get() as any)?.value;
+        d.close();
+        return g;
+      })();
+
+      return {
+        liveDir,
+        backupDir,
+        liveDbFile,
+        liveDbHash,
+        liveDbGen,
+        liveAttFile,
+        liveAttBytes,
+      };
+    }
+
+    function assertTargetPreserved(state: ReturnType<typeof setupPreservedTarget>) {
+      assert.ok(fs.existsSync(state.liveDbFile), 'live db must still exist');
+      const currentDbHash = crypto.createHash('sha256').update(fs.readFileSync(state.liveDbFile)).digest('hex');
+      assert.equal(currentDbHash, state.liveDbHash, 'live db bytes must be completely unchanged');
+
+      const d = new Database(state.liveDbFile, { readonly: true });
+      const currentGen = (d.prepare("SELECT value FROM server_meta WHERE key = 'generation_id'").get() as any)?.value;
+      assert.equal(currentGen, state.liveDbGen, 'live generation must not have rotated on failure');
+
+      const sess = d.prepare('SELECT COUNT(*) as cnt FROM sessions').get() as { cnt: number };
+      assert.equal(sess.cnt, 1, 'live sessions must remain intact on failure');
+      d.close();
+
+      assert.ok(fs.existsSync(state.liveAttFile), 'live attachment must still exist');
+      assert.deepEqual(fs.readFileSync(state.liveAttFile), state.liveAttBytes, 'live attachment bytes must be unchanged');
+
+      const leftovers = fs.readdirSync(state.liveDir).filter(f => f.startsWith('.restore_staging_'));
+      assert.equal(leftovers.length, 0, 'staging directory must be cleaned up');
+    }
+
+    it('rejects restore when manifest.json is missing', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_missing_manifest');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.close();
+      // Do NOT create manifest.json
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /MISSING_MANIFEST/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when manifest.json is corrupt (invalid JSON)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_corrupt_manifest');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.close();
+
+      fs.writeFileSync(path.join(env.backupDir, 'manifest.json'), '{ NOT_VALID_JSON ...');
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /INVALID_MANIFEST/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when manifest schemaVersion is unsupported (e.g. 4 or 2)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_unsupported_schema');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, [], { schemaVersion: 4 });
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /UNSUPPORTED_SCHEMA_VERSION/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when manifest database sha256 does not match potato.db', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_sha_mismatch');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.close();
+
+      const realStat = fs.statSync(backupDbFile);
+      writeValidManifest(env.backupDir, backupDbFile, [], {
+        database: { filename: 'potato.db', sha256: 'deadbeef0000111122223333444455556666777788889999aaaabbbbccccdddd', byteSize: realStat.size },
+      });
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /SOURCE_DB_HASH_MISMATCH/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when manifest database byteSize does not match potato.db', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_size_mismatch');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.close();
+
+      const realBuf = fs.readFileSync(backupDbFile);
+      const realHash = crypto.createHash('sha256').update(realBuf).digest('hex');
+      writeValidManifest(env.backupDir, backupDbFile, [], {
+        database: { filename: 'potato.db', sha256: realHash, byteSize: realBuf.length + 9999 },
+      });
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /SOURCE_DB_SIZE_MISMATCH/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore of an empty SQLite database (non-app database)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_empty_sqlite');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const emptyDb = new Database(backupDbFile);
+      // Initialize valid SQLite database header without application tables
+      emptyDb.pragma('user_version = 0');
+      emptyDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /MISSING_TABLE/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore of a zero-byte database file', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_zero_byte_sqlite');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      fs.writeFileSync(backupDbFile, Buffer.alloc(0));
+
+      writeValidManifest(env.backupDir, backupDbFile, [], {
+        database: { filename: 'potato.db', sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', byteSize: 0 },
+      });
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /INVALID_MANIFEST.*byteSize/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when required application table is missing (e.g. workspace_history)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_missing_table');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.exec('DROP TABLE workspace_history');
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /MISSING_TABLE.*workspace_history/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when required column is missing in a table (e.g. workspaces.generation_id)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_missing_col');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.exec(`
+        CREATE TABLE workspaces_bad (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          revision INTEGER NOT NULL DEFAULT 0,
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO workspaces_bad SELECT user_id, revision, state_json, updated_at FROM workspaces;
+        DROP TABLE workspaces;
+        ALTER TABLE workspaces_bad RENAME TO workspaces;
+      `);
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /MISSING_COLUMN.*workspaces.*generation_id/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when foreign_key_check detects violations (orphaned workspace / media record)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_foreign_key_violation');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.pragma('foreign_keys = OFF');
+      bDb.prepare(`
+        INSERT INTO workspaces (user_id, revision, generation_id, state_json, updated_at)
+        VALUES ('u_nonexistent_foreign_orphan', 1, 'gen_orphan', ?, datetime('now'))
+      `).run(JSON.stringify(BLANK_STATE));
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /FOREIGN_KEY_VIOLATION|ORPHAN_WORKSPACE/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace state_json is corrupted (not valid JSON)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_corrupt_ws_json');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.prepare("UPDATE workspaces SET state_json = 'INVALID_JSON_CORRUPT{[' WHERE user_id = 'u_bk'").run();
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /INVALID_WORKSPACE_STATE_JSON/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace state_json schema is invalid (e.g. future version 4 or missing profile)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_bad_ws_schema');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.prepare("UPDATE workspaces SET state_json = ? WHERE user_id = 'u_bk'").run(
+        JSON.stringify({ ...BLANK_STATE, version: 4 })
+      );
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /INVALID_WORKSPACE_PAYLOAD/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace_history state_json is corrupted', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_corrupt_history_json');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_bk', 'bk_user');
+      bDb.prepare(`
+        INSERT INTO workspace_history (id, user_id, revision, reason, state_json, created_at)
+        VALUES ('hist_bad_1', 'u_bk', 1, 'test', 'NOT_VALID_JSON{', datetime('now'))
+      `).run();
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /INVALID_HISTORY_STATE_JSON/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace references media belonging to a different user (cross-user violation)', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_cross_user_media');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_user_a', 'user_a');
+      populateTestUser(bDb, 'u_user_b', 'user_b');
+
+      const photoData = Buffer.from('photo-belonging-to-user-b');
+      const photoHash = crypto.createHash('sha256').update(photoData).digest('hex');
+      fs.writeFileSync(path.join(env.backupDir, 'attachments', 'pic_b.png'), photoData);
+
+      // Media record belongs to user_b
+      bDb.prepare(`
+        INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+        VALUES ('media_b_1', 'u_user_b', 'pic_b.png', 'pic_b.png', 'image/png', ?, ?, datetime('now'))
+      `).run(photoData.length, photoHash);
+
+      // But user_a workspace references media_b_1!
+      const userAState = {
+        ...BLANK_STATE,
+        profile: { name: 'user_a', username: 'user_a', avatar: 'pose-1' },
+        wrong: [{ id: 'w1', date: '2026-10-27', image: '/api/media/media_b_1' }],
+      };
+      bDb.prepare("UPDATE workspaces SET state_json = ? WHERE user_id = 'u_user_a'").run(JSON.stringify(userAState));
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, [
+        { filename: 'pic_b.png', sha256: photoHash, byteSize: photoData.length },
+      ]);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /CROSS_USER_MEDIA_REFERENCE/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace references a media record that does not exist in media_records', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_missing_media_rec');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_user_a', 'user_a');
+
+      // User A references a media ID that was never saved to media_records
+      const userAState = {
+        ...BLANK_STATE,
+        profile: { name: 'user_a', username: 'user_a', avatar: 'pose-1' },
+        wrong: [{ id: 'w1', date: '2026-10-27', image: '/api/media/media_phantom_99' }],
+      };
+      bDb.prepare("UPDATE workspaces SET state_json = ? WHERE user_id = 'u_user_a'").run(JSON.stringify(userAState));
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /MISSING_MEDIA_RECORD/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when workspace_history references media belonging to another user', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_history_cross_user_media');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_user_a', 'user_a');
+      populateTestUser(bDb, 'u_user_b', 'user_b');
+
+      const photoData = Buffer.from('photo-belonging-to-user-b');
+      const photoHash = crypto.createHash('sha256').update(photoData).digest('hex');
+      fs.writeFileSync(path.join(env.backupDir, 'attachments', 'pic_b.png'), photoData);
+
+      bDb.prepare(`
+        INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+        VALUES ('media_b_1', 'u_user_b', 'pic_b.png', 'pic_b.png', 'image/png', ?, ?, datetime('now'))
+      `).run(photoData.length, photoHash);
+
+      // History of user_a references media of user_b
+      const histState = {
+        ...BLANK_STATE,
+        profile: { name: 'user_a', username: 'user_a', avatar: 'pose-1' },
+        wrong: [{ id: 'w1', date: '2026-10-27', image: '/api/media/media_b_1' }],
+      };
+      bDb.prepare(`
+        INSERT INTO workspace_history (id, user_id, revision, reason, state_json, created_at)
+        VALUES ('hist_cross_1', 'u_user_a', 1, 'test', ?, datetime('now'))
+      `).run(JSON.stringify(histState));
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, [
+        { filename: 'pic_b.png', sha256: photoHash, byteSize: photoData.length },
+      ]);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /CROSS_USER_MEDIA_REFERENCE/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('rejects restore when media_records filename contains path traversal', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_path_traversal');
+      const env = setupPreservedTarget(base);
+
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = initTestAppDb(backupDbFile);
+      populateTestUser(bDb, 'u_user_a', 'user_a');
+      bDb.prepare(`
+        INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+        VALUES ('media_hack_1', 'u_user_a', '../secret.png', 'secret.png', 'image/png', 10, 'dummyhash', datetime('now'))
+      `).run();
+      bDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      await assert.rejects(
+        () => restoreOffline({ sourceDir: env.backupDir, dataDir: env.liveDir, offlineConfirmed: true }),
+        /SECURITY_PATH_TRAVERSAL_DETECTED/
+      );
+      assertTargetPreserved(env);
+    });
+
+    it('staging migration safely adds missing seed_version and init_choice to older supported Schema 3 backups without touching source', async () => {
+      const { restoreOffline } = await import('../server/disasterRecovery');
+      const base = path.join(testRoot, 'reg_staging_migration');
+      const env = setupPreservedTarget(base);
+
+      // Create an older Schema 3 backup that lacks seed_version and init_choice on workspaces
+      const backupDbFile = path.join(env.backupDir, 'potato.db');
+      const bDb = new Database(backupDbFile);
+      bDb.exec(`
+        CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE invites (code TEXT PRIMARY KEY, created_by TEXT NOT NULL, used_by TEXT, used_at TEXT, created_at TEXT NOT NULL);
+        CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, csrf_token TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+        CREATE TABLE reset_codes (code TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT);
+        CREATE TABLE workspaces (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, revision INTEGER NOT NULL DEFAULT 0, generation_id TEXT NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 3, updated_at TEXT NOT NULL);
+        CREATE TABLE sync_idempotency (user_id TEXT NOT NULL, request_id TEXT NOT NULL, expected_revision INTEGER NOT NULL, result_revision INTEGER NOT NULL, payload_sha256 TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (user_id, request_id));
+        CREATE TABLE media_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, filename TEXT NOT NULL, original_name TEXT NOT NULL, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE workspace_history (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, revision INTEGER NOT NULL, reason TEXT NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL);
+      `);
+
+      const genId = 'gen_old_schema3';
+      bDb.prepare("INSERT INTO server_meta (key, value) VALUES ('generation_id', ?)").run(genId);
+      bDb.prepare("INSERT INTO users VALUES ('u_old_schema', 'old_s3_user', 'old_s3', 'hash', 'user', 1, datetime('now'), datetime('now'))").run();
+      bDb.prepare("INSERT INTO workspaces VALUES ('u_old_schema', 1, ?, ?, 3, datetime('now'))").run(
+        genId,
+        JSON.stringify({ ...BLANK_STATE, profile: { name: 'old_s3', username: 'old_s3_user', avatar: 'pose-1' } })
+      );
+      bDb.close();
+
+      // Verify that source database DOES NOT have seed_version or init_choice
+      const verifySrcDb = new Database(backupDbFile, { readonly: true });
+      const srcWsCols = (verifySrcDb.pragma('table_info(workspaces)') as Array<{ name: string }>).map(c => c.name);
+      assert.equal(srcWsCols.includes('seed_version'), false, 'source must NOT have seed_version before restore');
+      assert.equal(srcWsCols.includes('init_choice'), false, 'source must NOT have init_choice before restore');
+      verifySrcDb.close();
+
+      writeValidManifest(env.backupDir, backupDbFile, []);
+
+      // Execute restore: staging migration must apply without failing
+      const res = await restoreOffline({
+        sourceDir: env.backupDir,
+        dataDir: env.liveDir,
+        offlineConfirmed: true,
+      });
+
+      assert.equal(res.ok, true);
+      assert.ok(res.generationId.startsWith('gen_'));
+
+      // Verify restored target database HAS seed_version and init_choice
+      const restoredDb = new Database(env.liveDbFile, { readonly: true });
+      const restoredWsCols = (restoredDb.pragma('table_info(workspaces)') as Array<{ name: string }>).map(c => c.name);
+      assert.equal(restoredWsCols.includes('seed_version'), true, 'restored database must have seed_version');
+      assert.equal(restoredWsCols.includes('init_choice'), true, 'restored database must have init_choice');
+
+      const restoredWs = restoredDb.prepare("SELECT user_id, revision, generation_id, seed_version FROM workspaces WHERE user_id = 'u_old_schema'").get() as any;
+      assert.equal(restoredWs.revision, 1);
+      assert.equal(restoredWs.generation_id, res.generationId);
+      assert.equal(restoredWs.seed_version, 0);
+      restoredDb.close();
+
+      // Verify source database was NOT modified
+      const recheckSrcDb = new Database(backupDbFile, { readonly: true });
+      const recheckSrcCols = (recheckSrcDb.pragma('table_info(workspaces)') as Array<{ name: string }>).map(c => c.name);
+      assert.equal(recheckSrcCols.includes('seed_version'), false, 'source DB must remain completely unmodified');
+      recheckSrcDb.close();
+    });
   });
 });

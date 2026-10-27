@@ -174,8 +174,8 @@ export function rotateGenerationId(): string {
   return nextGenId;
 }
 
-export { restoreOffline } from './disasterRecovery';
-export type { RestoreOfflineOptions, RestoreOfflineResult } from './disasterRecovery';
+export { restoreOffline, validateRestoreDatabase } from './disasterRecovery';
+export type { RestoreOfflineOptions, RestoreOfflineResult, MediaRecordRow } from './disasterRecovery';
 
 /**
  * Perform safe hot backup using SQLite Online Backup API.

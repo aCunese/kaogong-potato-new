@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { acquireDataDirectoryLock } from '../server/dataLock';
 import { restoreOffline } from '../server/disasterRecovery';
+import { BLANK_STATE } from '../src/constants/initialData';
 
 describe('Data Directory Maintenance Lock & Server Lifecycle Suite', () => {
   const testSuiteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaogong-data-lock-test-'));
@@ -17,35 +19,63 @@ describe('Data Directory Maintenance Lock & Server Lifecycle Suite', () => {
     } catch {}
   });
 
+  function initFullSchema(db: Database.Database, userId: string, username: string, genId: string) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS server_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, nickname TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, created_by TEXT NOT NULL, used_by TEXT, used_at TEXT, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, csrf_token TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS reset_codes (code TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT);
+      CREATE TABLE IF NOT EXISTS workspaces (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, revision INTEGER NOT NULL DEFAULT 0, generation_id TEXT NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 3, seed_version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS sync_idempotency (user_id TEXT NOT NULL, request_id TEXT NOT NULL, expected_revision INTEGER NOT NULL, result_revision INTEGER NOT NULL, payload_sha256 TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (user_id, request_id));
+      CREATE TABLE IF NOT EXISTS media_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, filename TEXT NOT NULL, original_name TEXT NOT NULL, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workspace_history (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, revision INTEGER NOT NULL, reason TEXT NOT NULL, state_json TEXT NOT NULL, created_at TEXT NOT NULL);
+    `);
+    db.prepare("INSERT OR REPLACE INTO server_meta (key, value) VALUES ('generation_id', ?)").run(genId);
+    db.prepare(`
+      INSERT OR REPLACE INTO users (id, username, nickname, password_hash, role, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, 'hash', 'user', 1, datetime('now'), datetime('now'))
+    `).run(userId, username, username);
+    db.prepare(`
+      INSERT OR REPLACE INTO workspaces (user_id, revision, generation_id, state_json, schema_version, seed_version, updated_at)
+      VALUES (?, 1, ?, ?, 3, 0, datetime('now'))
+    `).run(userId, genId, JSON.stringify({
+      ...BLANK_STATE,
+      profile: { name: username, username, avatar: 'pose-1' },
+    }));
+  }
+
   // Helper to create a valid minimal backup
   function createValidBackup(targetDir: string) {
     fs.mkdirSync(path.join(targetDir, 'attachments'), { recursive: true });
-    const db = new Database(path.join(targetDir, 'potato.db'));
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS server_meta (key TEXT PRIMARY KEY, value TEXT);
-      CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, nickname TEXT, password_hash TEXT, role TEXT, is_active INTEGER, created_at TEXT, updated_at TEXT);
-      CREATE TABLE IF NOT EXISTS workspaces (user_id TEXT PRIMARY KEY, revision INTEGER, generation_id TEXT, state_json TEXT, schema_version INTEGER, seed_version INTEGER, updated_at TEXT);
-      CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT, csrf_token TEXT, created_at TEXT, expires_at TEXT, last_seen_at TEXT);
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_backup_001');
-      INSERT INTO users VALUES ('u_1', 'backup_user', 'BU', 'hash', 'user', 1, '2026-10-26', '2026-10-26');
-      INSERT INTO workspaces VALUES ('u_1', 1, 'gen_backup_001', '{}', 3, 0, '2026-10-26');
-    `);
+    const dbFile = path.join(targetDir, 'potato.db');
+    const db = new Database(dbFile);
+    initFullSchema(db, 'u_1', 'backup_user', 'gen_backup_001');
     db.close();
+
+    const dbBuf = fs.readFileSync(dbFile);
+    const dbHash = crypto.createHash('sha256').update(dbBuf).digest('hex');
+    const manifest = {
+      version: '1.0.4',
+      schemaVersion: 3,
+      createdAt: new Date().toISOString(),
+      generationId: 'gen_backup_001',
+      database: {
+        filename: 'potato.db',
+        sha256: dbHash,
+        byteSize: dbBuf.length,
+      },
+      attachments: [],
+    };
+    fs.writeFileSync(path.join(targetDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
   }
 
   // Helper to create a valid minimal live db
   function createValidLiveDb(dataDir: string) {
     fs.mkdirSync(path.join(dataDir, 'attachments'), { recursive: true });
-    const db = new Database(path.join(dataDir, 'potato.db'));
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS server_meta (key TEXT PRIMARY KEY, value TEXT);
-      CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT, nickname TEXT, password_hash TEXT, role TEXT, is_active INTEGER, created_at TEXT, updated_at TEXT);
-      CREATE TABLE IF NOT EXISTS workspaces (user_id TEXT PRIMARY KEY, revision INTEGER, generation_id TEXT, state_json TEXT, schema_version INTEGER, seed_version INTEGER, updated_at TEXT);
-      CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT, csrf_token TEXT, created_at TEXT, expires_at TEXT, last_seen_at TEXT);
-      INSERT INTO server_meta VALUES ('generation_id', 'gen_live_001');
-      INSERT INTO users VALUES ('u_live', 'live_user', 'LU', 'hash', 'user', 1, '2026-10-26', '2026-10-26');
-      INSERT INTO workspaces VALUES ('u_live', 1, 'gen_live_001', '{}', 3, 0, '2026-10-26');
-    `);
+    const dbFile = path.join(dataDir, 'potato.db');
+    const db = new Database(dbFile);
+    initFullSchema(db, 'u_live', 'live_user', 'gen_live_001');
     db.close();
   }
 
