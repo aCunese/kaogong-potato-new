@@ -1,4 +1,4 @@
-import { AppState, OutboxRecord, SnapshotRecord, SyncConflictRecord, LockScope, OperationScope, OperationContext } from '../types';
+import { AppState, OutboxRecord, SnapshotRecord, SyncConflictRecord, LockScope, OperationScope, OperationContext, WorkspacePushPayload, PreparedOutboxCompaction } from '../types';
 import {
   getUnresolvedLocalChanges,
   claimOutboxTask,
@@ -21,6 +21,7 @@ import {
   clearOutbox,
   saveDamagedCache,
   stableStateJson,
+  ensureSnapshotHasOutbox,
 } from './db';
 import { flushLegacyMedia } from './mediaSync';
 
@@ -203,6 +204,18 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
   if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
+
+  const outboxStatus = await ensureSnapshotHasOutbox(userId, { context: options?.context });
+  if (outboxStatus === 'conflict') {
+    const conflict = await getConflictRecord(userId);
+    return {
+      ok: false,
+      status: 'conflict',
+      code: conflict?.code || 'DIRTY_SNAPSHOT_CONFLICT',
+      message: conflict?.message || '本机存在未同步修改且缺少可信基线，已暂停自动覆盖',
+    };
+  }
+
   const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
   if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
@@ -243,6 +256,11 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     return { ok: true, status: 'synced', message: '云端暂无数据', serverRevision: server.revision, serverGenerationId: server.generationId };
   }
 
+  const unresolvedCheck = await getUnresolvedLocalChanges(userId);
+  if (unresolvedCheck.hasUnsynced || unresolvedCheck.conflict) {
+    return buildConflictResult(userId, server, 'LOCAL_UNRESOLVED', LOCAL_STATE_UNRESOLVED_MESSAGE);
+  }
+
   const serverHashMatchesConfirmed = Boolean(server.contentHash) && server.contentHash === localConfirmedHash;
 
   // Same revision number never proves identical content: verify hashes and generation first.
@@ -262,6 +280,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       snapshotGenerationId: server.snapshotGenerationId,
     }, {
       force: false,
+      expectedSnapshotToken: snapshot ? { revision: snapshot.revision, contentHash: snapshot.contentHash } : undefined,
       guard: options?.guard,
       scope: options?.scope,
       context: options?.context,
@@ -306,6 +325,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       snapshotGenerationId: server.snapshotGenerationId,
     }, {
       force: false,
+      expectedSnapshotToken: snapshot ? { revision: snapshot.revision, contentHash: snapshot.contentHash } : undefined,
       guard: options?.guard,
       scope: options?.scope,
       context: options?.context,
@@ -519,11 +539,34 @@ async function pushPath(
       return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
     }
 
-    // Newest task identity + latest local content = compacted push (older tasks superseded).
-    const target = flushable[flushable.length - 1];
-    const compacted = await compactOutboxForFlush(userId, target.requestId, snapshot.state, confirmedRevision, generationId);
-    if (!compacted) {
-      return { result: { ok: false, status: 'failed', code: 'QUEUE_CHANGED', message: '同步队列已被其他页面更新，正在重试' }, remaining: flushable.length };
+    // If the oldest task was already dispatched / has frozenRequest, flush it directly with its immutable payload.
+    // Otherwise, compact un-dispatched tasks into the latest un-dispatched task.
+    const firstTask = flushable[0];
+    const isFirstDispatched = Boolean(firstTask.frozenRequest || firstTask.sentAt || (firstTask.attemptFence ?? 0) > 0);
+    let taskToClaimId: string;
+
+    if (isFirstDispatched) {
+      taskToClaimId = firstTask.id;
+    } else {
+      const unDispatched = flushable.filter(t => !t.frozenRequest && !t.sentAt && (t.attemptFence ?? 0) === 0);
+      const target = unDispatched[unDispatched.length - 1];
+      const snapshotToken = {
+        revision: snapshot.revision,
+        contentHash: snapshot.contentHash || (await hashState(snapshot.state)),
+      };
+      const prepared: PreparedOutboxCompaction = {
+        targetTaskId: target.id,
+        observedTaskIds: unDispatched.map(t => t.id),
+        snapshotToken,
+        state: snapshot.state,
+        expectedRevision: confirmedRevision,
+        generationId,
+      };
+      const compacted = await compactOutboxForFlush(userId, prepared, { context: options?.context });
+      if (!compacted) {
+        return { result: { ok: false, status: 'failed', code: 'QUEUE_CHANGED', message: '同步队列已被其他页面更新，正在重试' }, remaining: flushable.length };
+      }
+      taskToClaimId = compacted.id;
     }
 
     if (isSyncCancelled(options)) {
@@ -531,7 +574,7 @@ async function pushPath(
     }
 
     // Cross-tab exclusive claim: a stale flush from another tab cannot resurrect a task.
-    const claimed = await claimOutboxTask(compacted.id, owner);
+    const claimed = await claimOutboxTask(taskToClaimId, owner);
     if (!claimed) {
       return { result: { ok: false, status: 'failed', code: 'TASK_CLAIMED_BY_OTHER_TAB', message: '另一标签页已接管本次同步' }, remaining: flushable.length };
     }
@@ -540,6 +583,17 @@ async function pushPath(
       await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
       return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
     }
+
+    const bodyPayload: WorkspacePushPayload = {
+      expectedRevision: claimed.expectedRevision,
+      expectedContentHash: claimed.expectedContentHash,
+      requestId: claimed.requestId,
+      schemaVersion: 3,
+      generationId: claimed.generationId,
+      state: claimed.state,
+      reason: claimed.reason || 'sync',
+    };
+    const requestBody = claimed.frozenRequest || JSON.stringify(bodyPayload);
 
     let response: Response;
     try {
@@ -550,15 +604,7 @@ async function pushPath(
           'x-csrf-token': csrfToken,
           'x-workspace-user': userId,
         },
-        body: JSON.stringify({
-          expectedRevision: claimed.expectedRevision,
-          expectedContentHash: claimed.expectedContentHash,
-          requestId: claimed.requestId,
-          schemaVersion: 3,
-          generationId: claimed.generationId,
-          state: claimed.state,
-          reason: claimed.reason || 'sync',
-        }),
+        body: requestBody,
         signal: options?.signal || options?.context?.abortSignal || options?.scope?.signal,
       });
     } catch (err) {
@@ -610,7 +656,14 @@ async function pushPath(
         // R10: surface server-driven empty-library initialization state.
       }
       const remaining = await getUnresolvedLocalChanges(userId);
-      if (remaining.total === 0 && !remaining.conflict) {
+      const latestSnapshot = await loadSnapshot(userId);
+      const currentBaseline = await getSyncBaseline(userId);
+      const currentHash = latestSnapshot ? (latestSnapshot.contentHash || (await hashState(latestSnapshot.state))) : '';
+      const isConsistent = remaining.total === 0 &&
+                           !remaining.conflict &&
+                           currentBaseline &&
+                           currentHash === currentBaseline.contentHash;
+      if (isConsistent) {
         const latest = await loadLatestState(userId);
         return {
           result: {
@@ -840,6 +893,20 @@ export async function initialHydrateInternal(
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
   }
 
+  const outboxStatus = await ensureSnapshotHasOutbox(userId, { context: options?.context });
+  if (outboxStatus === 'conflict') {
+    const conflict = await getConflictRecord(userId);
+    const local = await loadLatestState(userId);
+    return {
+      ok: false,
+      status: 'conflict',
+      code: conflict?.code || 'DIRTY_SNAPSHOT_CONFLICT',
+      message: conflict?.message || '本机存在未同步修改且缺少可信基线，已暂停自动覆盖',
+      localState: local.state,
+      localRevision: local.revision,
+    };
+  }
+
   const local = await loadLatestState(userId);
   const unresolved = await getUnresolvedLocalChanges(userId);
   if (unresolved.hasUnsynced) {
@@ -913,6 +980,7 @@ export async function initialHydrateInternal(
   }, {
     force: false,
     saveRecovery: true,
+    expectedSnapshotToken: local.isFresh ? undefined : { revision: local.revision, contentHash: local.confirmedContentHash },
     guard: options?.guard,
     scope: options?.scope,
     context: options?.context,

@@ -32,6 +32,8 @@ interface ServerState {
   forceStatus: { workspaceGet?: number; workspacePost?: number; mediaUpload?: number; quotaExceeded?: boolean } | null;
   csrfValid: boolean;
   authValid: boolean;
+  postedBodies: any[];
+  postedRawBodies: string[];
 }
 
 const initialState = () => structuredClone(BLANK_STATE);
@@ -57,6 +59,8 @@ function resetServer(overrides: Partial<ServerState> = {}) {
     forceStatus: null,
     csrfValid: true,
     authValid: true,
+    postedBodies: [],
+    postedRawBodies: [],
     ...overrides,
   };
 }
@@ -81,6 +85,9 @@ async function handleApi(req: Request): Promise<Response> {
     return jsonResponse({ ok: false, code: 'SERVICE_UNAVAILABLE', message: '服务暂不可用' }, forced.workspaceGet);
   }
   if (forced?.workspacePost && url.pathname === '/api/workspace' && req.method === 'POST') {
+    const raw = await req.text();
+    serverState.postedRawBodies.push(raw);
+    try { serverState.postedBodies.push(JSON.parse(raw)); } catch {}
     return jsonResponse({ ok: false, code: 'SERVICE_UNAVAILABLE', message: '服务暂不可用' }, forced.workspacePost);
   }
   if (forced?.mediaUpload && url.pathname === '/api/media/upload') {
@@ -113,7 +120,10 @@ async function handleApi(req: Request): Promise<Response> {
     if (!serverState.csrfValid || csrf !== 'csrf-valid') {
       return jsonResponse({ ok: false, code: 'CSRF_INVALID', message: 'CSRF 校验失败' }, 403);
     }
-    const body = await req.json() as any;
+    const rawText = await req.text();
+    serverState.postedRawBodies.push(rawText);
+    const body = JSON.parse(rawText) as any;
+    serverState.postedBodies.push(body);
     const payloadString = JSON.stringify(body.state);
     const payloadSha = sha256(payloadString);
 
@@ -793,3 +803,283 @@ describe('R08: recovery points are real and restorable', () => {
     expect((result as any).state.books[0].done).toBe(4);
   });
 });
+
+describe('S01: outbox compaction barrier and concurrent edits', () => {
+  it('does not delete edits added after snapshot preparation; keeps edit B queued while A flushes; protects B from cloud overwrite', async () => {
+    // 1. Initial snapshot has state A
+    const stateA = structuredClone(BLANK_STATE);
+    stateA.profile.name = 'STATE_A';
+    await seedLocalSnapshot(pageA, stateA, { revision: 1, confirmedRevision: 0, generationId: 'gen_1' });
+    const taskAReqId = await seedOutbox(pageA, { generationId: 'gen_1', expectedRevision: 0, state: stateA });
+
+    // 2. Compaction prepares token for task A
+    const prepared = await pageA.evaluate(async (taskAReqId) => {
+      const h = (window as any).h;
+      const snap = await h.loadSnapshot('u_sync_test');
+      const all = await h.getAllOutbox('u_sync_test');
+      const target = all.find((i: any) => i.requestId === taskAReqId);
+      return {
+        targetTaskId: target.id,
+        observedTaskIds: [target.id],
+        snapshotToken: { revision: snap.revision, contentHash: snap.contentHash },
+        state: snap.state,
+        expectedRevision: 0,
+        generationId: 'gen_1',
+      };
+    }, taskAReqId);
+
+    // 3. While preparing (or before compaction commits), Edit B is committed!
+    const editBCommitted = await pageA.evaluate(async () => {
+      const h = (window as any).h;
+      const res = await h.commitMutation(async (draft: AppState) => {
+        draft.profile.name = 'STATE_B';
+        return { nextState: draft, value: true };
+      }, {
+        userId: 'u_sync_test',
+        outboxBuilder: (nextState: AppState, meta: any) => ({
+          id: `outbox_b_${Date.now()}`,
+          userId: 'u_sync_test',
+          requestId: `req_b_${Date.now()}`,
+          state: nextState,
+          expectedRevision: meta.confirmedRevision,
+          generationId: meta.generationId,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        }),
+      });
+      return res.ok;
+    });
+    expect(editBCommitted).toBe(true);
+
+    // 4. Stale prepared token must be rejected (returns null) because snapshotToken changed
+    const compactionResult = await pageA.evaluate(async (prep) => {
+      const h = (window as any).h;
+      return h.compactOutboxForFlush('u_sync_test', prep);
+    }, prepared);
+    expect(compactionResult).toBeNull();
+
+    // 5. Verify edit B was NOT deleted from outbox!
+    const localBeforeSync = await readLocal(pageA);
+    expect(localBeforeSync.unresolved.total).toBe(2);
+
+    // 6. Now perform sync: A flushes, B remains or follows, and server revision advances
+    const syncRes = await call(pageA, async h => h.syncNormal('u_sync_test', 'csrf-valid'));
+    expect(syncRes.status).toBe('synced');
+    expect(serverState.revision).toBeGreaterThanOrEqual(1);
+    expect(serverState.state!.profile.name).toBe('STATE_B');
+
+    // 7. If cloud advances independently to C, and local has unconfirmed edit D, C cannot silently overwrite D
+    const stateC = structuredClone(serverState.state!);
+    stateC.profile.name = 'STATE_C_CLOUD';
+    setCloud(stateC, serverState.revision + 1, 'gen_1');
+
+    await pageA.evaluate(async () => {
+      const h = (window as any).h;
+      await h.commitMutation(async (draft: AppState) => {
+        draft.profile.name = 'STATE_D_LOCAL';
+        return { nextState: draft, value: true };
+      }, {
+        userId: 'u_sync_test',
+        outboxBuilder: (nextState: AppState, meta: any) => ({
+          id: `outbox_d_${Date.now()}`,
+          userId: 'u_sync_test',
+          requestId: `req_d_${Date.now()}`,
+          state: nextState,
+          expectedRevision: meta.confirmedRevision,
+          generationId: meta.generationId,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        }),
+      });
+    });
+
+    // Calling pull must not silently overwrite D with C
+    const pullRes = await call(pageA, async h => h.pullLatestFromServer('u_sync_test'));
+    expect(pullRes.status).toBe('conflict');
+    const localAfterPull = await readLocal(pageA);
+    expect(localAfterPull.snapshot.state.profile.name).toBe('STATE_D_LOCAL');
+  });
+});
+
+describe('S02: immutable frozen retry payload', () => {
+  it('preserves identical requestId and frozenRequest body bytes on retries; only advances server revision once; assigns new requestId for B', async () => {
+    const stateA = structuredClone(BLANK_STATE);
+    stateA.profile.name = 'PAYLOAD_A';
+    await seedLocalSnapshot(pageA, stateA, { revision: 1, confirmedRevision: 0, generationId: 'gen_1' });
+    await seedOutbox(pageA, { generationId: 'gen_1', expectedRevision: 0, state: stateA });
+
+    // Step 1: Force server failure 503 on workspace push
+    serverState.forceStatus = { workspacePost: 503 };
+    const failSync = await call(pageA, async h => h.syncNormal('u_sync_test', 'csrf-valid'));
+    expect(failSync.status).toBe('failed');
+    expect(serverState.postedRawBodies.length).toBe(1);
+    const initialRaw = serverState.postedRawBodies[0];
+    const initialBody = serverState.postedBodies[0];
+    expect(initialBody.state.profile.name).toBe('PAYLOAD_A');
+    const initialRequestId = initialBody.requestId;
+    expect(initialRequestId).toBeTruthy();
+
+    // Step 2: While task A is failed in queue, user commits local edit B
+    const editBRes = await pageA.evaluate(async () => {
+      const h = (window as any).h;
+      return h.commitMutation(async (draft: AppState) => {
+        draft.profile.name = 'PAYLOAD_B';
+        return { nextState: draft, value: true };
+      }, {
+        userId: 'u_sync_test',
+        outboxBuilder: (nextState: AppState, meta: any) => ({
+          id: `outbox_b_${Date.now()}`,
+          userId: 'u_sync_test',
+          requestId: `req_b_${Date.now()}`,
+          state: nextState,
+          expectedRevision: meta.confirmedRevision,
+          generationId: meta.generationId,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        }),
+      });
+    });
+    expect(editBRes.ok).toBe(true);
+
+    // Step 3: Remove server error and reset backoff on task A so it retries immediately
+    serverState.forceStatus = null;
+    await pageA.evaluate(async () => {
+      const h = (window as any).h;
+      const db = await h.initDatabase();
+      const tx = db.transaction('outbox', 'readwrite');
+      const store = tx.objectStore('outbox');
+      const req = store.getAll();
+      req.onsuccess = () => {
+        for (const item of req.result) {
+          if (item.status === 'failed') {
+            item.nextAttemptAt = undefined;
+            item.status = 'pending';
+            store.put(item);
+          }
+        }
+      };
+      await new Promise(r => { tx.oncomplete = r; });
+    });
+
+    // Step 4: Run sync again! Task A should retry with identical requestId and exact raw body bytes
+    const retrySync = await call(pageA, async h => h.syncNormal('u_sync_test', 'csrf-valid'));
+    expect(retrySync.status).toBe('synced');
+
+    // Verify requests captured by server:
+    // Request 0 was the failed attempt for A
+    // Request 1 was the retry of A: MUST have exact same raw body bytes and exact same requestId
+    expect(serverState.postedRawBodies.length).toBeGreaterThanOrEqual(3);
+    const retryRaw = serverState.postedRawBodies[1];
+    const retryBody = serverState.postedBodies[1];
+    expect(retryBody.requestId).toBe(initialRequestId);
+    expect(retryRaw).toBe(initialRaw);
+    expect(retryBody.state.profile.name).toBe('PAYLOAD_A');
+
+    // Request 2 was task B: MUST have a distinct new requestId and state B
+    const taskBBody = serverState.postedBodies[2];
+    expect(taskBBody.requestId).not.toBe(initialRequestId);
+    expect(taskBBody.state.profile.name).toBe('PAYLOAD_B');
+    expect(serverState.state!.profile.name).toBe('PAYLOAD_B');
+  });
+});
+
+describe('S03: protect old dirty local snapshot with empty queue', () => {
+  it('protects dirty snapshot B against cloud A when queue is empty, establishing conflict; does not overwrite B', async () => {
+    const cloudA = structuredClone(BLANK_STATE);
+    cloudA.profile.name = 'CLOUD_A';
+    cloudA.books = [{ id: 'b-1', name: 'BOOK_A', subject: '资料分析', total: 10, pages: 10, done: 2, errors: 0, minutes: 10 }];
+    setCloud(cloudA, 1, 'gen_1');
+
+    const dirtyLocalB = structuredClone(BLANK_STATE);
+    dirtyLocalB.profile.name = 'DIRTY_LOCAL_B';
+    dirtyLocalB.books = [{ id: 'b-1', name: 'BOOK_B_UNSYNCED', subject: '资料分析', total: 10, pages: 10, done: 9, errors: 1, minutes: 90 }];
+    const hashB = stateHash(dirtyLocalB);
+
+    // Baseline says confirmed revision 1 with hash A
+    await pageA.evaluate(async ({ hashA, hashB, dirtyLocalB }) => {
+      const h = (window as any).h;
+      await h.saveSyncBaseline({
+        userId: 'u_sync_test',
+        confirmedRevision: 1,
+        generationId: 'gen_1',
+        contentHash: hashA,
+        updatedAt: new Date().toISOString(),
+      });
+      // Snapshot has state B, but outbox is empty!
+      const db = await h.initDatabase();
+      const tx = db.transaction(['snapshots', 'outbox'], 'readwrite');
+      tx.objectStore('snapshots').put({
+        key: 'snapshot_u_sync_test',
+        state: dirtyLocalB,
+        version: 3,
+        revision: 2,
+        confirmedRevision: 1,
+        generationId: 'gen_1',
+        confirmedContentHash: hashA,
+        contentHash: hashB,
+        migratedFromV2: true,
+        updatedAt: new Date().toISOString(),
+      });
+      tx.objectStore('outbox').clear();
+      await new Promise(r => { tx.oncomplete = r; });
+    }, { hashA: serverState.contentHash, hashB, dirtyLocalB });
+
+    // ensureSnapshotHasOutbox should detect the dirty snapshot and queue an outbox task or establish conflict
+    const ensureResult = await call(pageA, async h => h.ensureSnapshotHasOutbox('u_sync_test'));
+    expect(['queued', 'conflict']).toContain(ensureResult);
+
+    // Running pull/hydrate must NOT overwrite dirtyLocalB with cloudA!
+    const pullResult = await call(pageA, async h => h.pullLatestFromServer('u_sync_test'));
+    expect(pullResult.status).toBe('conflict');
+
+    const localAfter = await readLocal(pageA);
+    expect(localAfter.snapshot.state.profile.name).toBe('DIRTY_LOCAL_B');
+    expect(localAfter.snapshot.state.books[0].name).toBe('BOOK_B_UNSYNCED');
+  });
+
+  it('blank account, initial choice, and cloud-verified match do NOT trigger false conflict', async () => {
+    // 1. Blank account
+    const blankRes = await call(pageA, async h => h.ensureSnapshotHasOutbox('u_sync_test'));
+    expect(blankRes).toBe('clean');
+
+    // 2. Cloud verified match
+    const cloudState = structuredClone(BLANK_STATE);
+    cloudState.profile.name = 'VERIFIED';
+    const cHash = stateHash(cloudState);
+    setCloud(cloudState, 1, 'gen_1');
+
+    await pageA.evaluate(async ({ cloudState, cHash }) => {
+      const h = (window as any).h;
+      await h.saveSyncBaseline({
+        userId: 'u_sync_test',
+        confirmedRevision: 1,
+        generationId: 'gen_1',
+        contentHash: cHash,
+        updatedAt: new Date().toISOString(),
+      });
+      const db = await h.initDatabase();
+      const tx = db.transaction(['snapshots', 'outbox'], 'readwrite');
+      tx.objectStore('snapshots').put({
+        key: 'snapshot_u_sync_test',
+        state: cloudState,
+        version: 3,
+        revision: 1,
+        confirmedRevision: 1,
+        generationId: 'gen_1',
+        confirmedContentHash: cHash,
+        contentHash: cHash,
+        migratedFromV2: true,
+        updatedAt: new Date().toISOString(),
+      });
+      tx.objectStore('outbox').clear();
+      await new Promise(r => { tx.oncomplete = r; });
+    }, { cloudState, cHash });
+
+    const verifiedRes = await call(pageA, async h => h.ensureSnapshotHasOutbox('u_sync_test'));
+    expect(verifiedRes).toBe('clean');
+
+    const pullRes = await call(pageA, async h => h.pullLatestFromServer('u_sync_test'));
+    expect(pullRes.status).toBe('synced');
+  });
+});
+

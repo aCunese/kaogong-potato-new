@@ -10,9 +10,11 @@ import {
   LockScope,
   OperationScope,
   OperationContext,
+  WorkspacePushPayload,
+  PreparedOutboxCompaction,
 } from '../types';
 
-export type { LockScope, OperationScope, OperationContext };
+export type { LockScope, OperationScope, OperationContext, WorkspacePushPayload, PreparedOutboxCompaction };
 import { BLANK_STATE } from '../constants/initialData';
 import { validateAndMigrateBackup } from './backupValidator';
 
@@ -893,7 +895,7 @@ export async function getPendingOutbox(userId: string): Promise<OutboxRecord[]> 
   return all.filter(item => item.status === 'pending' || item.status === 'failed');
 }
 
-async function getAllOutbox(userId: string): Promise<OutboxRecord[]> {
+export async function getAllOutbox(userId: string): Promise<OutboxRecord[]> {
   if (!hasNativeIdb()) {
     return Array.from(memoryStore.outbox.values())
       .filter(item => item.userId === userId)
@@ -1028,12 +1030,16 @@ export async function claimOutboxTask(
     const item = memoryStore.outbox.get(id);
     if (!item || !isClaimable(item)) return null;
     const payloadHash = item.payloadHash || (await hashState(item.state));
-    const frozenRequest = item.frozenRequest || JSON.stringify({
+    const frozenPayload: WorkspacePushPayload = {
       requestId: item.requestId,
       expectedRevision: item.expectedRevision,
+      expectedContentHash: item.expectedContentHash,
+      schemaVersion: 3,
       generationId: item.generationId,
       state: item.state,
-    });
+      reason: item.reason || 'sync',
+    };
+    const frozenRequest = item.frozenRequest || JSON.stringify(frozenPayload);
     const fence = (item.attemptFence ?? 0) + 1;
     const claimed: OutboxRecord = {
       ...item,
@@ -1061,12 +1067,16 @@ export async function claimOutboxTask(
   if (!currentItem || !isClaimable(currentItem)) return null;
 
   const payloadHash = currentItem.payloadHash || (await hashState(currentItem.state));
-  const frozenRequest = currentItem.frozenRequest || JSON.stringify({
+  const frozenPayload: WorkspacePushPayload = {
     requestId: currentItem.requestId,
     expectedRevision: currentItem.expectedRevision,
+    expectedContentHash: currentItem.expectedContentHash,
+    schemaVersion: 3,
     generationId: currentItem.generationId,
     state: currentItem.state,
-  });
+    reason: currentItem.reason || 'sync',
+  };
+  const frozenRequest = currentItem.frozenRequest || JSON.stringify(frozenPayload);
 
   return new Promise<OutboxRecord | null>((resolve, reject) => {
     const tx = db.transaction(OUTBOX_STORE, 'readwrite');
@@ -1076,6 +1086,14 @@ export async function claimOutboxTask(
     getReq.onsuccess = () => {
       const item = getReq.result as OutboxRecord | undefined;
       if (!item || !isClaimable(item)) return;
+      if (item.requestId !== currentItem.requestId ||
+          item.expectedRevision !== currentItem.expectedRevision ||
+          item.generationId !== currentItem.generationId) {
+        return;
+      }
+      if (item.payloadHash && item.payloadHash !== payloadHash) {
+        return;
+      }
       const fence = (item.attemptFence ?? 0) + 1;
       claimed = {
         ...item,
@@ -1085,7 +1103,7 @@ export async function claimOutboxTask(
         attemptFence: fence,
         sentAt: nowIso,
         payloadHash: payloadHash || item.payloadHash,
-        frozenRequest: frozenRequest || item.frozenRequest,
+        frozenRequest: item.frozenRequest || frozenRequest,
       };
       store.put(claimed);
     };
@@ -1152,19 +1170,23 @@ export async function releaseOutboxTask(
 }
 
 /**
- * Compacts the local queue for a flush: takes the newest task identity, rewrites its
- * payload to the latest local snapshot and its expectedRevision to the confirmed cloud
- * baseline, and removes superseded pending tasks in the SAME transaction.
- * Stable requestId of the target task is preserved for server idempotency.
+ * Compacts the local queue for a flush:
+ * - verifies snapshotToken CAS (revision and contentHash) before touching the queue;
+ * - only compacts observedTaskIds that have NEVER been dispatched (attemptFence == 0/undefined, sentAt == undefined, frozenRequest == undefined);
+ * - never deletes tasks outside observedTaskIds;
+ * - never overwrites already dispatched tasks.
  */
 export async function compactOutboxForFlush(
   userId: string,
-  requestId: string,
-  nextState: AppState,
-  expectedRevision: number,
-  generationId: string
+  prepared: PreparedOutboxCompaction,
+  options?: { context?: OperationContext }
 ): Promise<OutboxRecord | null> {
-  const contentHash = await hashState(nextState);
+  const checkGuard = (): boolean => {
+    if (options?.context && !options.context.isCurrent()) return false;
+    return true;
+  };
+  if (!checkGuard()) return null;
+
   const now = Date.now();
   const isTargetInFlightActive = (target: OutboxRecord) =>
     target.status === 'in_flight' &&
@@ -1172,57 +1194,90 @@ export async function compactOutboxForFlush(
     !isNaN(Date.parse(target.leaseExpiresAt!)) &&
     Date.parse(target.leaseExpiresAt!) >= now;
 
-  const apply = (items: OutboxRecord[]): OutboxRecord | null => {
-    const target = items.find(i => i.userId === userId && i.requestId === requestId);
+  const isDispatched = (t: OutboxRecord) =>
+    Boolean(t.frozenRequest || t.sentAt || (t.attemptFence ?? 0) > 0);
+
+  if (!hasNativeIdb()) {
+    const snap = memoryStore.snapshots.get(getSnapshotKey(userId));
+    if (!snap || snap.revision !== prepared.snapshotToken.revision || snap.contentHash !== prepared.snapshotToken.contentHash) {
+      return null;
+    }
+    const items = Array.from(memoryStore.outbox.values()).filter(i => i.userId === userId);
+    const target = items.find(i => i.id === prepared.targetTaskId);
     if (!target) return null;
     if (target.status === 'quarantined' || target.status === 'conflict' || isTargetInFlightActive(target)) return null;
+    if (isDispatched(target)) return null;
+
     const updated: OutboxRecord = {
       ...target,
-      state: nextState,
-      expectedRevision,
-      generationId,
+      state: prepared.state,
+      expectedRevision: prepared.expectedRevision,
+      generationId: prepared.generationId,
       status: 'pending',
       nextAttemptAt: undefined,
       attempts: target.attempts,
+      payloadHash: prepared.snapshotToken.contentHash,
     };
-    return updated;
-  };
 
-  if (!hasNativeIdb()) {
-    const items = Array.from(memoryStore.outbox.values()).filter(i => i.userId === userId);
-    const updated = apply(items);
-    if (!updated) return null;
     for (const item of items) {
-      if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed' || (item.status === 'in_flight' && !isTargetInFlightActive(item)))) {
-        memoryStore.outbox.delete(item.id);
+      if (item.id !== prepared.targetTaskId && prepared.observedTaskIds.includes(item.id)) {
+        if (!isDispatched(item) && item.status !== 'quarantined' && item.status !== 'conflict' && !isTargetInFlightActive(item)) {
+          memoryStore.outbox.delete(item.id);
+        }
       }
     }
     memoryStore.outbox.set(updated.id, structuredClone(updated));
-    void contentHash;
     return updated;
   }
 
   const db = await initDatabase();
   return new Promise<OutboxRecord | null>((resolve, reject) => {
-    const tx = db.transaction(OUTBOX_STORE, 'readwrite');
-    const store = tx.objectStore(OUTBOX_STORE);
+    const tx = db.transaction([SNAPSHOTS_STORE, OUTBOX_STORE], 'readwrite');
+    const snapStore = tx.objectStore(SNAPSHOTS_STORE);
+    const outStore = tx.objectStore(OUTBOX_STORE);
     let updated: OutboxRecord | null = null;
-    const req = store.getAll();
-    req.onsuccess = () => {
-      const all = ((req.result || []) as OutboxRecord[]).filter(i => i.userId === userId);
-      const next = apply(all);
-      if (!next) return;
-      updated = next;
-      for (const item of all) {
-        if (item.requestId !== requestId && (item.status === 'pending' || item.status === 'failed' || (item.status === 'in_flight' && !isTargetInFlightActive(item)))) {
-          store.delete(item.id);
-        }
+
+    const snapReq = snapStore.get(getSnapshotKey(userId));
+    snapReq.onsuccess = () => {
+      const snap = snapReq.result as SnapshotRecord | undefined;
+      if (!snap || snap.revision !== prepared.snapshotToken.revision || snap.contentHash !== prepared.snapshotToken.contentHash) {
+        tx.abort();
+        return;
       }
-      store.put(next);
+      const outReq = outStore.getAll();
+      outReq.onsuccess = () => {
+        const items = ((outReq.result || []) as OutboxRecord[]).filter(i => i.userId === userId);
+        const target = items.find(i => i.id === prepared.targetTaskId);
+        if (!target || target.status === 'quarantined' || target.status === 'conflict' || isTargetInFlightActive(target) || isDispatched(target)) {
+          tx.abort();
+          return;
+        }
+
+        updated = {
+          ...target,
+          state: prepared.state,
+          expectedRevision: prepared.expectedRevision,
+          generationId: prepared.generationId,
+          status: 'pending',
+          nextAttemptAt: undefined,
+          attempts: target.attempts,
+          payloadHash: prepared.snapshotToken.contentHash,
+        };
+
+        for (const item of items) {
+          if (item.id !== prepared.targetTaskId && prepared.observedTaskIds.includes(item.id)) {
+            if (!isDispatched(item) && item.status !== 'quarantined' && item.status !== 'conflict' && !isTargetInFlightActive(item)) {
+              outStore.delete(item.id);
+            }
+          }
+        }
+        outStore.put(updated);
+      };
     };
+
     tx.oncomplete = () => resolve(updated);
     tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onabort = () => resolve(null);
   });
 }
 
@@ -1982,6 +2037,197 @@ export async function clearConflictRecord(
   });
 }
 
+/**
+ * S03: Protects dirty local snapshots left by older versions where local hash
+ * differs from confirmed baseline and the queue is empty.
+ * Returns 'clean' if local matches baseline or account is blank/fresh;
+ * 'queued' if an outbox task already exists or a new outbox task was queued to push local edits;
+ * 'conflict' if baseline is missing/unknown and local dirty edits must be protected as a conflict.
+ */
+export async function ensureSnapshotHasOutbox(
+  userId: string,
+  options?: { context?: OperationContext }
+): Promise<'clean' | 'queued' | 'conflict'> {
+  const checkGuard = (): boolean => {
+    if (options?.context && !options.context.isCurrent()) return false;
+    return true;
+  };
+  if (!checkGuard()) {
+    const err = new Error('账号状态已变化');
+    (err as any).code = 'AUTH_EPOCH_CHANGED';
+    throw err;
+  }
+
+  const isBlankState = (s: AppState): boolean =>
+    (!s.books || s.books.length === 0) &&
+    (!s.courses || s.courses.length === 0) &&
+    (!s.records || s.records.length === 0) &&
+    (!s.plans || s.plans.length === 0) &&
+    (!s.wrong || s.wrong.length === 0);
+
+  if (!hasNativeIdb()) {
+    const snapshot = memoryStore.snapshots.get(getSnapshotKey(userId));
+    if (!snapshot || !snapshot.state || isBlankState(snapshot.state)) {
+      return 'clean';
+    }
+    const conflict = memoryStore.conflicts.get(userId);
+    if (conflict) {
+      return 'conflict';
+    }
+    const currentHash = snapshot.contentHash || (await hashState(snapshot.state));
+    const baseline = memoryStore.syncState.get(userId) as SyncBaseline | undefined;
+    const tasks = Array.from(memoryStore.outbox.values()).filter(
+      i => i.userId === userId && (i.status === 'pending' || i.status === 'in_flight' || i.status === 'failed')
+    );
+    if (tasks.length > 0) {
+      return 'queued';
+    }
+
+    const isBaselineTrusted = Boolean(baseline && baseline.confirmedRevision > 0 && baseline.generationId && baseline.contentHash);
+    if (isBaselineTrusted) {
+      if (currentHash === baseline!.contentHash) {
+        return 'clean';
+      }
+      const newTask: OutboxRecord = {
+        id: `outbox_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        userId,
+        requestId: `req_dirty_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        state: snapshot.state,
+        expectedRevision: baseline!.confirmedRevision,
+        generationId: baseline!.generationId,
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        reason: 'dirty_snapshot_recovery',
+        attempts: 0,
+        payloadHash: currentHash,
+        expectedContentHash: baseline!.contentHash,
+      };
+      memoryStore.outbox.set(newTask.id, newTask);
+      return 'queued';
+    }
+
+    if (snapshot.confirmedContentHash && snapshot.confirmedContentHash === currentHash) {
+      return 'clean';
+    }
+
+    const conflictRecord: SyncConflictRecord = {
+      userId,
+      code: 'DIRTY_SNAPSHOT_BASELINE_UNKNOWN',
+      message: '检测到本机存在未同步修改且缺少可信云端基线，为保护数据已暂停自动覆盖，请确认处理方式。',
+      serverRevision: baseline?.confirmedRevision ?? snapshot.confirmedRevision ?? 0,
+      serverGenerationId: baseline?.generationId ?? snapshot.generationId ?? '',
+      serverContentHash: baseline?.contentHash ?? snapshot.confirmedContentHash ?? '',
+      serverState: null,
+      localRevision: snapshot.revision,
+      detectedAt: new Date().toISOString(),
+    };
+    memoryStore.conflicts.set(userId, conflictRecord);
+    return 'conflict';
+  }
+
+  const snapOutside = await getSnapshotFromDB(userId);
+  if (!snapOutside || !snapOutside.state || isBlankState(snapOutside.state)) {
+    return 'clean';
+  }
+  const currentHash = snapOutside.contentHash || (await hashState(snapOutside.state));
+
+  const db = await initDatabase();
+  return new Promise<'clean' | 'queued' | 'conflict'>((resolve, reject) => {
+    const tx = db.transaction([SNAPSHOTS_STORE, OUTBOX_STORE, SYNC_STATE_STORE], 'readwrite');
+    const snapStore = tx.objectStore(SNAPSHOTS_STORE);
+    const outStore = tx.objectStore(OUTBOX_STORE);
+    const syncStore = tx.objectStore(SYNC_STATE_STORE);
+
+    let result: 'clean' | 'queued' | 'conflict' = 'clean';
+
+    const snapReq = snapStore.get(getSnapshotKey(userId));
+    snapReq.onsuccess = () => {
+      if (!checkGuard()) {
+        tx.abort();
+        reject(Object.assign(new Error('账号状态已变化'), { code: 'AUTH_EPOCH_CHANGED' }));
+        return;
+      }
+      const snapshot = snapReq.result as SnapshotRecord | undefined;
+      if (!snapshot || !snapshot.state || isBlankState(snapshot.state)) {
+        result = 'clean';
+        return;
+      }
+
+      const conflictReq = syncStore.get(`conflict_${userId}`);
+      conflictReq.onsuccess = () => {
+        if (conflictReq.result) {
+          result = 'conflict';
+          return;
+        }
+
+        const outReq = outStore.getAll();
+        outReq.onsuccess = () => {
+          const tasks = ((outReq.result || []) as OutboxRecord[]).filter(
+            i => i.userId === userId && (i.status === 'pending' || i.status === 'in_flight' || i.status === 'failed')
+          );
+          if (tasks.length > 0) {
+            result = 'queued';
+            return;
+          }
+
+          const baseReq = syncStore.get(userId);
+          baseReq.onsuccess = () => {
+            const baseline = baseReq.result as SyncBaseline | undefined;
+            const isBaselineTrusted = Boolean(baseline && baseline.confirmedRevision > 0 && baseline.generationId && baseline.contentHash);
+
+            if (isBaselineTrusted) {
+              if (currentHash === baseline!.contentHash) {
+                result = 'clean';
+                return;
+              }
+              const newTask: OutboxRecord = {
+                id: `outbox_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                userId,
+                requestId: `req_dirty_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                state: snapshot.state,
+                expectedRevision: baseline!.confirmedRevision,
+                generationId: baseline!.generationId,
+                createdAt: new Date().toISOString(),
+                status: 'pending',
+                reason: 'dirty_snapshot_recovery',
+                attempts: 0,
+                payloadHash: currentHash,
+                expectedContentHash: baseline!.contentHash,
+              };
+              outStore.put(newTask);
+              result = 'queued';
+              return;
+            }
+
+            if (snapshot.confirmedContentHash && snapshot.confirmedContentHash === currentHash) {
+              result = 'clean';
+              return;
+            }
+
+            const conflictRecord: SyncConflictRecord = {
+              userId,
+              code: 'DIRTY_SNAPSHOT_BASELINE_UNKNOWN',
+              message: '检测到本机存在未同步修改且缺少可信云端基线，为保护数据已暂停自动覆盖，请确认处理方式。',
+              serverRevision: baseline?.confirmedRevision ?? snapshot.confirmedRevision ?? 0,
+              serverGenerationId: baseline?.generationId ?? snapshot.generationId ?? '',
+              serverContentHash: baseline?.contentHash ?? snapshot.confirmedContentHash ?? '',
+              serverState: null,
+              localRevision: snapshot.revision,
+              detectedAt: new Date().toISOString(),
+            };
+            syncStore.put({ userId: `conflict_${userId}`, conflict: conflictRecord });
+            result = 'conflict';
+          };
+        };
+      };
+    };
+
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => resolve(result);
+  });
+}
+
 // ----------------------------------------------------------------------
 // Server-state installation / recovery
 // ----------------------------------------------------------------------
@@ -2005,6 +2251,7 @@ export async function installConfirmedServerState(
     scope?: OperationScope;
     context?: OperationContext;
     signal?: AbortSignal;
+    expectedSnapshotToken?: { revision: number; contentHash?: string };
   } = {}
 ): Promise<{ ok: boolean; code?: string; message?: string }> {
   return enqueue(async () => {
@@ -2036,6 +2283,12 @@ export async function installConfirmedServerState(
         return { ok: false, code: 'LOCAL_UNRESOLVED', message: '本机存在未同步修改，不能直接覆盖' };
       }
       const current = memoryStore.snapshots.get(getSnapshotKey(userId));
+      if (!options.force && options.expectedSnapshotToken && current) {
+        if (current.revision !== options.expectedSnapshotToken.revision ||
+            (options.expectedSnapshotToken.contentHash && current.contentHash !== options.expectedSnapshotToken.contentHash)) {
+          return { ok: false, code: 'LOCAL_MUTATED', message: '本地快照已在拉取期间被更新' };
+        }
+      }
       if (options.saveRecovery !== false && current?.state) {
         memoryStore.snapshots.set(getRecoveryKey(userId), {
           key: getRecoveryKey(userId),
@@ -2096,6 +2349,14 @@ export async function installConfirmedServerState(
             return;
           }
           const current = snapReq.result as SnapshotRecord | undefined;
+          if (!options.force && options.expectedSnapshotToken && current) {
+            if (current.revision !== options.expectedSnapshotToken.revision ||
+                (options.expectedSnapshotToken.contentHash && current.contentHash !== options.expectedSnapshotToken.contentHash)) {
+              result = { ok: false, code: 'LOCAL_MUTATED', message: '本地快照已在拉取期间被更新' };
+              tx.abort();
+              return;
+            }
+          }
           if (options.saveRecovery !== false && current?.state) {
             snapStore.put({
               key: getRecoveryKey(userId),
@@ -2577,12 +2838,36 @@ export async function applyMediaRefMappings(
       memoryStore.snapshots.set(key, nextSnapshot);
       memoryStore.snapshots.set(`media_backup_${userId}_latest`, { ...snapshot, key: `media_backup_${userId}_latest` });
       for (const record of mediaRecords) memoryStore.media.set(record.id, structuredClone(record));
+      let hasUnfrozenPending = false;
       let pendingRequestId: string | undefined;
       for (const item of memoryStore.outbox.values()) {
         if (item.userId !== userId) continue;
+        const isFrozen = Boolean(item.frozenRequest || item.sentAt || (item.attemptFence ?? 0) > 0);
+        if (isFrozen) {
+          continue;
+        }
         item.state = applyState(item.state);
+        item.payloadHash = undefined;
         memoryStore.outbox.set(item.id, item);
+        hasUnfrozenPending = true;
         pendingRequestId = item.requestId;
+      }
+      if (!hasUnfrozenPending) {
+        const newTask: OutboxRecord = {
+          id: `outbox_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          userId,
+          requestId: `req_media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          state: nextState,
+          expectedRevision: snapshot.confirmedRevision ?? 0,
+          generationId: snapshot.generationId ?? '',
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+          reason: 'media_mapping',
+          attempts: 0,
+          payloadHash: contentHash,
+        };
+        memoryStore.outbox.set(newTask.id, newTask);
+        pendingRequestId = newTask.requestId;
       }
       return { changed: true, revision: nextSnapshot.revision, pendingRequestId };
     }
@@ -2598,17 +2883,8 @@ export async function applyMediaRefMappings(
       const snapshot = await getSnapshotFromDB(userId);
       if (!snapshot) return { changed: false, revision: 0 };
 
-      const outboxItems = await getAllOutbox(userId);
       const nextState = applyState(snapshot.state);
       const contentHash = await hashState(nextState);
-
-      const updatedOutbox: OutboxRecord[] = [];
-      let pendingRequestId: string | undefined;
-      for (const item of outboxItems) {
-        const nextItemState = applyState(item.state);
-        updatedOutbox.push({ ...item, state: nextItemState });
-        pendingRequestId = item.requestId;
-      }
 
       if (!checkGuard()) {
         const err = new Error('账号状态已变化，已取消写入');
@@ -2618,6 +2894,7 @@ export async function applyMediaRefMappings(
 
       // 2. Short readwrite IDB transaction (no async Promise/hash inside):
       const db = await initDatabase();
+      let pendingRequestId: string | undefined;
       const outcome = await new Promise<{
         drifted: boolean;
         result?: { changed: boolean; revision: number; pendingRequestId?: string };
@@ -2668,10 +2945,40 @@ export async function applyMediaRefMappings(
             mediaStore.put(record);
           }
 
-          // Put updated outbox tasks
-          for (const item of updatedOutbox) {
-            outStore.put(item);
-          }
+          const outReq = outStore.getAll();
+          outReq.onsuccess = () => {
+            const currentTasks = ((outReq.result || []) as OutboxRecord[]).filter(i => i.userId === userId);
+            let hasUnfrozenPending = false;
+            for (const task of currentTasks) {
+              const isFrozen = Boolean(task.frozenRequest || task.sentAt || (task.attemptFence ?? 0) > 0);
+              if (isFrozen) {
+                continue;
+              }
+              task.state = applyState(task.state);
+              task.payloadHash = undefined;
+              outStore.put(task);
+              hasUnfrozenPending = true;
+              pendingRequestId = task.requestId;
+            }
+
+            if (!hasUnfrozenPending) {
+              const newTask: OutboxRecord = {
+                id: `outbox_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                userId,
+                requestId: `req_media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                state: nextState,
+                expectedRevision: currentSnap.confirmedRevision ?? 0,
+                generationId: currentSnap.generationId ?? '',
+                createdAt: new Date().toISOString(),
+                status: 'pending',
+                reason: 'media_mapping',
+                attempts: 0,
+                payloadHash: contentHash,
+              };
+              outStore.put(newTask);
+              pendingRequestId = newTask.requestId;
+            }
+          };
 
           // Put updated snapshot with precomputed contentHash
           snapStore.put({

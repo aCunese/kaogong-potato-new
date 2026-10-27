@@ -209,6 +209,25 @@ export interface OutboxRecord {
   expectedContentHash?: string;
 }
 
+export interface WorkspacePushPayload {
+  requestId: string;
+  expectedRevision: number;
+  expectedContentHash?: string;
+  schemaVersion: 3;
+  generationId: string;
+  state: AppState;
+  reason: string;
+}
+
+export interface PreparedOutboxCompaction {
+  targetTaskId: string;
+  observedTaskIds: string[];
+  snapshotToken: { revision: number; contentHash: string };
+  state: AppState;
+  expectedRevision: number;
+  generationId: string;
+}
+
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'failed' | 'conflict';
 
 export interface DamagedCacheRecord {
