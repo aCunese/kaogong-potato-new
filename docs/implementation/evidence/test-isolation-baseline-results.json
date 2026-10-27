@@ -1,43 +1,44 @@
 {
-  "runId": "run-20261027-041603-c9ab10",
+  "runId": "run-20261027-092430-0357a4",
   "mode": "isolated-auto",
   "scope": "all",
-  "baseUrl": "http://127.0.0.1:52953",
-  "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-041603-c9ab10-pgcRqc/data",
-  "serverUrl": "http://127.0.0.1:52953",
+  "baseUrl": "http://127.0.0.1:54945",
+  "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-092430-0357a4-UDAJjH/data",
+  "serverUrl": "http://127.0.0.1:54945",
   "webBuild": {
-    "version": "1.0.4",
-    "build": "20261027.03",
+    "version": "1.0.5",
+    "build": "20261027.04",
     "schemaVersion": 3,
     "source": "server-endpoint",
-    "servedAt": "2026-10-27T04:16:08.153Z"
+    "servedAt": "2026-10-27T09:24:30.857Z"
   },
   "build": {
-    "strategy": "npm-run-build",
-    "typecheckPassed": true,
-    "npmBuildExitCode": 0,
-    "viteBuildExitCode": 0,
+    "strategy": "reused-existing-dist",
+    "typecheckPassed": null,
+    "npmBuildExitCode": null,
+    "viteBuildExitCode": null,
+    "fallbackReason": "VERIFY_REBUILD=0: reused existing dist/ without rebuilding",
     "distIndexPath": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/dist/index.html",
-    "distIndexMtimeMs": 1793074567958.7383,
+    "distIndexMtimeMs": 1793093034358.3643,
     "hashedAssets": [
       "potato-poses-bvJKuRVa.png",
-      "index-ByhKRi8F.css",
-      "index-CrXocV0g.js"
+      "index-CAd7d1zW.css",
+      "index-DtjaS_ef.js"
     ]
   },
-  "startedAt": "2026-10-27T04:16:03.603Z",
-  "finishedAt": "2026-10-27T04:16:34.841Z",
-  "durationMs": 31238,
+  "startedAt": "2026-10-27T09:24:30.478Z",
+  "finishedAt": "2026-10-27T09:24:57.070Z",
+  "durationMs": 26592,
   "realDataDir": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
   "realDataBefore": {
     "exists": true,
-    "files": 9,
-    "aggregateSha256": "0bd727b5e9f7fb956da5a235c95ecfcb137643abd3bab88d493f12517ede7c8c"
+    "files": 12,
+    "aggregateSha256": "2a96d65957f1dbdfd156699bebeb0378484681c953428cae824be9217d923bb2"
   },
   "realDataAfter": {
     "exists": true,
-    "files": 9,
-    "aggregateSha256": "0bd727b5e9f7fb956da5a235c95ecfcb137643abd3bab88d493f12517ede7c8c"
+    "files": 12,
+    "aggregateSha256": "2a96d65957f1dbdfd156699bebeb0378484681c953428cae824be9217d923bb2"
   },
   "realDataUnchanged": true,
   "realDataDiff": {
@@ -47,32 +48,64 @@
     "modified": []
   },
   "gitBefore": {
-    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
-    "branch": "codex/joint-release-hardening",
-    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
-    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "head": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+    "branch": "codex/personal-release-fixes",
+    "statusPorcelain": " M scripts/verify-screens.ts\n M src/context/AppContext.tsx\n?? docs/implementation/FINAL-FIX-REPORT.md\n?? docs/implementation/NEXT-AI-REPAIR-PROMPT.md\n?? docs/implementation/PERSONAL-RELEASE-EXECUTION.md\n?? docs/superpowers/\n",
+    "trackedDiffSha256": "f1ba06b4d8c39a720e96821febd3edf1926662c89ce20a37f003affdff60bedc",
     "untrackedFiles": [
       {
-        "path": "package-lock.json",
-        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+        "path": "docs/implementation/FINAL-FIX-REPORT.md",
+        "sha256": "45e5021f32221caed99802539bbcce8cf2e5f5c1b5cfed617d9bcfdec661a9fe"
+      },
+      {
+        "path": "docs/implementation/NEXT-AI-REPAIR-PROMPT.md",
+        "sha256": "972b6d9f01fec1beaa0535b196537b8f486be2a320413bb385f16e8f5cb2fc8b"
+      },
+      {
+        "path": "docs/implementation/PERSONAL-RELEASE-EXECUTION.md",
+        "sha256": "15bd8435331d43d31e81eac9f4352b5da60371886dbe220776e0f90171a01015"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-27-personal-release-repair-and-deploy.md",
+        "sha256": "979dea7b0ba7d41fc933bde61c525f488077b862237fb2d3d7950be8a9e0e3a3"
+      },
+      {
+        "path": "docs/superpowers/specs/2026-10-27-personal-release-repair-design.md",
+        "sha256": "b3a2e153fc1bf64ef618ad74e1ce30c66b7564e91d6eab7002e4ee1c78878f3a"
       }
     ],
-    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
-    "capturedAt": "2026-10-27T04:16:03.659Z"
+    "worktreeSha256": "ebf8b77ac34715162004a9dfe7e2e4f1b377c3736867c3d9d1c38421471bd07f",
+    "capturedAt": "2026-10-27T09:24:30.522Z"
   },
   "gitAfter": {
-    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
-    "branch": "codex/joint-release-hardening",
-    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
-    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "head": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+    "branch": "codex/personal-release-fixes",
+    "statusPorcelain": " M scripts/verify-screens.ts\n M src/context/AppContext.tsx\n?? docs/implementation/FINAL-FIX-REPORT.md\n?? docs/implementation/NEXT-AI-REPAIR-PROMPT.md\n?? docs/implementation/PERSONAL-RELEASE-EXECUTION.md\n?? docs/superpowers/\n",
+    "trackedDiffSha256": "f1ba06b4d8c39a720e96821febd3edf1926662c89ce20a37f003affdff60bedc",
     "untrackedFiles": [
       {
-        "path": "package-lock.json",
-        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+        "path": "docs/implementation/FINAL-FIX-REPORT.md",
+        "sha256": "45e5021f32221caed99802539bbcce8cf2e5f5c1b5cfed617d9bcfdec661a9fe"
+      },
+      {
+        "path": "docs/implementation/NEXT-AI-REPAIR-PROMPT.md",
+        "sha256": "972b6d9f01fec1beaa0535b196537b8f486be2a320413bb385f16e8f5cb2fc8b"
+      },
+      {
+        "path": "docs/implementation/PERSONAL-RELEASE-EXECUTION.md",
+        "sha256": "15bd8435331d43d31e81eac9f4352b5da60371886dbe220776e0f90171a01015"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-27-personal-release-repair-and-deploy.md",
+        "sha256": "979dea7b0ba7d41fc933bde61c525f488077b862237fb2d3d7950be8a9e0e3a3"
+      },
+      {
+        "path": "docs/superpowers/specs/2026-10-27-personal-release-repair-design.md",
+        "sha256": "b3a2e153fc1bf64ef618ad74e1ce30c66b7564e91d6eab7002e4ee1c78878f3a"
       }
     ],
-    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
-    "capturedAt": "2026-10-27T04:16:34.839Z"
+    "worktreeSha256": "ebf8b77ac34715162004a9dfe7e2e4f1b377c3736867c3d9d1c38421471bd07f",
+    "capturedAt": "2026-10-27T09:24:57.066Z"
   },
   "sourceChangedDuringRun": false,
   "total": 163,
@@ -83,22 +116,22 @@
     {
       "name": "normal viewport 412x915",
       "status": "passed",
-      "durationMs": 137
+      "durationMs": 145
     },
     {
       "name": "412 today",
       "status": "passed",
-      "durationMs": 171
+      "durationMs": 189
     },
     {
       "name": "412 library",
       "status": "passed",
-      "durationMs": 127
+      "durationMs": 125
     },
     {
       "name": "412 books",
       "status": "passed",
-      "durationMs": 118
+      "durationMs": 120
     },
     {
       "name": "412 courses",
@@ -108,12 +141,12 @@
     {
       "name": "412 wrong",
       "status": "passed",
-      "durationMs": 101
+      "durationMs": 122
     },
     {
       "name": "412 overall",
       "status": "passed",
-      "durationMs": 123
+      "durationMs": 119
     },
     {
       "name": "412 monthly",
@@ -123,47 +156,47 @@
     {
       "name": "412 settings",
       "status": "passed",
-      "durationMs": 123
+      "durationMs": 140
     },
     {
       "name": "412 focus",
       "status": "passed",
-      "durationMs": 175
+      "durationMs": 178
     },
     {
       "name": "412 add-plan",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 157
     },
     {
       "name": "412 complete-book",
       "status": "passed",
-      "durationMs": 161
+      "durationMs": 159
     },
     {
       "name": "412 complete-course",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 176
     },
     {
       "name": "412 complete-custom",
       "status": "passed",
-      "durationMs": 143
+      "durationMs": 142
     },
     {
       "name": "412 complete-success",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 158
     },
     {
       "name": "412 book-edit",
       "status": "passed",
-      "durationMs": 161
+      "durationMs": 158
     },
     {
       "name": "412 course-edit",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 157
     },
     {
       "name": "412 custom-add",
@@ -173,22 +206,22 @@
     {
       "name": "412 photo-import",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 174
     },
     {
       "name": "412 wrong-detail",
       "status": "passed",
-      "durationMs": 160
+      "durationMs": 142
     },
     {
       "name": "412 countdown",
       "status": "passed",
-      "durationMs": 190
+      "durationMs": 174
     },
     {
       "name": "412 guest",
       "status": "passed",
-      "durationMs": 123
+      "durationMs": 107
     },
     {
       "name": "412 login",
@@ -198,7 +231,7 @@
     {
       "name": "412 register",
       "status": "passed",
-      "durationMs": 139
+      "durationMs": 157
     },
     {
       "name": "412 sync",
@@ -208,12 +241,12 @@
     {
       "name": "412 backup",
       "status": "passed",
-      "durationMs": 139
+      "durationMs": 173
     },
     {
       "name": "412 profile",
       "status": "passed",
-      "durationMs": 162
+      "durationMs": 161
     },
     {
       "name": "412 today-empty",
@@ -223,67 +256,67 @@
     {
       "name": "412 delete-confirm",
       "status": "passed",
-      "durationMs": 156
+      "durationMs": 139
     },
     {
       "name": "412 book-add",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 142
     },
     {
       "name": "412 course-add",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 158
     },
     {
       "name": "412 today-multi",
       "status": "passed",
-      "durationMs": 105
+      "durationMs": 119
     },
     {
       "name": "412 focus-paused",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 142
     },
     {
       "name": "412 complete-course-success",
       "status": "passed",
-      "durationMs": 178
+      "durationMs": 173
     },
     {
       "name": "412 complete-custom-success",
       "status": "passed",
-      "durationMs": 192
+      "durationMs": 174
     },
     {
       "name": "412 states-empty",
       "status": "passed",
-      "durationMs": 119
+      "durationMs": 118
     },
     {
       "name": "412 states-sync",
       "status": "passed",
-      "durationMs": 120
+      "durationMs": 100
     },
     {
       "name": "412 states-form",
       "status": "passed",
-      "durationMs": 101
+      "durationMs": 116
     },
     {
       "name": "412 confirm-book",
       "status": "passed",
-      "durationMs": 174
+      "durationMs": 158
     },
     {
       "name": "412 confirm-course",
       "status": "passed",
-      "durationMs": 178
+      "durationMs": 193
     },
     {
       "name": "412 confirm-photo",
       "status": "passed",
-      "durationMs": 193
+      "durationMs": 174
     },
     {
       "name": "412 confirm-reset",
@@ -293,7 +326,7 @@
     {
       "name": "412 confirm-import",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 157
     },
     {
       "name": "412 confirm-upload",
@@ -303,37 +336,37 @@
     {
       "name": "412 confirm-pull",
       "status": "passed",
-      "durationMs": 178
+      "durationMs": 158
     },
     {
       "name": "412 confirm-logout",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 175
     },
     {
       "name": "412 download-apk",
       "status": "passed",
-      "durationMs": 161
+      "durationMs": 157
     },
     {
       "name": "412 month-picker",
       "status": "passed",
-      "durationMs": 176
+      "durationMs": 178
     },
     {
       "name": "412 overall-legend",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 157
     },
     {
       "name": "412 focus-course",
       "status": "passed",
-      "durationMs": 174
+      "durationMs": 140
     },
     {
       "name": "412 focus-custom",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 140
     },
     {
       "name": "no page errors 412",
@@ -343,22 +376,22 @@
     {
       "name": "normal viewport 393x873",
       "status": "passed",
-      "durationMs": 61
+      "durationMs": 80
     },
     {
       "name": "393 today",
       "status": "passed",
-      "durationMs": 137
+      "durationMs": 156
     },
     {
       "name": "393 library",
       "status": "passed",
-      "durationMs": 121
+      "durationMs": 122
     },
     {
       "name": "393 books",
       "status": "passed",
-      "durationMs": 119
+      "durationMs": 120
     },
     {
       "name": "393 courses",
@@ -368,37 +401,37 @@
     {
       "name": "393 wrong",
       "status": "passed",
-      "durationMs": 118
+      "durationMs": 102
     },
     {
       "name": "393 overall",
       "status": "passed",
-      "durationMs": 117
+      "durationMs": 120
     },
     {
       "name": "393 monthly",
       "status": "passed",
-      "durationMs": 122
+      "durationMs": 106
     },
     {
       "name": "393 settings",
       "status": "passed",
-      "durationMs": 123
+      "durationMs": 140
     },
     {
       "name": "393 focus",
       "status": "passed",
-      "durationMs": 175
+      "durationMs": 162
     },
     {
       "name": "393 add-plan",
       "status": "passed",
-      "durationMs": 161
+      "durationMs": 174
     },
     {
       "name": "393 complete-book",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 160
     },
     {
       "name": "393 complete-course",
@@ -408,167 +441,167 @@
     {
       "name": "393 complete-custom",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 142
     },
     {
       "name": "393 complete-success",
       "status": "passed",
-      "durationMs": 162
+      "durationMs": 141
     },
     {
       "name": "393 book-edit",
       "status": "passed",
-      "durationMs": 203
+      "durationMs": 143
     },
     {
       "name": "393 course-edit",
       "status": "passed",
-      "durationMs": 173
+      "durationMs": 140
     },
     {
       "name": "393 custom-add",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 145
     },
     {
       "name": "393 photo-import",
       "status": "passed",
-      "durationMs": 191
+      "durationMs": 139
     },
     {
       "name": "393 wrong-detail",
       "status": "passed",
-      "durationMs": 162
+      "durationMs": 144
     },
     {
       "name": "393 countdown",
       "status": "passed",
-      "durationMs": 163
+      "durationMs": 140
     },
     {
       "name": "393 guest",
       "status": "passed",
-      "durationMs": 137
+      "durationMs": 105
     },
     {
       "name": "393 login",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 140
     },
     {
       "name": "393 register",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 144
     },
     {
       "name": "393 sync",
       "status": "passed",
-      "durationMs": 142
+      "durationMs": 140
     },
     {
       "name": "393 backup",
       "status": "passed",
-      "durationMs": 163
+      "durationMs": 144
     },
     {
       "name": "393 profile",
       "status": "passed",
-      "durationMs": 176
+      "durationMs": 140
     },
     {
       "name": "393 today-empty",
       "status": "passed",
-      "durationMs": 106
+      "durationMs": 103
     },
     {
       "name": "393 delete-confirm",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 144
     },
     {
       "name": "393 book-add",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 139
     },
     {
       "name": "393 course-add",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 144
     },
     {
       "name": "393 today-multi",
       "status": "passed",
-      "durationMs": 120
+      "durationMs": 119
     },
     {
       "name": "393 focus-paused",
       "status": "passed",
-      "durationMs": 160
+      "durationMs": 159
     },
     {
       "name": "393 complete-course-success",
       "status": "passed",
-      "durationMs": 176
+      "durationMs": 174
     },
     {
       "name": "393 complete-custom-success",
       "status": "passed",
-      "durationMs": 173
+      "durationMs": 177
     },
     {
       "name": "393 states-empty",
       "status": "passed",
-      "durationMs": 138
+      "durationMs": 101
     },
     {
       "name": "393 states-sync",
       "status": "passed",
-      "durationMs": 118
+      "durationMs": 102
     },
     {
       "name": "393 states-form",
       "status": "passed",
-      "durationMs": 117
+      "durationMs": 100
     },
     {
       "name": "393 confirm-book",
       "status": "passed",
-      "durationMs": 191
+      "durationMs": 157
     },
     {
       "name": "393 confirm-course",
       "status": "passed",
-      "durationMs": 194
+      "durationMs": 146
     },
     {
       "name": "393 confirm-photo",
       "status": "passed",
-      "durationMs": 176
+      "durationMs": 161
     },
     {
       "name": "393 confirm-reset",
       "status": "passed",
-      "durationMs": 175
+      "durationMs": 157
     },
     {
       "name": "393 confirm-import",
       "status": "passed",
-      "durationMs": 180
+      "durationMs": 160
     },
     {
       "name": "393 confirm-upload",
       "status": "passed",
-      "durationMs": 176
+      "durationMs": 159
     },
     {
       "name": "393 confirm-pull",
       "status": "passed",
-      "durationMs": 175
+      "durationMs": 145
     },
     {
       "name": "393 confirm-logout",
       "status": "passed",
-      "durationMs": 175
+      "durationMs": 140
     },
     {
       "name": "393 download-apk",
@@ -578,22 +611,22 @@
     {
       "name": "393 month-picker",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 161
     },
     {
       "name": "393 overall-legend",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 140
     },
     {
       "name": "393 focus-course",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 156
     },
     {
       "name": "393 focus-custom",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 144
     },
     {
       "name": "no page errors 393",
@@ -603,12 +636,12 @@
     {
       "name": "normal viewport 360x800",
       "status": "passed",
-      "durationMs": 80
+      "durationMs": 77
     },
     {
       "name": "360 today",
       "status": "passed",
-      "durationMs": 133
+      "durationMs": 132
     },
     {
       "name": "360 library",
@@ -623,42 +656,42 @@
     {
       "name": "360 courses",
       "status": "passed",
-      "durationMs": 120
+      "durationMs": 100
     },
     {
       "name": "360 wrong",
       "status": "passed",
-      "durationMs": 116
+      "durationMs": 100
     },
     {
       "name": "360 overall",
       "status": "passed",
-      "durationMs": 116
+      "durationMs": 117
     },
     {
       "name": "360 monthly",
       "status": "passed",
-      "durationMs": 120
+      "durationMs": 101
     },
     {
       "name": "360 settings",
       "status": "passed",
-      "durationMs": 119
+      "durationMs": 103
     },
     {
       "name": "360 focus",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 156
     },
     {
       "name": "360 add-plan",
       "status": "passed",
-      "durationMs": 160
+      "durationMs": 159
     },
     {
       "name": "360 complete-book",
       "status": "passed",
-      "durationMs": 157
+      "durationMs": 140
     },
     {
       "name": "360 complete-course",
@@ -668,67 +701,67 @@
     {
       "name": "360 complete-custom",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 140
     },
     {
       "name": "360 complete-success",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 143
     },
     {
       "name": "360 book-edit",
       "status": "passed",
-      "durationMs": 156
+      "durationMs": 141
     },
     {
       "name": "360 course-edit",
       "status": "passed",
-      "durationMs": 144
+      "durationMs": 175
     },
     {
       "name": "360 custom-add",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 140
     },
     {
       "name": "360 photo-import",
       "status": "passed",
-      "durationMs": 160
+      "durationMs": 144
     },
     {
       "name": "360 wrong-detail",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 141
     },
     {
       "name": "360 countdown",
       "status": "passed",
-      "durationMs": 160
+      "durationMs": 161
     },
     {
       "name": "360 guest",
       "status": "passed",
-      "durationMs": 104
+      "durationMs": 121
     },
     {
       "name": "360 login",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 143
     },
     {
       "name": "360 register",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 140
     },
     {
       "name": "360 sync",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 158
     },
     {
       "name": "360 backup",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 140
     },
     {
       "name": "360 profile",
@@ -738,7 +771,7 @@
     {
       "name": "360 today-empty",
       "status": "passed",
-      "durationMs": 121
+      "durationMs": 100
     },
     {
       "name": "360 delete-confirm",
@@ -748,37 +781,37 @@
     {
       "name": "360 book-add",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 157
     },
     {
       "name": "360 course-add",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 144
     },
     {
       "name": "360 today-multi",
       "status": "passed",
-      "durationMs": 116
+      "durationMs": 101
     },
     {
       "name": "360 focus-paused",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 139
     },
     {
       "name": "360 complete-course-success",
       "status": "passed",
-      "durationMs": 177
+      "durationMs": 178
     },
     {
       "name": "360 complete-custom-success",
       "status": "passed",
-      "durationMs": 173
+      "durationMs": 194
     },
     {
       "name": "360 states-empty",
       "status": "passed",
-      "durationMs": 122
+      "durationMs": 100
     },
     {
       "name": "360 states-sync",
@@ -788,12 +821,12 @@
     {
       "name": "360 states-form",
       "status": "passed",
-      "durationMs": 99
+      "durationMs": 100
     },
     {
       "name": "360 confirm-book",
       "status": "passed",
-      "durationMs": 142
+      "durationMs": 158
     },
     {
       "name": "360 confirm-course",
@@ -803,37 +836,37 @@
     {
       "name": "360 confirm-photo",
       "status": "passed",
-      "durationMs": 140
+      "durationMs": 158
     },
     {
       "name": "360 confirm-reset",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 144
     },
     {
       "name": "360 confirm-import",
       "status": "passed",
-      "durationMs": 174
+      "durationMs": 141
     },
     {
       "name": "360 confirm-upload",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 162
     },
     {
       "name": "360 confirm-pull",
       "status": "passed",
-      "durationMs": 159
+      "durationMs": 183
     },
     {
       "name": "360 confirm-logout",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 183
     },
     {
       "name": "360 download-apk",
       "status": "passed",
-      "durationMs": 158
+      "durationMs": 175
     },
     {
       "name": "360 month-picker",
@@ -843,17 +876,17 @@
     {
       "name": "360 overall-legend",
       "status": "passed",
-      "durationMs": 141
+      "durationMs": 241
     },
     {
       "name": "360 focus-course",
       "status": "passed",
-      "durationMs": 156
+      "durationMs": 165
     },
     {
       "name": "360 focus-custom",
       "status": "passed",
-      "durationMs": 145
+      "durationMs": 176
     },
     {
       "name": "no page errors 360",
@@ -863,37 +896,37 @@
     {
       "name": "register through UI: server seeds 14 books / 7 courses / 22 library items and client hydrates indexedDB",
       "status": "passed",
-      "durationMs": 687
+      "durationMs": 705
     },
     {
       "name": "UI edit (add book) auto-syncs to the isolated server workspace",
       "status": "passed",
-      "durationMs": 135
+      "durationMs": 114
     },
     {
       "name": "second device with only a valid session cookie hydrates the server workspace into indexedDB",
       "status": "passed",
-      "durationMs": 423
+      "durationMs": 434
     },
     {
       "name": "orphan photo remains deletable and cancel preserves it",
       "status": "passed",
-      "durationMs": 592
+      "durationMs": 598
     },
     {
       "name": "preview changes do not change normal snapshot",
       "status": "passed",
-      "durationMs": 549
+      "durationMs": 575
     },
     {
       "name": "save failure keeps book draft and shows no success",
       "status": "passed",
-      "durationMs": 584
+      "durationMs": 544
     },
     {
       "name": "running plan completion pauses latest timer and uses recorded summary",
       "status": "passed",
-      "durationMs": 593
+      "durationMs": 590
     }
   ],
   "prepError": null

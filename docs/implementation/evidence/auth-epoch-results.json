@@ -1,14 +1,14 @@
 {
-  "runId": "run-20261027-041752-60e310",
-  "checkedAt": "2026-10-27T04:18:09.819Z",
-  "baseUrl": "http://127.0.0.1:53614",
-  "dataDir": "/tmp/run-20261027-041752-60e310-0V65Gp/data",
+  "runId": "run-20261027-091516-88997d",
+  "checkedAt": "2026-10-27T09:15:34.492Z",
+  "baseUrl": "http://127.0.0.1:53370",
+  "dataDir": "/tmp/run-20261027-091516-88997d-ou1GBa/data",
   "webBuild": {
-    "version": "1.0.4",
-    "build": "20261027.03",
+    "version": "1.0.5",
+    "build": "20261027.04",
     "schemaVersion": 3,
-    "apkVersion": "1.0.4",
-    "apkVersionCode": 5,
+    "apkVersion": "1.0.5",
+    "apkVersionCode": 6,
     "apkDownloadUrl": "/api/download/apk",
     "apkSha256": "",
     "apkSizeBytes": 0,
@@ -16,11 +16,11 @@
     "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
     "apkReleased": false,
     "deployedAt": "2026-10-27T00:00:00Z",
-    "summary": "联合上线冻结候选版：修复 A01-A09 全部缺陷，补齐回归套件与灾备原子验证",
-    "servedAt": "2026-10-27T04:18:09.820Z",
-    "nonce": "run-20261027-041752-60e310"
+    "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷",
+    "servedAt": "2026-10-27T09:15:34.494Z",
+    "nonce": "run-20261027-091516-88997d"
   },
-  "gitHead": "386beca70fe6fca44363b92756cdbd78b9b65a63",
+  "gitHead": "913871d3edc1439c56efa7653c045fa0b2170cfa",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793074688170_69d43177249e"
+        "image": "/api/media/media_1793092532872_5792b8aad165"
       }
     },
     {

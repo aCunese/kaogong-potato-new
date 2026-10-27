@@ -1,17 +1,23 @@
 {
-  "runId": "run-20261027-041603-c9ab10",
+  "runId": "run-20261027-092430-0357a4",
   "mode": "isolated-auto",
-  "generatedAt": "2026-10-27T04:16:34.842Z",
+  "generatedAt": "2026-10-27T09:24:57.071Z",
   "realDataDir": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
   "realDataBefore": {
     "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
     "exists": true,
-    "capturedAt": "2026-10-27T04:16:03.662Z",
+    "capturedAt": "2026-10-27T09:24:30.525Z",
     "files": [
+      {
+        "path": ".data-maintenance.lock",
+        "size": 0,
+        "mtimeMs": 1793085490292.3794,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
       {
         "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
         "size": 70,
-        "mtimeMs": 1792995329512.9246,
+        "mtimeMs": 1792995329512.9243,
         "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
       },
       {
@@ -35,7 +41,7 @@
       {
         "path": "backups/backup_20261026_153756/potato.db",
         "size": 98304,
-        "mtimeMs": 1792996676655.1223,
+        "mtimeMs": 1792996676655.1226,
         "sha256": "6f4ae6360c1b97ddd3da67cd965a6e44691ed0c8129f86844f781a6122880027"
       },
       {
@@ -53,7 +59,7 @@
       {
         "path": "backups/backup_20261026_153756.tar.gz",
         "size": 5882,
-        "mtimeMs": 1792996676705.978,
+        "mtimeMs": 1792996676705.9783,
         "sha256": "e917e42b43e5a5dfd0e0e17d5d1460232de9f28869f4b882e0fb3008a2b5bb6e"
       },
       {
@@ -61,19 +67,37 @@
         "size": 176128,
         "mtimeMs": 1793035693072.9568,
         "sha256": "c706567175324232be2e6d817ed7d6ecab0a0bc51d92546d4077a0163632f93b"
+      },
+      {
+        "path": "potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1793085490295.3586,
+        "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      },
+      {
+        "path": "potato.db-wal",
+        "size": 0,
+        "mtimeMs": 1793085490295.0852,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     ],
-    "aggregateSha256": "0bd727b5e9f7fb956da5a235c95ecfcb137643abd3bab88d493f12517ede7c8c"
+    "aggregateSha256": "2a96d65957f1dbdfd156699bebeb0378484681c953428cae824be9217d923bb2"
   },
   "realDataAfter": {
     "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
     "exists": true,
-    "capturedAt": "2026-10-27T04:16:34.841Z",
+    "capturedAt": "2026-10-27T09:24:57.070Z",
     "files": [
+      {
+        "path": ".data-maintenance.lock",
+        "size": 0,
+        "mtimeMs": 1793085490292.3794,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
       {
         "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
         "size": 70,
-        "mtimeMs": 1792995329512.9246,
+        "mtimeMs": 1792995329512.9243,
         "sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
       },
       {
@@ -97,7 +121,7 @@
       {
         "path": "backups/backup_20261026_153756/potato.db",
         "size": 98304,
-        "mtimeMs": 1792996676655.1223,
+        "mtimeMs": 1792996676655.1226,
         "sha256": "6f4ae6360c1b97ddd3da67cd965a6e44691ed0c8129f86844f781a6122880027"
       },
       {
@@ -115,7 +139,7 @@
       {
         "path": "backups/backup_20261026_153756.tar.gz",
         "size": 5882,
-        "mtimeMs": 1792996676705.978,
+        "mtimeMs": 1792996676705.9783,
         "sha256": "e917e42b43e5a5dfd0e0e17d5d1460232de9f28869f4b882e0fb3008a2b5bb6e"
       },
       {
@@ -123,9 +147,21 @@
         "size": 176128,
         "mtimeMs": 1793035693072.9568,
         "sha256": "c706567175324232be2e6d817ed7d6ecab0a0bc51d92546d4077a0163632f93b"
+      },
+      {
+        "path": "potato.db-shm",
+        "size": 32768,
+        "mtimeMs": 1793085490295.3586,
+        "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      },
+      {
+        "path": "potato.db-wal",
+        "size": 0,
+        "mtimeMs": 1793085490295.0852,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     ],
-    "aggregateSha256": "0bd727b5e9f7fb956da5a235c95ecfcb137643abd3bab88d493f12517ede7c8c"
+    "aggregateSha256": "2a96d65957f1dbdfd156699bebeb0378484681c953428cae824be9217d923bb2"
   },
   "realDataDiff": {
     "unchanged": true,
@@ -136,59 +172,92 @@
   "realDataUnchanged": true,
   "isolatedEnv": {
     "repoRoot": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版",
-    "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-041603-c9ab10-pgcRqc/data",
-    "tmpRoot": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-041603-c9ab10-pgcRqc",
-    "serverUrl": "http://127.0.0.1:52953",
-    "serverPid": 14502,
+    "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-092430-0357a4-UDAJjH/data",
+    "tmpRoot": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-092430-0357a4-UDAJjH",
+    "serverUrl": "http://127.0.0.1:54945",
+    "serverPid": 7448,
     "webBuild": {
-      "version": "1.0.4",
-      "build": "20261027.03",
+      "version": "1.0.5",
+      "build": "20261027.04",
       "schemaVersion": 3,
       "source": "server-endpoint",
-      "servedAt": "2026-10-27T04:16:08.153Z"
+      "servedAt": "2026-10-27T09:24:30.857Z"
     },
     "build": {
-      "strategy": "npm-run-build",
-      "typecheckPassed": true,
-      "npmBuildExitCode": 0,
-      "viteBuildExitCode": 0,
+      "strategy": "reused-existing-dist",
+      "typecheckPassed": null,
+      "npmBuildExitCode": null,
+      "viteBuildExitCode": null,
+      "fallbackReason": "VERIFY_REBUILD=0: reused existing dist/ without rebuilding",
       "distIndexPath": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/dist/index.html",
-      "distIndexMtimeMs": 1793074567958.7383,
+      "distIndexMtimeMs": 1793093034358.3643,
       "hashedAssets": [
         "potato-poses-bvJKuRVa.png",
-        "index-ByhKRi8F.css",
-        "index-CrXocV0g.js"
+        "index-CAd7d1zW.css",
+        "index-DtjaS_ef.js"
       ]
     },
     "inviteCreated": true
   },
   "gitBefore": {
-    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
-    "branch": "codex/joint-release-hardening",
-    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
-    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "head": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+    "branch": "codex/personal-release-fixes",
+    "statusPorcelain": " M scripts/verify-screens.ts\n M src/context/AppContext.tsx\n?? docs/implementation/FINAL-FIX-REPORT.md\n?? docs/implementation/NEXT-AI-REPAIR-PROMPT.md\n?? docs/implementation/PERSONAL-RELEASE-EXECUTION.md\n?? docs/superpowers/\n",
+    "trackedDiffSha256": "f1ba06b4d8c39a720e96821febd3edf1926662c89ce20a37f003affdff60bedc",
     "untrackedFiles": [
       {
-        "path": "package-lock.json",
-        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+        "path": "docs/implementation/FINAL-FIX-REPORT.md",
+        "sha256": "45e5021f32221caed99802539bbcce8cf2e5f5c1b5cfed617d9bcfdec661a9fe"
+      },
+      {
+        "path": "docs/implementation/NEXT-AI-REPAIR-PROMPT.md",
+        "sha256": "972b6d9f01fec1beaa0535b196537b8f486be2a320413bb385f16e8f5cb2fc8b"
+      },
+      {
+        "path": "docs/implementation/PERSONAL-RELEASE-EXECUTION.md",
+        "sha256": "15bd8435331d43d31e81eac9f4352b5da60371886dbe220776e0f90171a01015"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-27-personal-release-repair-and-deploy.md",
+        "sha256": "979dea7b0ba7d41fc933bde61c525f488077b862237fb2d3d7950be8a9e0e3a3"
+      },
+      {
+        "path": "docs/superpowers/specs/2026-10-27-personal-release-repair-design.md",
+        "sha256": "b3a2e153fc1bf64ef618ad74e1ce30c66b7564e91d6eab7002e4ee1c78878f3a"
       }
     ],
-    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
-    "capturedAt": "2026-10-27T04:16:03.659Z"
+    "worktreeSha256": "ebf8b77ac34715162004a9dfe7e2e4f1b377c3736867c3d9d1c38421471bd07f",
+    "capturedAt": "2026-10-27T09:24:30.522Z"
   },
   "gitAfter": {
-    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
-    "branch": "codex/joint-release-hardening",
-    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
-    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "head": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+    "branch": "codex/personal-release-fixes",
+    "statusPorcelain": " M scripts/verify-screens.ts\n M src/context/AppContext.tsx\n?? docs/implementation/FINAL-FIX-REPORT.md\n?? docs/implementation/NEXT-AI-REPAIR-PROMPT.md\n?? docs/implementation/PERSONAL-RELEASE-EXECUTION.md\n?? docs/superpowers/\n",
+    "trackedDiffSha256": "f1ba06b4d8c39a720e96821febd3edf1926662c89ce20a37f003affdff60bedc",
     "untrackedFiles": [
       {
-        "path": "package-lock.json",
-        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+        "path": "docs/implementation/FINAL-FIX-REPORT.md",
+        "sha256": "45e5021f32221caed99802539bbcce8cf2e5f5c1b5cfed617d9bcfdec661a9fe"
+      },
+      {
+        "path": "docs/implementation/NEXT-AI-REPAIR-PROMPT.md",
+        "sha256": "972b6d9f01fec1beaa0535b196537b8f486be2a320413bb385f16e8f5cb2fc8b"
+      },
+      {
+        "path": "docs/implementation/PERSONAL-RELEASE-EXECUTION.md",
+        "sha256": "15bd8435331d43d31e81eac9f4352b5da60371886dbe220776e0f90171a01015"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-27-personal-release-repair-and-deploy.md",
+        "sha256": "979dea7b0ba7d41fc933bde61c525f488077b862237fb2d3d7950be8a9e0e3a3"
+      },
+      {
+        "path": "docs/superpowers/specs/2026-10-27-personal-release-repair-design.md",
+        "sha256": "b3a2e153fc1bf64ef618ad74e1ce30c66b7564e91d6eab7002e4ee1c78878f3a"
       }
     ],
-    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
-    "capturedAt": "2026-10-27T04:16:34.839Z"
+    "worktreeSha256": "ebf8b77ac34715162004a9dfe7e2e4f1b377c3736867c3d9d1c38421471bd07f",
+    "capturedAt": "2026-10-27T09:24:57.066Z"
   },
   "sourceChangedDuringRun": false
 }

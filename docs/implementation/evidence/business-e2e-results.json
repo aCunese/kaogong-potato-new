@@ -1,11 +1,11 @@
 {
-  "runId": "e2e_1793074595023_b5d20f",
-  "baseUrl": "http://127.0.0.1:53300",
-  "dataDir": "/tmp/potato-business-e2e-Xgi4Oa/data",
-  "webVersion": "1.0.4",
-  "webBuild": "20261027.03",
-  "checkedAt": "2026-10-27T04:17:51.971Z",
-  "gitHead": "386beca70fe6fca44363b92756cdbd78b9b65a63",
+  "runId": "e2e_1793092544264_420d90",
+  "baseUrl": "http://127.0.0.1:53503",
+  "dataDir": "/tmp/potato-business-e2e-NHNV8c/data",
+  "webVersion": "1.0.5",
+  "webBuild": "20261027.04",
+  "checkedAt": "2026-10-27T09:17:03.957Z",
+  "gitHead": "913871d3edc1439c56efa7653c045fa0b2170cfa",
   "total": 38,
   "passed": 38,
   "failed": 0,
@@ -19,11 +19,11 @@
       "passed": true,
       "detail": {
         "versionInfo": {
-          "version": "1.0.4",
-          "build": "20261027.03",
+          "version": "1.0.5",
+          "build": "20261027.04",
           "schemaVersion": 3,
-          "apkVersion": "1.0.4",
-          "apkVersionCode": 5,
+          "apkVersion": "1.0.5",
+          "apkVersionCode": 6,
           "apkDownloadUrl": "/api/download/apk",
           "apkSha256": "",
           "apkSizeBytes": 0,
@@ -31,16 +31,16 @@
           "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
           "apkReleased": false,
           "deployedAt": "2026-10-27T00:00:00Z",
-          "summary": "联合上线冻结候选版：修复 A01-A09 全部缺陷，补齐回归套件与灾备原子验证",
-          "servedAt": "2026-10-27T04:16:38.917Z",
+          "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷",
+          "servedAt": "2026-10-27T09:15:48.839Z",
           "nonce": "startup"
         },
         "distVersion": {
-          "version": "1.0.4",
-          "build": "20261027.03",
+          "version": "1.0.5",
+          "build": "20261027.04",
           "schemaVersion": 3,
-          "apkVersion": "1.0.4",
-          "apkVersionCode": 5,
+          "apkVersion": "1.0.5",
+          "apkVersionCode": 6,
           "apkDownloadUrl": "/api/download/apk",
           "apkSha256": "",
           "apkSizeBytes": 0,
@@ -48,7 +48,7 @@
           "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
           "apkReleased": false,
           "deployedAt": "2026-10-27T00:00:00Z",
-          "summary": "联合上线冻结候选版：修复 A01-A09 全部缺陷，补齐回归套件与灾备原子验证"
+          "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷"
         }
       }
     },
@@ -122,21 +122,21 @@
       "name": "B: wrong photo uploaded as server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793074616530_683ddc1b7eee"
+        "image": "/api/media/media_1793092566731_afe2d42a2685"
       }
     },
     {
       "name": "B: avatar uploaded as server media reference",
       "passed": true,
       "detail": {
-        "avatar": "/api/media/media_1793074617262_d8500d2af3b2"
+        "avatar": "/api/media/media_1793092567493_818349245ff4"
       }
     },
     {
       "name": "B: second independent device reads the actual photo bytes from server",
       "passed": true,
       "detail": {
-        "photoSrc": "/api/media/media_1793074616530_683ddc1b7eee",
+        "photoSrc": "/api/media/media_1793092566731_afe2d42a2685",
         "photoBytes": 774
       }
     },
@@ -153,7 +153,7 @@
       "passed": true,
       "detail": {
         "outbox": 1,
-        "offlineText": "离线补传_mvq6bzhi\n@e2e_user_mvq6bj9v\n正式学员专属空间\n离线就绪\n编辑资料\n云端同步状态\n当前离线：已载入本机可靠缓存，联网后将自动恢复会话并补传\n离线 · 待同步\n检查更新\n支持 Web 与 Android 原"
+        "offlineText": "离线补传_mvqh0q0c\n@e2e_user_mvqh09lo\n正式学员专属空间\n离线就绪\n编辑资料\n云端同步状态\n当前离线：已载入本机可靠缓存，联网后将自动恢复会话并补传\n离线 · 待同步\n检查更新\n支持 Web 与 Android 原"
       }
     },
     {
@@ -179,7 +179,7 @@
       "name": "C: conflict resolution keeps the cloud content",
       "passed": true,
       "detail": {
-        "name": "A云端_mvq6c18b"
+        "name": "A云端_mvqh0rrr"
       }
     },
     {
@@ -218,7 +218,7 @@
       "name": "H: HTTP 503 never reports \"already latest\"",
       "passed": true,
       "detail": {
-        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.4"
+        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.5"
       }
     },
     {
@@ -240,7 +240,7 @@
       "name": "H: successful check can report latest (server reachable)",
       "passed": true,
       "detail": {
-        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.4"
+        "text": "应用版本与更新\n版本核验失败\n版本服务器返回异常状态 HTTP 503\n错误码: HTTP_503\n核验失败或响应无法证明网络新鲜度时，本应用不会显示“当前已是最新版本”，以避免误报。 若反复失败，请检查网络连接或稍后重试；已下载的本地数据与账号缓存不受影响。\n重新核验\n关闭\n官方域名 work.ruyne.space · 版本核验 nonce 防缓存\nv1.0.5"
       }
     },
     {
