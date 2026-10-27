@@ -1,11 +1,11 @@
 {
-  "runId": "run-20261027-015642-fd0088",
-  "startedAt": "2026-10-27T01:56:42.314Z",
-  "finishedAt": "2026-10-27T01:56:44.337Z",
-  "durationMs": 2023,
-  "gitHead": "2250c9f2d28872c1cc427064e350ce4d7874bb94",
+  "runId": "run-20261027-040456-d199ea",
+  "startedAt": "2026-10-27T04:04:56.791Z",
+  "finishedAt": "2026-10-27T04:04:58.986Z",
+  "durationMs": 2195,
+  "gitHead": "8211efaee685c89444463d6b1b78d6ad9fc99560",
   "gitBranch": "codex/joint-release-hardening",
-  "gitWorktreeSha256": "c17fc91bb4c7394a367f175bd7cdfdb81d2e04c6e4a5e52bb38c896b9ad996fa",
+  "gitWorktreeSha256": "48aa7bace315ee1cb55b3bc55e9fa7d6c31b340ef452f8abc20abf001b6e1fdf",
   "total": 12,
   "passed": 12,
   "failed": 0,
@@ -14,7 +14,7 @@
       "id": "V01",
       "name": "V01: 账号锁可被平行异步调用绕过；fallback 还存在嵌套死锁",
       "passed": true,
-      "durationMs": 206,
+      "durationMs": 195,
       "detail": {
         "bypassResult": {
           "hasWebLocks": true,
@@ -38,7 +38,7 @@
       "id": "V02",
       "name": "V02: 自动重试在退避期转成假冲突；已过期上传租约永远不能重领",
       "passed": true,
-      "durationMs": 131,
+      "durationMs": 124,
       "detail": {
         "conflictResult": {
           "firstCode": "NETWORK",
@@ -59,7 +59,7 @@
       "id": "V03",
       "name": "V03: 初始化选择和重连会话缺少 epoch 守卫，迟到响应仍污染新账号或复活已退出身份",
       "passed": true,
-      "durationMs": 425,
+      "durationMs": 431,
       "detail": {
         "initChoiceResult": {
           "before": {
@@ -98,7 +98,7 @@
       "id": "V04",
       "name": "V04: 强制裁决第二次 GET 偷换审核基线，仍能覆盖用户未审阅的云端内容",
       "passed": true,
-      "durationMs": 159,
+      "durationMs": 144,
       "detail": {
         "forceUploadResult": {
           "status": "conflict",
@@ -117,7 +117,7 @@
       "id": "V05",
       "name": "V05: 媒体映射事务中等待异步 hash，快照/outbox/媒体可能部分提交",
       "passed": true,
-      "durationMs": 222,
+      "durationMs": 215,
       "detail": {
         "mediaResult": {
           "result": {
@@ -135,32 +135,25 @@
       "id": "V06",
       "name": "V06: Docker最终镜像漏复制 release.json，部署后版本接口退化为unknown，健康检查仍绿",
       "passed": true,
-      "durationMs": 217,
+      "durationMs": 183,
       "detail": {
         "hasCopyRelease": true,
-        "runtimeHealthyWithMissingConfig": false,
+        "healthStatus": 503,
         "healthData": {
-          "ok": true,
-          "status": "healthy",
-          "generationId": "gen_1793066203797_a9c6e51a5dfe50bc",
-          "time": "2026-10-27T01:56:43.797Z",
-          "uptime": 0.166622208
+          "ok": false,
+          "status": "unhealthy",
+          "code": "RELEASE_CONFIG_INVALID",
+          "error": "Release configuration missing or invalid",
+          "generationId": "gen_1793073898204_36ca30509a9de6db",
+          "time": "2026-10-27T04:04:58.204Z",
+          "uptime": 0.134302916
         },
+        "versionStatus": 503,
         "versionData": {
-          "version": "1.0.3",
-          "build": "20261027.02",
-          "schemaVersion": 3,
-          "apkVersion": "1.0.3",
-          "apkVersionCode": 4,
-          "apkDownloadUrl": "/api/download/apk",
-          "apkSha256": "",
-          "apkSizeBytes": 0,
-          "apkPackageName": "com.ruyne.kaogong",
-          "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
-          "apkReleased": false,
-          "deployedAt": "2026-10-27T00:00:00Z",
-          "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
-          "servedAt": "2026-10-27T01:56:43.802Z"
+          "ok": false,
+          "status": "unhealthy",
+          "code": "RELEASE_CONFIG_INVALID",
+          "error": "Release configuration file (release.json) not found"
         }
       }
     },
@@ -168,7 +161,7 @@
       "id": "V07",
       "name": "V07: 上传配额检查发生在落盘之后，拒绝请求仍能生成不记账的孤儿附件",
       "passed": true,
-      "durationMs": 186,
+      "durationMs": 178,
       "detail": {
         "firstStatus": 200,
         "rejects": [
@@ -183,10 +176,12 @@
       "id": "V08",
       "name": "V08: 历史恢复不检查已删除的媒体，恢复成功后同步被 INVALID_MEDIA_REF 堵塞",
       "passed": true,
-      "durationMs": 191,
+      "durationMs": 185,
       "detail": {
-        "restoreStatus": 200,
-        "laterSyncStatus": 200
+        "deleteStatus": 409,
+        "deleteCode": "MEDIA_IN_USE",
+        "restoreStatus": 409,
+        "restoreCode": "RESTORE_MEDIA_UNAVAILABLE"
       }
     },
     {
@@ -195,9 +190,9 @@
       "passed": true,
       "durationMs": 1,
       "detail": {
-        "mergedBookId": "gb_mvq1bltf_a44j",
-        "planSourceId": "gb_mvq1bltf_a44j",
-        "recordSourceId": "gb_mvq1bltf_a44j",
+        "mergedBookId": "gb_mvq5wiuj_mocw",
+        "planSourceId": "gb_mvq5wiuj_mocw",
+        "recordSourceId": "gb_mvq5wiuj_mocw",
         "recordHasExistingBook": true
       }
     },
@@ -205,14 +200,15 @@
       "id": "V10",
       "name": "V10: SW先自动接管，点击更新时却只等未来controllerchange，稳定误报12秒更新失败",
       "passed": true,
-      "durationMs": 92,
+      "durationMs": 86,
       "detail": {
         "result": {
           "ok": true,
+          "status": "needs_reload",
           "controllerChanged": true,
           "message": "新版本已激活，刷新页面即可完成更新"
         },
-        "applyElapsedMs": 2
+        "applyElapsedMs": 1
       }
     },
     {
@@ -232,7 +228,7 @@
       "id": "V12",
       "name": "V12: Android安装流程有两个可达状态机缺口：首次授权不续跑、取消安装后一直busy",
       "passed": true,
-      "durationMs": 4,
+      "durationMs": 266,
       "detail": {
         "firstInstallDenied": {
           "ok": false,
@@ -242,7 +238,8 @@
         },
         "permissionCalls": 0,
         "installRequestPayloadSubmitted": 1,
-        "hasResumeInstallRecovery": true
+        "javaHarnessPassed": true,
+        "javaHarnessOutput": "resultCode=RESULT_FIRST_USER(1), installed=4, target=5, nativeState=0, emittedEvents=[{type=install_failed, code=install_failed_result, resultCode=1, operationId=op_test, retryable=true, message=系统安装失败（返回码: 1）}]\nAll A08 Harness assertions passed successfully."
       }
     }
   ]

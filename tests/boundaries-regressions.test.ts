@@ -61,6 +61,11 @@ describe('Boundary Regressions (V01–V12)', () => {
   it('V06: Docker最终镜像漏复制 release.json，部署后版本接口退化为unknown，健康检查仍绿', async () => {
     const res = await runV06Check();
     expect(res.passed).toBe(true);
+    expect(res.detail.hasCopyRelease).toBe(true);
+    expect(res.detail.healthStatus).toBe(503);
+    expect(res.detail.healthData?.code).toBe('RELEASE_CONFIG_INVALID');
+    expect(res.detail.versionStatus).toBe(503);
+    expect(res.detail.versionData?.code).toBe('RELEASE_CONFIG_INVALID');
   });
 
   it('V07: 上传配额检查发生在落盘之后，拒绝请求仍能生成不记账的孤儿附件', async () => {
@@ -71,6 +76,10 @@ describe('Boundary Regressions (V01–V12)', () => {
   it('V08: 历史恢复不检查已删除的媒体，恢复成功后同步被 INVALID_MEDIA_REF 堵塞', async () => {
     const res = await runV08Check();
     expect(res.passed).toBe(true);
+    expect(res.detail.deleteStatus).toBe(409);
+    expect(res.detail.deleteCode).toBe('MEDIA_IN_USE');
+    expect(res.detail.restoreStatus).toBe(409);
+    expect(res.detail.restoreCode).toBe('RESTORE_MEDIA_UNAVAILABLE');
   });
 
   it('V09: 游客 StudyRecord 的 sourceId 没有随自定义题本/课程重映射', async () => {
@@ -91,5 +100,7 @@ describe('Boundary Regressions (V01–V12)', () => {
   it('V12: Android安装流程有两个可达状态机缺口：首次授权不续跑、取消安装后一直busy', async () => {
     const res = await runV12Check();
     expect(res.passed).toBe(true);
+    expect(res.detail.installRequestPayloadSubmitted).toBeGreaterThan(0);
+    expect(res.detail.javaHarnessPassed).toBe(true);
   });
 });

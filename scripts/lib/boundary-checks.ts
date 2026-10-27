@@ -535,11 +535,12 @@ export async function runV06Check(): Promise<CheckResult> {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     const hasCopyRelease = /COPY\s+(\.\/)?release\.json/i.test(dockerfile);
 
-    // 2. Runtime fallback check: run node script in directory without release.json
+    // 2. Runtime fallback check: run node script with missing release.json
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-runner-resource-check-'));
-    let runtimeHealthyWithMissingConfig = false;
-    let versionData: any = null;
+    let healthStatus = 0;
+    let versionStatus = 0;
     let healthData: any = null;
+    let versionData: any = null;
     try {
       const runnerCode = `
 import fs from 'node:fs';
@@ -548,18 +549,21 @@ const root = ${JSON.stringify(REPO_ROOT)};
 const runtime = ${JSON.stringify(tempDir)};
 process.chdir(runtime);
 process.env.DATA_DIR = path.join(runtime, 'data');
+process.env.RELEASE_CONFIG_PATH = path.join(runtime, 'missing-release.json');
 const { default: app } = await import(root + '/server/app.ts');
 const { closeDb } = await import(root + '/server/db.ts');
 const server = app.listen(0, '127.0.0.1');
 await new Promise(r => server.once('listening', r));
 const base = 'http://127.0.0.1:' + server.address().port;
 const healthRes = await fetch(base + '/api/health');
+const hStatus = healthRes.status;
 const hData = await healthRes.json();
 const verRes = await fetch(base + '/version.json');
+const vStatus = verRes.status;
 const vData = await verRes.json();
 await new Promise(r => server.close(r));
 closeDb();
-console.log(JSON.stringify({ health: hData, version: vData }));
+console.log(JSON.stringify({ healthStatus: hStatus, health: hData, versionStatus: vStatus, version: vData }));
 `;
       const scriptFile = path.join(tempDir, 'test.mts');
       fs.writeFileSync(scriptFile, runnerCode);
@@ -569,28 +573,32 @@ console.log(JSON.stringify({ health: hData, version: vData }));
         encoding: 'utf8',
         timeout: 15_000,
       });
-      const match = run.stdout.match(/\{"health":.*"version":.*\}/);
+      const match = run.stdout.match(/\{"healthStatus":\d+,.*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
+        healthStatus = parsed.healthStatus;
         healthData = parsed.health;
+        versionStatus = parsed.versionStatus;
         versionData = parsed.version;
-        if (parsed.health?.ok && parsed.version?.version === 'unknown') {
-          runtimeHealthyWithMissingConfig = true;
-        }
       }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
 
-    // In fixed system: hasCopyRelease is true AND missing config fails health check
-    const passed = hasCopyRelease && !runtimeHealthyWithMissingConfig;
+    // In fixed system: hasCopyRelease is true AND missing config causes HTTP 503 RELEASE_CONFIG_INVALID for both health and version
+    const passed =
+      hasCopyRelease &&
+      healthStatus === 503 &&
+      healthData?.code === 'RELEASE_CONFIG_INVALID' &&
+      versionStatus === 503 &&
+      versionData?.code === 'RELEASE_CONFIG_INVALID';
 
     return {
       id: 'V06',
       name: 'V06: Docker最终镜像漏复制 release.json，部署后版本接口退化为unknown，健康检查仍绿',
       passed,
       durationMs: Date.now() - start,
-      detail: { hasCopyRelease, runtimeHealthyWithMissingConfig, healthData, versionData },
+      detail: { hasCopyRelease, healthStatus, healthData, versionStatus, versionData },
     };
   } catch (err) {
     return {
@@ -699,7 +707,7 @@ const root = ${JSON.stringify(REPO_ROOT)};
 const temp = ${JSON.stringify(tempDir)};
 process.env.DATA_DIR = path.join(temp, 'data');
 const { default: app } = await import(root + '/server/app.ts');
-const { getDb, getCurrentGenerationId, closeDb } = await import(root + '/server/db.ts');
+const { getDb, getCurrentGenerationId, closeDb, getAttachmentsDir } = await import(root + '/server/db.ts');
 const { createSession } = await import(root + '/server/auth.ts');
 const { createSeedState } = await import(root + '/src/utils/seedFactory.ts');
 const server = app.listen(0, '127.0.0.1');
@@ -730,15 +738,28 @@ await call('/api/workspace', 'POST', { expectedRevision: 0, requestId: 'r1', sch
 const cleared = createSeedState('audit_h');
 await call('/api/workspace', 'POST', { expectedRevision: 1, requestId: 'r2', schemaVersion: 3, generationId: gen, state: cleared });
 const history = db.prepare('SELECT id FROM workspace_history WHERE user_id=? AND revision=1').get('audit_h');
-await call('/api/media/' + upData.media.id, 'DELETE');
-const restore = await call('/api/backups/restore-history', 'POST', { historyId: history.id });
-let laterSync = { status: 0 };
-if (restore.status === 200) {
-  laterSync = await call('/api/workspace', 'POST', { expectedRevision: restore.data.revision, requestId: 'r3', schemaVersion: 3, generationId: gen, state: restore.data.state });
+
+// Delete must be rejected with 409 MEDIA_IN_USE because history references it
+const delRes = await call('/api/media/' + upData.media.id, 'DELETE');
+
+// Simulate missing attachment by unlinking the attachment file from disk
+const mediaRec = db.prepare('SELECT filename FROM media_records WHERE id = ?').get(upData.media.id);
+const diskPath = path.join(getAttachmentsDir(), mediaRec.filename);
+if (fs.existsSync(diskPath)) {
+  fs.unlinkSync(diskPath);
 }
+
+// Restore must now be rejected with 409 RESTORE_MEDIA_UNAVAILABLE
+const restore = await call('/api/backups/restore-history', 'POST', { historyId: history.id });
+
 await new Promise(r => server.close(r));
 closeDb();
-console.log(JSON.stringify({ restoreStatus: restore.status, laterSyncStatus: laterSync.status }));
+console.log(JSON.stringify({
+  deleteStatus: delRes.status,
+  deleteCode: delRes.data?.code,
+  restoreStatus: restore.status,
+  restoreCode: restore.data?.code,
+}));
 `;
     const scriptFile = path.join(tempDir, 'test.mts');
     fs.writeFileSync(scriptFile, runnerCode);
@@ -747,14 +768,18 @@ console.log(JSON.stringify({ restoreStatus: restore.status, laterSyncStatus: lat
       encoding: 'utf8',
       timeout: 20_000,
     });
-    const match = run.stdout.match(/\{"restoreStatus":\d+,"laterSyncStatus":\d+\}/);
+    const match = run.stdout.match(/\{"deleteStatus":\d+,.*\}/);
     if (!match) {
       throw new Error(`Failed to parse restore test output: ${run.stdout} ${run.stderr}`);
     }
     const data = JSON.parse(match[0]);
-    // In fixed system: restoreStatus must NOT be 200 (rejects restore with missing media),
-    // OR if restored, laterSyncStatus must succeed (not fail with 400 INVALID_MEDIA_REF)
-    const passed = data.restoreStatus !== 200 || data.laterSyncStatus === 200;
+    // In fixed system: DELETE is rejected with 409 MEDIA_IN_USE,
+    // and when file is actually missing, restore is rejected with 409 RESTORE_MEDIA_UNAVAILABLE
+    const passed =
+      data.deleteStatus === 409 &&
+      data.deleteCode === 'MEDIA_IN_USE' &&
+      data.restoreStatus === 409 &&
+      data.restoreCode === 'RESTORE_MEDIA_UNAVAILABLE';
 
     return {
       id: 'V08',
@@ -1089,14 +1114,65 @@ export async function runV12Check(): Promise<CheckResult> {
       apkCertFingerprint: 'AA'.repeat(32),
     });
 
-    // Check 2: MainActivity.java install cancellation recovery
+    // Check 2: Android state machine execution via Java harness (verifying RESULT_FIRST_USER, RESULT_CANCELED, RESULT_OK with lower version, etc.)
     const mainActivityPath = path.join(REPO_ROOT, 'android', 'app', 'src', 'main', 'java', 'com', 'ruyne', 'kaogong', 'MainActivity.java');
-    const mainActivitySource = fs.readFileSync(mainActivityPath, 'utf8');
-    // Check if onResume or onActivityResult handles recovery for STATE_INSTALLING
-    const hasResumeInstallRecovery = /onResume[\s\S]*?(STATE_INSTALLING|nativeUpdateState\s*=\s*STATE_IDLE)/.test(mainActivitySource);
+    const templatePath = path.join(REPO_ROOT, 'output', 'audits', '2026-10-27-independent-review', 'repro', 'Harness.template.java');
+    const existingHarnessPath = path.join(REPO_ROOT, 'output', 'audits', '2026-10-27-independent-review', 'repro', 'Harness.java');
+
+    let javaHarnessPassed = false;
+    let javaHarnessOutput = '';
+    const javaTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-v12-harness-'));
+
+    try {
+      let harnessCode = '';
+      if (fs.existsSync(mainActivityPath) && fs.existsSync(templatePath)) {
+        const mainSource = fs.readFileSync(mainActivityPath, 'utf8');
+        const methodStart = mainSource.indexOf('    private void handleInstallActivityResult(');
+        const methodEnd = mainSource.indexOf('\n    private void handleInstallPermissionResult()', methodStart);
+        if (methodStart !== -1 && methodEnd !== -1) {
+          const actualMethod = mainSource.substring(methodStart, methodEnd);
+          const templateSource = fs.readFileSync(templatePath, 'utf8');
+          harnessCode = templateSource.replace('__ACTUAL_JAVA_METHOD__', actualMethod);
+        }
+      }
+      if (!harnessCode && fs.existsSync(existingHarnessPath)) {
+        harnessCode = fs.readFileSync(existingHarnessPath, 'utf8');
+      }
+      if (!harnessCode) {
+        throw new Error('Unable to construct or find Java state machine harness');
+      }
+
+      const tempHarnessJava = path.join(javaTempDir, 'Harness.java');
+      fs.writeFileSync(tempHarnessJava, harnessCode);
+
+      const javacRes = cp.spawnSync('javac', ['-d', javaTempDir, tempHarnessJava], {
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      if (javacRes.status !== 0) {
+        throw new Error(`javac compilation failed: ${javacRes.stderr || javacRes.stdout}`);
+      }
+
+      const javaRes = cp.spawnSync('java', ['-cp', javaTempDir, 'Harness'], {
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      javaHarnessOutput = (javaRes.stdout || '') + (javaRes.stderr || '');
+      if (
+        javaRes.status === 0 &&
+        javaHarnessOutput.includes('All A08 Harness assertions passed successfully.') &&
+        javaHarnessOutput.includes('resultCode=RESULT_FIRST_USER(1)')
+      ) {
+        javaHarnessPassed = true;
+      } else {
+        throw new Error(`Java harness execution failed with status ${javaRes.status}: ${javaHarnessOutput}`);
+      }
+    } finally {
+      fs.rmSync(javaTempDir, { recursive: true, force: true });
+    }
 
     const payloadSubmitted = installCalls > 0;
-    const passed = payloadSubmitted && hasResumeInstallRecovery;
+    const passed = payloadSubmitted && javaHarnessPassed;
 
     return {
       id: 'V12',
@@ -1107,7 +1183,8 @@ export async function runV12Check(): Promise<CheckResult> {
         firstInstallDenied: install,
         permissionCalls: permissions,
         installRequestPayloadSubmitted: installCalls,
-        hasResumeInstallRecovery,
+        javaHarnessPassed,
+        javaHarnessOutput: javaHarnessOutput.trim(),
       },
     };
   } catch (err) {
