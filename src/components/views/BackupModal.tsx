@@ -4,6 +4,7 @@ import { Download, Upload, ShieldCheck, CheckCircle2, AlertTriangle, FileText, D
 import { PotatoSprite } from '../common/PotatoSprite';
 import { useApp } from '../../context/AppContext';
 import { validateAndMigrateBackup, BackupValidationResult } from '../../utils/backupValidator';
+import { countWrongAttachments } from '../../utils/db';
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
+  const [sizeWarning, setSizeWarning] = useState('');
   const openRef = useRef(isOpen);
   openRef.current = isOpen;
 
@@ -40,11 +42,13 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
     setError('');
+    setSizeWarning('');
   }, [isOpen]);
 
   useEffect(() => {
     setPendingBackup(null);
     setError('');
+    setSizeWarning('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [currentUserId]);
 
@@ -52,6 +56,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     if (exporting) return;
     setExporting(true);
     setError('');
+    setSizeWarning('');
     try {
       const result = await exportBackup();
       if (!result.ok) {
@@ -59,10 +64,14 @@ export const BackupModal: React.FC<BackupModalProps> = ({
         return;
       }
       const receipt = result.value;
+      const isNearLimit = receipt.status !== 'cancelled' && typeof receipt.bytes === 'number' && receipt.bytes >= 40 * 1024 * 1024;
+      if (isNearLimit) {
+        setSizeWarning(`提示：本次备份体积已达 ${(receipt.bytes / (1024 * 1024)).toFixed(1)}MB，正在接近单文件 50MB 导出上限。建议及时清理无用的历史错题照片。`);
+      }
       if (receipt.status === 'saved') {
-        onToast('备份文件已成功保存到您的设备');
+        onToast(isNearLimit ? '备份已保存到设备。注意：文件体积已达 40MB+，正接近 50MB 导出上限！' : '备份文件已成功保存到您的设备');
       } else if (receipt.status === 'download_requested') {
-        onToast('已发起备份文件下载，请在浏览器下载目录查看');
+        onToast(isNearLimit ? '已发起备份下载。注意：文件体积已达 40MB+，正接近 50MB 导出上限！' : '已发起备份文件下载，请在浏览器下载目录查看');
       } else if (receipt.status === 'cancelled') {
         onToast('已取消保存备份');
       }
@@ -173,6 +182,26 @@ export const BackupModal: React.FC<BackupModalProps> = ({
             </Button>
           </div>
           {error && <p role="alert" className="text-xs text-alarm">{error}</p>}
+          {sizeWarning && (
+            <div role="status" className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2 text-xs text-amber-800">
+              <AlertTriangle size={15} className="shrink-0 mt-0.5 text-amber-600" />
+              <div className="flex-1 leading-relaxed font-medium">{sizeWarning}</div>
+            </div>
+          )}
+
+          {/* 容量规格与配额提示 */}
+          <div className="bg-cream/40 rounded-xl p-3 text-xs space-y-1.5 border border-line">
+            <div className="font-bold text-ink-main flex items-center justify-between">
+              <span>容量规格与配额说明</span>
+              <span className="text-[10px] text-ink-muted">规格标准</span>
+            </div>
+            <div className="text-ink-muted leading-relaxed">
+              • <b className="text-ink-main">离线 JSON 单文件上限</b>：单次导出最大限制为 <span className="font-semibold text-ink-main">50 MB</span>（含全部内联错题照片，达到 40 MB 起预警）。
+            </div>
+            <div className="text-ink-muted leading-relaxed">
+              • <b className="text-ink-main">云端媒体存储配额</b>：同步服务器为当前账号提供 <span className="font-semibold text-ink-main">500 MB</span> 媒体云端存储总空间。
+            </div>
+          </div>
 
           {/* 资产统计 */}
           <div className="bg-cream/70 rounded-xl p-3 text-xs space-y-1.5 border border-line">
@@ -190,7 +219,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               • 学习记录：{state.records.length} 条已归档
             </div>
             <div className="text-ink-muted">
-              • 错题归档：{state.wrong.length} 条错题照片笔记
+              • 错题归档：{state.wrong.length} 条错题笔记
+            </div>
+            <div className="text-ink-muted">
+              • 错题照片附件：{countWrongAttachments(state.wrong)} 张照片
             </div>
             <div className="text-ink-muted">
               • 考试倒计时：{state.countdowns.length} 个重点考试

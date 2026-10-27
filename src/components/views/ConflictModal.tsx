@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Button, Card } from '../common/UIComponents';
 import { AlertTriangle, ArrowUpRight, ArrowDownLeft, ShieldCheck, Clock } from 'lucide-react';
 import { AppState, MutationResult } from '../../types';
+import { countWrongAttachments } from '../../utils/db';
 
 export interface ConflictModalProps {
   isOpen: boolean;
@@ -62,8 +63,13 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
 
   const localPlansCount = localState?.plans?.length ?? 0;
   const localRecordsCount = localState?.records?.length ?? 0;
+  const localWrongCount = localState?.wrong?.length ?? 0;
+  const localPhotosCount = countWrongAttachments(localState?.wrong ?? []);
+
   const serverPlansCount = serverState?.plans?.length ?? 0;
   const serverRecordsCount = serverState?.records?.length ?? 0;
+  const serverWrongCount = serverState?.wrong?.length ?? 0;
+  const serverPhotosCount = countWrongAttachments(serverState?.wrong ?? []);
 
   return (
     <Modal isOpen={isOpen} onClose={handleDefer} title="检测到数据版本冲突">
@@ -91,30 +97,42 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
           <Card className="p-3 bg-paper border-line text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-ink-main">当前本机记录</span>
-              <span className="text-[10px] bg-potato/20 text-ink-main px-1.5 py-0.5 rounded font-mono">
-                Rev {localRevision}
+              <span className="text-[10px] text-ink-muted font-mono">
+                版本 Rev {localRevision}
               </span>
             </div>
             <div className="text-[11px] text-ink-muted">
-              今日日程: <span className="font-mono font-bold text-ink-main">{localPlansCount}</span> 条
+              全部日程计划: <span className="font-mono font-bold text-ink-main">{localPlansCount}</span> 项
             </div>
             <div className="text-[11px] text-ink-muted">
-              累计记录: <span className="font-mono font-bold text-ink-main">{localRecordsCount}</span> 条
+              学习打卡记录: <span className="font-mono font-bold text-ink-main">{localRecordsCount}</span> 条
+            </div>
+            <div className="text-[11px] text-ink-muted">
+              错题笔记条目: <span className="font-mono font-bold text-ink-main">{localWrongCount}</span> 条
+            </div>
+            <div className="text-[11px] text-ink-muted">
+              错题照片附件: <span className="font-mono font-bold text-ink-main">{localPhotosCount}</span> 张
             </div>
           </Card>
 
           <Card className="p-3 bg-paper border-line text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-ink-main">云端最新版本</span>
-              <span className="text-[10px] bg-sage-light text-sage px-1.5 py-0.5 rounded font-mono">
-                Rev {serverRevision}
+              <span className="text-[10px] text-ink-muted font-mono">
+                版本 Rev {serverRevision}
               </span>
             </div>
             <div className="text-[11px] text-ink-muted">
-              今日日程: <span className="font-mono font-bold text-ink-main">{serverPlansCount}</span> 条
+              全部日程计划: <span className="font-mono font-bold text-ink-main">{serverPlansCount}</span> 项
             </div>
             <div className="text-[11px] text-ink-muted">
-              累计记录: <span className="font-mono font-bold text-ink-main">{serverRecordsCount}</span> 条
+              学习打卡记录: <span className="font-mono font-bold text-ink-main">{serverRecordsCount}</span> 条
+            </div>
+            <div className="text-[11px] text-ink-muted">
+              错题笔记条目: <span className="font-mono font-bold text-ink-main">{serverWrongCount}</span> 条
+            </div>
+            <div className="text-[11px] text-ink-muted">
+              错题照片附件: <span className="font-mono font-bold text-ink-main">{serverPhotosCount}</span> 张
             </div>
           </Card>
         </div>

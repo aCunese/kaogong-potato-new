@@ -10,7 +10,7 @@
     "preview": "vite preview --port 4174",
     "server": "node --import tsx server/index.ts",
     "admin": "node --import tsx server/cli.ts",
-    "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts tests/defects-f01-f12-regression.test.ts tests/sync-core-regressions.test.ts tests/boundaries-regressions.test.ts tests/v10-v11-regressions.test.ts tests/import-scope-regressions.test.ts tests/backup-export-regressions.test.ts --timeout 60000",
+    "test:unit": "bun test tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts tests/defects-f01-f12-regression.test.ts tests/sync-core-regressions.test.ts tests/boundaries-regressions.test.ts tests/v10-v11-regressions.test.ts tests/import-scope-regressions.test.ts tests/backup-export-regressions.test.ts tests/backup-photo-regressions.test.ts --timeout 60000",
     "test:server": "node --import tsx --test tests/server.test.ts tests/data-lock.test.ts",
     "test:dr": "node --import tsx --test tests/disaster-recovery.test.ts",
     "test": "npm run test:unit && npm run test:server && npm run test:dr",

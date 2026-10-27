@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
-import { X, CheckCircle2, Award, ArrowRight, AlertCircle } from 'lucide-react';
-import { Plan } from '../../types';
+import { X, CheckCircle2, Award, ArrowRight, AlertCircle, Camera } from 'lucide-react';
+import { Plan, StudyRecord } from '../../types';
 import { getCompletionMinutes, getCompletionSummary } from '../../utils/workflowPresentation';
 
 interface CompletionModalProps {
@@ -12,6 +12,7 @@ interface CompletionModalProps {
   onClose: () => void;
   onToast: (msg: string) => void;
   initialSuccess?: boolean; // For 50-screen direct inspection of complete-success variants (Fixes A07)
+  onOpenPhotoImport?: (target: { bookId: string; date: string }) => void;
 }
 
 export const CompletionModal: React.FC<CompletionModalProps> = ({
@@ -20,6 +21,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   onClose,
   onToast,
   initialSuccess = false,
+  onOpenPhotoImport,
 }) => {
   const { state, completePlan, pauseTimer, activeDate } = useApp();
   const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
@@ -36,6 +38,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   // Success view state
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [completedRecord, setCompletedRecord] = useState<StudyRecord | null>(null);
   const [lastCompletedData, setLastCompletedData] = useState<{
     name: string;
     type: string;
@@ -56,10 +59,14 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     setLessons(1);
     setActualMinutes(0);
     setIsSuccess(false);
+    setCompletedRecord(null);
 
     if (livePlan.done || initialSuccess) {
       const record = state.records.find(item => item.id === livePlan.recordId)
         || state.records.find(item => item.planId === livePlan.id);
+      if (record) {
+        setCompletedRecord(record);
+      }
       setLastCompletedData({
         name: livePlan.name,
         type: livePlan.type,
@@ -89,6 +96,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   const handleClose = () => {
     setIsSuccess(false);
+    setCompletedRecord(null);
     setErrorMsg('');
     onClose();
   };
@@ -153,6 +161,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     }
 
     const record = res.value.record;
+    setCompletedRecord(record);
     setLastCompletedData({
       name: plan.name,
       type: plan.type,
@@ -214,10 +223,44 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
               </div>
             </div>
 
-            <Button variant="primary" size="lg" fullWidth onClick={handleClose}>
-              返回今日工作台
-              <ArrowRight size={16} />
-            </Button>
+            {Boolean(
+              completedRecord &&
+              completedRecord.type === 'book' &&
+              completedRecord.errors > 0 &&
+              state.books.some(b => b.id === completedRecord.sourceId) &&
+              onOpenPhotoImport
+            ) ? (
+              <div className="space-y-2">
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  onClick={() => {
+                    if (completedRecord) {
+                      const target = {
+                        bookId: completedRecord.sourceId,
+                        date: completedRecord.date,
+                      };
+                      handleClose();
+                      onOpenPhotoImport?.(target);
+                    }
+                  }}
+                  className="bg-potato/20 border-potato text-ink-main hover:bg-potato/30 flex items-center justify-center gap-2"
+                >
+                  <Camera size={16} />
+                  拍下错题
+                </Button>
+                <Button variant="primary" size="lg" fullWidth onClick={handleClose}>
+                  返回今日工作台
+                  <ArrowRight size={16} />
+                </Button>
+              </div>
+            ) : (
+              <Button variant="primary" size="lg" fullWidth onClick={handleClose}>
+                返回今日工作台
+                <ArrowRight size={16} />
+              </Button>
+            )}
           </div>
         ) : (
           /* =========================================================================

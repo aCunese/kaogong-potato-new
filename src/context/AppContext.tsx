@@ -147,7 +147,7 @@ export interface AppContextType {
   deleteCustomItem: (id: string) => Promise<MutationResult<void>>;
 
   // Wrong records
-  addWrongRecords: (bookId: string, note: string, images: string[]) => Promise<MutationResult<WrongRecord[]>>;
+  addWrongRecords: (bookId: string, note: string, images: string[], date?: string) => Promise<MutationResult<WrongRecord[]>>;
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
 
   // Profile
@@ -1228,8 +1228,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   );
 
   const addWrongRecords = useCallback(
-    async (bookId: string, note: string, images: string[]): Promise<MutationResult<WrongRecord[]>> => {
-      return executeMutation(draft => applyAddWrongRecords(draft, bookId, activeDate, note, images), 'add_wrong_records');
+    async (bookId: string, note: string, images: string[], date?: string): Promise<MutationResult<WrongRecord[]>> => {
+      const recordDate = date || activeDate;
+      return executeMutation(draft => applyAddWrongRecords(draft, bookId, recordDate, note, images), 'add_wrong_records');
     },
     [activeDate, executeMutation]
   );

@@ -4,7 +4,7 @@ import { Modal, Button, Tag } from '../common/UIComponents';
 import { SUBJECTS, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff } from 'lucide-react';
-import { compressImage } from '../../utils/imageCompressor';
+import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
   const [isSaving, setIsSaving] = useState(false);
@@ -526,38 +526,68 @@ export const PhotoImportModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onToast: (msg: string) => void;
-}> = ({ isOpen, onClose, onToast }) => {
+  initialTarget?: { bookId: string; date: string };
+}> = ({ isOpen, onClose, onToast, initialTarget }) => {
   const { state, addWrongRecords } = useApp();
-  const [bookId, setBookId] = useState(state.books[0]?.id || '');
+  const [bookId, setBookId] = useState(initialTarget?.bookId || state.books[0]?.id || '');
   const [note, setNote] = useState('');
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
 
-  // 关键修复 (Defect F07)：弹窗打开或题本数据加载完成时，自动校正有效 bookId，防止出现默认首项可见却提示“请先创建题本”
+  // 关键修复 (Defect F07)：弹窗打开或题本数据加载完成时，自动校正有效 bookId，优先使用 initialTarget 预选
   useEffect(() => {
     if (isOpen) {
-      if (!bookId || !state.books.some(b => b.id === bookId)) {
+      if (initialTarget?.bookId && state.books.some(b => b.id === initialTarget.bookId)) {
+        setBookId(initialTarget.bookId);
+      } else if (!bookId || !state.books.some(b => b.id === bookId)) {
         if (state.books.length > 0) {
           setBookId(state.books[0].id);
         }
       }
     }
-  }, [isOpen, state.books, bookId]);
+  }, [isOpen, initialTarget, state.books]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
+    if (previewImages.length + files.length > MAX_BATCH_COUNT) {
+      alert(`单次最多上传 ${MAX_BATCH_COUNT} 张图片（已有 ${previewImages.length} 张，本次选了 ${files.length} 张）`);
+      e.target.value = '';
+      return;
+    }
+
+    const batchValidation = validateImageBatch(files);
+    if (!batchValidation.valid) {
+      alert(batchValidation.error || '图片批次校验未通过');
+      e.target.value = '';
+      return;
+    }
+
     setIsCompressing(true);
+    const compressedList: string[] = [];
+    const failedItems: string[] = [];
+
     try {
-      // Real Canvas compression: limit to max 1200px, quality 0.75, keeping text sharp while shrinking from 5-10MB to ~80-120KB (Fixes A01)
-      const compressedList = await Promise.all(
-        files.map(file => compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.75 }))
-      );
-      setPreviewImages(prev => [...prev, ...compressedList]);
-    } catch (err: any) {
-      console.error('Image compression failed:', err);
-      alert(`照片压缩处理失败: ${err?.message || '未知错误'}`);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = file.name || `第 ${i + 1} 张图片`;
+        try {
+          const dataUrl = await compressWrongPhoto(file);
+          compressedList.push(dataUrl);
+        } catch (err: any) {
+          console.error(`Compressing ${fileName} failed:`, err);
+          failedItems.push(`• ${fileName}: ${err?.message || '压缩失败'}`);
+        }
+      }
+
+      if (compressedList.length > 0) {
+        setPreviewImages(prev => [...prev, ...compressedList]);
+      }
+
+      if (failedItems.length > 0) {
+        alert(`部分照片处理失败，未能添加：\n${failedItems.join('\n')}`);
+      }
     } finally {
       setIsCompressing(false);
       e.target.value = '';
@@ -605,7 +635,7 @@ export const PhotoImportModal: React.FC<{
     }
 
     // Attempt persistent write with safety check (Fixes A01)
-    const result = await addWrongRecords(bookId, note, previewImages);
+    const result = await addWrongRecords(bookId, note, previewImages, initialTarget?.date);
     if (!result.ok) {
       alert(result.message || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
       // Keep user's input intact without closing modal
@@ -621,6 +651,13 @@ export const PhotoImportModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="从相册上传错题照片">
       <div className="space-y-4">
+        {initialTarget?.date && (
+          <div className="text-[11px] text-ink-muted bg-cream/70 px-3 py-2 rounded-xl border border-line flex items-center justify-between">
+            <span>关联做题日期</span>
+            <span className="font-mono text-ink-main font-semibold">{initialTarget.date}</span>
+          </div>
+        )}
+
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">所属题本</label>
           <select

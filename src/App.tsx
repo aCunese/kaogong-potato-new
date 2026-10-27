@@ -117,6 +117,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [customAddOpen, setCustomAddOpen] = useState(false);
   const [countdownIndex, setCountdownIndex] = useState<number | null>(null);
   const [photoImportOpen, setPhotoImportOpen] = useState(false);
+  const [photoImportTarget, setPhotoImportTarget] = useState<{ bookId: string; date: string } | undefined>(undefined);
   const [wrongDetailRecord, setWrongDetailRecord] = useState<WrongRecord | null>(null);
   const [authModal, setAuthModal] = useState<{ open: boolean; mode: 'login' | 'register' }>({ open: false, mode: 'login' });
   const [downloadApkOpen, setDownloadApkOpen] = useState(false);
@@ -320,6 +321,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         setCustomAddOpen(true);
         break;
       case 'photo-import':
+        setPhotoImportTarget(undefined);
         setPhotoImportOpen(true);
         break;
       case 'wrong-detail':
@@ -831,7 +833,10 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'wrong' ? (
             <WrongView
-              onOpenImportModal={() => setPhotoImportOpen(true)}
+              onOpenImportModal={() => {
+                setPhotoImportTarget(undefined);
+                setPhotoImportOpen(true);
+              }}
               onOpenDetailModal={rec => setWrongDetailRecord(rec)}
               onOpenDeleteConfirm={(recId, bookName) => {
                 setConfirmConfig({
@@ -961,6 +966,12 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             setCompletePlan(null);
             setCompletionInitialSuccess(false);
           }}
+          onOpenPhotoImport={(target) => {
+            setCompletePlan(null);
+            setCompletionInitialSuccess(false);
+            setPhotoImportTarget(target);
+            setPhotoImportOpen(true);
+          }}
           onToast={showToast}
         />
 
@@ -995,7 +1006,11 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
 
         <PhotoImportModal
           isOpen={photoImportOpen}
-          onClose={() => setPhotoImportOpen(false)}
+          initialTarget={photoImportTarget}
+          onClose={() => {
+            setPhotoImportOpen(false);
+            setPhotoImportTarget(undefined);
+          }}
           onToast={showToast}
         />
 

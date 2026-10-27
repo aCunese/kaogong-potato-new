@@ -12,6 +12,7 @@ import {
   OperationContext,
   WorkspacePushPayload,
   PreparedOutboxCompaction,
+  WrongRecord,
 } from '../types';
 
 export type { LockScope, OperationScope, OperationContext, WorkspacePushPayload, PreparedOutboxCompaction };
@@ -1744,23 +1745,90 @@ export function parseServerMediaRef(value: unknown): string | null {
   return id;
 }
 
+/**
+ * Helper: counts total unique attachment photos across all wrong records.
+ * For each wrong record, de-duplicates 'image' and 'images' entries.
+ */
+export function countWrongAttachments(wrong: WrongRecord[]): number {
+  if (!Array.isArray(wrong)) return 0;
+  let total = 0;
+  for (const item of wrong) {
+    if (!item || typeof item !== 'object') continue;
+    const set = new Set<string>();
+    if (typeof item.image === 'string' && item.image.trim()) {
+      set.add(item.image.trim());
+    }
+    if (Array.isArray(item.images)) {
+      for (const img of item.images) {
+        if (typeof img === 'string' && img.trim()) {
+          set.add(img.trim());
+        }
+      }
+    }
+    total += set.size;
+  }
+  return total;
+}
+
 /** Resolve local attachment references before generating a portable JSON backup. */
 export async function createPortableBackupState(
   state: AppState,
   options?: { isPreview?: boolean; isScopeValid?: () => boolean }
 ): Promise<AppState> {
   const portable = structuredClone(state);
-  const asDataURL = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error || new Error('读取备份图片失败'));
-    reader.readAsDataURL(blob);
-  });
+  const asDataURL = async (blob: Blob): Promise<string> => {
+    if (typeof FileReader !== 'undefined') {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error || new Error('读取备份图片失败'));
+        reader.readAsDataURL(blob);
+      });
+    }
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const mime = blob.type || 'image/jpeg';
+    if (typeof Buffer !== 'undefined') {
+      return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
+    }
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return `data:${mime};base64,${btoa(binary)}`;
+  };
 
   const POSE_RE = /^pose-[0-7]$/;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-  const resolveImage = async (image: string, storagePath?: string): Promise<string> => {
+  const resolveExternalLink = async (url: string, recordContext?: string): Promise<string> => {
+    if (options?.isScopeValid && !options.isScopeValid()) {
+      throw new Error('AUTH_SCOPE_INVALID');
+    }
+    const contextPrefix = recordContext ? `${recordContext} ` : '';
+    try {
+      const response = await fetch(url, { mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      if (blob.size > MAX_IMAGE_BYTES) {
+        throw new Error('单张图片大小不能超过 10MB');
+      }
+      return await asDataURL(blob);
+    } catch (err: any) {
+      throw new Error(
+        `无法内联${contextPrefix}外链图片 (${url})，CORS 读取失败: ${err?.message || '网络请求错误'}。无法生成完整离线备份。`
+      );
+    }
+  };
+
+  const resolveImage = async (
+    image: string,
+    storagePath?: string,
+    recordContext?: string
+  ): Promise<string> => {
     if (options?.isScopeValid && !options.isScopeValid()) {
       throw new Error('AUTH_SCOPE_INVALID');
     }
@@ -1793,7 +1861,10 @@ export async function createPortableBackupState(
     // Blob URL
     if (image.startsWith('blob:')) {
       const response = await fetch(image);
-      if (!response.ok) throw new Error('无法读取本地错题图片');
+      if (!response.ok) {
+        const prefix = recordContext ? `${recordContext}: ` : '';
+        throw new Error(`${prefix}无法读取本地错题图片`);
+      }
       const blob = await response.blob();
       if (blob.size > MAX_IMAGE_BYTES) throw new Error('单张图片大小不能超过 10MB');
       return asDataURL(blob);
@@ -1820,7 +1891,9 @@ export async function createPortableBackupState(
           }
           return media.blob;
         }
-        if (media.blob.startsWith('https://')) return media.blob;
+        if (media.blob.startsWith('https://') || media.blob.startsWith('http://')) {
+          return await resolveExternalLink(media.blob, recordContext);
+        }
       }
     }
 
@@ -1832,7 +1905,8 @@ export async function createPortableBackupState(
       }
       const response = await fetch(`/api/media/${cloudId}`, { credentials: 'same-origin' });
       if (!response.ok) {
-        throw new Error(`无法从云端获取媒体附件 (${cloudId})，HTTP ${response.status}`);
+        const prefix = recordContext ? `${recordContext}: ` : '';
+        throw new Error(`${prefix}无法从云端获取媒体附件 (${cloudId})，HTTP ${response.status}`);
       }
       if (options?.isScopeValid && !options.isScopeValid()) {
         throw new Error('AUTH_SCOPE_INVALID');
@@ -1844,16 +1918,19 @@ export async function createPortableBackupState(
       return asDataURL(blob);
     }
 
-    // Legacy external https URL
-    if (image.startsWith('https://')) {
-      return image;
+    // Legacy external https / http URL: Attempt CORS fetch and inline into base64
+    if (image.startsWith('https://') || image.startsWith('http://')) {
+      return await resolveExternalLink(image, recordContext);
     }
 
-    throw new Error(`备份图片附件缺失，已停止导出: ${image.slice(0, 30)}`);
+    const prefix = recordContext ? `${recordContext}: ` : '';
+    throw new Error(`${prefix}备份图片附件缺失，已停止导出: ${image.slice(0, 30)}`);
   };
 
-  for (const wrong of portable.wrong) {
-    wrong.image = await resolveImage(wrong.image, wrong.storagePath);
+  for (let i = 0; i < portable.wrong.length; i++) {
+    const wrong = portable.wrong[i];
+    const recordLabel = `错题记录 [${wrong.id || i + 1}] (${wrong.date || '未知日期'})`;
+    wrong.image = await resolveImage(wrong.image, wrong.storagePath, recordLabel);
     delete wrong.storagePath;
     const legacyImages = (wrong as unknown as { images?: unknown }).images;
     if (Array.isArray(legacyImages)) {
@@ -1862,13 +1939,13 @@ export async function createPortableBackupState(
       for (let j = 0; j < limit; j++) {
         const img = legacyImages[j];
         if (typeof img === 'string') {
-          resolvedList.push(await resolveImage(img));
+          resolvedList.push(await resolveImage(img, undefined, `${recordLabel} 附图 ${j + 1}`));
         }
       }
       wrong.images = resolvedList;
     }
   }
-  portable.profile.avatar = await resolveImage(portable.profile.avatar);
+  portable.profile.avatar = await resolveImage(portable.profile.avatar, undefined, '个人头像');
   return portable;
 }
 
