@@ -812,6 +812,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           ) : (
             <SettingsView
               onOpenProfile={() => setProfileModalOpen(true)}
+              onOpenBackup={() => setBackupModalOpen(true)}
               onOpenResetConfirm={() => {
                 setConfirmConfig({
                   open: true,

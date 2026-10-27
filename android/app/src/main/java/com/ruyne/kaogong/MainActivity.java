@@ -137,6 +137,9 @@ public class MainActivity extends Activity {
     // 已安装应用自身签名证书 SHA-256 缓存（小写十六进制）
     private String selfCertSha256 = null;
 
+    // 备份安全导出处理器（S08 / Task 6）
+    private BackupExporter backupExporter = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -144,6 +147,8 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         setContentView(webView);
+
+        backupExporter = new BackupExporter(this, uiHandler, webView);
 
         initWebViewSettings();
         initWebViewClients();
@@ -157,6 +162,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (backupExporter != null) {
+            backupExporter.destroy();
+            backupExporter = null;
+        }
         stopProgressPolling();
         unregisterDownloadReceiver();
         if (webView != null) {
@@ -202,6 +211,9 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 // R13：UI 线程写入受信缓存，JS 桥线程后续只读该缓存，绝不调用 WebView API
                 updateTrustedPageState(url);
+                if (backupExporter != null) {
+                    backupExporter.cancelActiveExport("page_navigated");
+                }
             }
 
             @Override
@@ -548,6 +560,7 @@ public class MainActivity extends Activity {
             JSONObject out = new JSONObject();
             try {
                 out.put("bridgeProtocol", BRIDGE_PROTOCOL);
+                out.put("backupExportProtocol", BackupExporter.BACKUP_EXPORT_PROTOCOL);
                 out.put("sdkInt", Build.VERSION.SDK_INT);
                 if (!cachedPageTrusted) {
                     out.put("available", false);
@@ -580,6 +593,7 @@ public class MainActivity extends Activity {
                 JSONObject fallback = new JSONObject();
                 try {
                     fallback.put("bridgeProtocol", BRIDGE_PROTOCOL);
+                    fallback.put("backupExportProtocol", BackupExporter.BACKUP_EXPORT_PROTOCOL);
                     fallback.put("available", false);
                     fallback.put("trusted", false);
                     fallback.put("reason", "internal_error");
@@ -694,6 +708,30 @@ public class MainActivity extends Activity {
                     cancelActiveDownload();
                 }
             });
+        }
+
+        @JavascriptInterface
+        public String beginBackupExport(final String requestJson) {
+            final boolean trusted = cachedPageTrusted;
+            return backupExporter != null ? backupExporter.beginExport(requestJson, trusted) : "{\"ok\":false,\"message\":\"exporter_null\"}";
+        }
+
+        @JavascriptInterface
+        public String appendBackupExport(final String operationId, final int sequence, final String base64Chunk) {
+            final boolean trusted = cachedPageTrusted;
+            return backupExporter != null ? backupExporter.appendChunk(operationId, sequence, base64Chunk, trusted) : "{\"ok\":false,\"message\":\"exporter_null\"}";
+        }
+
+        @JavascriptInterface
+        public String finishBackupExport(final String operationId) {
+            final boolean trusted = cachedPageTrusted;
+            return backupExporter != null ? backupExporter.finishExport(operationId, trusted) : "{\"ok\":false,\"message\":\"exporter_null\"}";
+        }
+
+        @JavascriptInterface
+        public String cancelBackupExport(final String operationId) {
+            final boolean trusted = cachedPageTrusted;
+            return backupExporter != null ? backupExporter.cancelExport(operationId, trusted) : "{\"ok\":false,\"message\":\"exporter_null\"}";
         }
     }
 
@@ -1888,6 +1926,10 @@ public class MainActivity extends Activity {
             handleInstallPermissionResult();
         } else if (requestCode == INSTALL_ACTIVITY_REQUEST_CODE) {
             handleInstallActivityResult(resultCode, data);
+        } else if (requestCode == BackupExporter.BACKUP_EXPORT_REQUEST_CODE) {
+            if (backupExporter != null) {
+                backupExporter.handleSafResult(resultCode, data);
+            }
         }
         super.onActivityResult(requestCode, resultCode, data);
     }

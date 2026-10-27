@@ -105,7 +105,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} closeDisabled={saving || processingImage} title="编辑个人资料 (13:1231)">
+    <Modal isOpen={isOpen} onClose={handleCancel} closeDisabled={saving || processingImage} title="编辑个人资料">
       <div className="space-y-4">
         {/* 大头像展示与相册上传 */}
         <div className="flex flex-col items-center justify-center pt-1 pb-2">

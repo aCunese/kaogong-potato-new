@@ -30,6 +30,7 @@ import {
 
 interface SettingsViewProps {
   onOpenProfile: () => void;
+  onOpenBackup: () => void;
   onOpenLogoutConfirm: () => void;
   onOpenResetConfirm: () => void;
   onToast: (msg: string) => void;
@@ -37,6 +38,7 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenProfile,
+  onOpenBackup,
   onOpenLogoutConfirm,
   onOpenResetConfirm,
   onToast,
@@ -316,6 +318,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {renderUpdateBadge()}
             <ChevronRight size={15} className="text-ink-muted/60" />
           </div>
+        </div>
+
+        {/* 数据备份与恢复 */}
+        <div
+          onClick={onOpenBackup}
+          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-sage-light/60 flex items-center justify-center text-sage">
+              <Database size={16} />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-ink-main">数据备份与恢复</div>
+              <div className="text-[11px] text-ink-muted mt-0.5">
+                离线全量 JSON 备份导出与换机恢复
+              </div>
+            </div>
+          </div>
+          <ChevronRight size={15} className="text-ink-muted/60" />
         </div>
 
         {/* 关于应用 */}

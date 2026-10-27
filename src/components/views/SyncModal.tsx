@@ -19,7 +19,7 @@ export const SyncModal: React.FC<SyncModalProps> = ({
   onToast,
 }) => {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="云端同步管理 (13:976)">
+    <Modal isOpen={isOpen} onClose={onClose} title="云端同步管理">
       <div className="space-y-4">
         {/* 顶部云端状态大卡片 */}
         <div className="bg-gradient-to-b from-sage-light/60 to-cream/40 rounded-2xl p-5 border border-sage/30 flex flex-col items-center text-center">

@@ -229,6 +229,13 @@ verify_apk_contents() {
     assert_dex_literal_present "${dex_file}" "download_progress" "下载真实进度事件（R15）"
     assert_dex_literal_present "${dex_file}" "installer_launched" "系统安装器已调起事件（R15）"
 
+    echo "  -- DEX SAF 备份导出能力断言（S08 / Task 6）"
+    assert_dex_literal_present "${dex_file}" "backupExportProtocol" "备份导出能力字段 backupExportProtocol（S08）"
+    assert_dex_literal_present "${dex_file}" "beginBackupExport" "备份分块导出入口 beginBackupExport（S08）"
+    assert_dex_literal_present "${dex_file}" "appendBackupExport" "备份分块追加入口 appendBackupExport（S08）"
+    assert_dex_literal_present "${dex_file}" "finishBackupExport" "备份分块完成入口 finishBackupExport（S08）"
+    assert_dex_literal_present "${dex_file}" "__kaogongBackupExportEvent" "备份专用事件通道 __kaogongBackupExportEvent（S08）"
+
     # R13 关键回归守卫：桥接代码绝不允许直接引用 WebView.getUrl
     local dex_dump="${work_dir}/dexdump.txt"
     "${BUILD_TOOLS}/dexdump" -d "${dex_file}" > "${dex_dump}" 2>/dev/null || true

@@ -54,16 +54,34 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     setError('');
     try {
       const result = await exportBackup();
-      if (!result.ok) { setError(result.message); return; }
-      onToast('备份文件已成功生成并下载！');
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      const receipt = result.value;
+      if (receipt.status === 'saved') {
+        onToast('备份文件已成功保存到您的设备');
+      } else if (receipt.status === 'download_requested') {
+        onToast('已发起备份文件下载，请在浏览器下载目录查看');
+      } else if (receipt.status === 'cancelled') {
+        onToast('已取消保存备份');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '备份导出失败');
-    } finally { setExporting(false); }
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      setError(`备份文件过大 (${(file.size / (1024 * 1024)).toFixed(1)}MB)，超出 50MB 上限限制`);
+      e.target.value = '';
+      return;
+    }
 
     const chosenUserId = currentUserIdRef.current;
     const reader = new FileReader();
@@ -109,7 +127,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title="数据备份与恢复 (13:1095)">
+      <Modal isOpen={isOpen} onClose={onClose} title="数据备份与恢复">
         <div className="space-y-4">
           {/* 顶部概览卡片 */}
           <div className="bg-paper border border-line rounded-2xl p-4 flex items-center gap-3">
@@ -201,7 +219,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           isOpen={true}
           title="确认导入该备份文件？"
           message={`备份空间：「${pendingBackup.validation.summary.profileName || '未命名'}」。`}
-          impactText={`导入将覆盖当前全部数据，包含：\n• ${pendingBackup.validation.summary.bookCount} 本题本\n• ${pendingBackup.validation.summary.courseCount} 门网课\n• ${pendingBackup.validation.summary.planCount} 项日程\n• ${pendingBackup.validation.summary.recordCount} 条做题记录\n• ${pendingBackup.validation.summary.wrongCount} 条错题笔记\n• ${pendingBackup.validation.summary.countdownCount} 个考试倒计时\n当前未备份的数据将无法找回。`}
+          impactText={`导入将覆盖当前全部数据，包含：\n• ${pendingBackup.validation.summary.bookCount} 本题本\n• ${pendingBackup.validation.summary.courseCount} 门网课\n• ${pendingBackup.validation.summary.planCount} 项日程\n• ${pendingBackup.validation.summary.recordCount} 条做题记录\n• ${pendingBackup.validation.summary.wrongCount} 条错题笔记\n• ${pendingBackup.validation.summary.countdownCount} 个考试倒计时\n导入前系统将自动保存应急恢复快照，可在设置中随时还原。`}
           confirmText="确认覆盖导入"
           cancelText="取消"
           danger={true}

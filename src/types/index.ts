@@ -267,3 +267,30 @@ export interface ExecuteMutationOptions {
   recoveryBeforeWrite?: boolean;
 }
 
+export type BackupExportReceipt =
+  | { status: 'saved'; destination: 'android-document'; filename: string; bytes: number }
+  | { status: 'download_requested'; destination: 'browser'; filename: string; bytes: number }
+  | { status: 'cancelled'; destination: 'android-document' };
+
+export interface AndroidBridgeInterface {
+  getAppInfo?: () => string; // returns JSON
+  getInstallPermissionStatus?: () => string; // returns JSON
+  getLastTerminalEvent?: () => string;
+  requestInstallPermission?: () => void;
+  installApk?: (downloadUrl: string, expectedSha256: string) => void;
+  installApkVerified?: (requestJson: string) => void;
+  cancelApkDownload?: () => void;
+  beginBackupExport?: (requestJson: string) => string;
+  appendBackupExport?: (operationId: string, sequence: number, base64Chunk: string) => string;
+  finishBackupExport?: (operationId: string) => string;
+  cancelBackupExport?: (operationId: string) => string;
+}
+
+declare global {
+  interface Window {
+    AndroidBridge?: AndroidBridgeInterface;
+    __kaogongAndroidEvent?: (payload: string) => void;
+    __kaogongBackupExportEvent?: (payload: string | any) => void;
+  }
+}
+

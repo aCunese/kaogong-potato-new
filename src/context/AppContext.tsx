@@ -16,9 +16,11 @@ import {
   OperationScope,
   OperationContext,
   ExecuteMutationOptions,
+  BackupExportReceipt,
 } from '../types';
 import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup, MAX_BACKUP_SIZE_BYTES } from '../utils/backupValidator';
+import { saveBackupFile } from '../utils/backupExport';
 import {
   loadLatestState,
   commitMutation,
@@ -154,7 +156,7 @@ export interface AppContextType {
   // System
   applyDefaultSeed: () => Promise<MutationResult<void>>;
   resetState: () => Promise<MutationResult<void>>;
-  exportBackup: () => Promise<MutationResult<void>>;
+  exportBackup: () => Promise<MutationResult<BackupExportReceipt>>;
   importBackup: (jsonContent: string) => Promise<MutationResult<{ summary: string }>>;
   selfCheck: () => { ok: boolean; message: string; details: string[] };
 
@@ -1453,9 +1455,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     setSyncMessage(result.message);
   }, [clearSafeCache, preview]);
 
-  const exportBackup = useCallback(async (): Promise<MutationResult<void>> => {
+  const exportBackup = useCallback(async (): Promise<MutationResult<BackupExportReceipt>> => {
     if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法导出备份。' };
-    const scope = createOperationScope();
+    const user = currentUserRef.current;
+    const scope = createOperationScope(user?.id ?? null);
+    const context: OperationContext = {
+      scope,
+      isCurrent: () => isOperationScopeValid(scope),
+      abortSignal: scope.signal,
+    };
     try {
       if (!isOperationScopeValid(scope)) {
         return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '用户已切换，已取消导出。' };
@@ -1487,13 +1495,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         };
       }
       const blob = new Blob([jsonString], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-      return { ok: true, value: undefined };
+      const filename = `考公工作台-土豆新版备份-${new Date().toISOString().slice(0, 10)}.json`;
+      const receipt = await saveBackupFile(blob, filename, context);
+      return { ok: true, value: receipt };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message === 'AUTH_SCOPE_INVALID') {

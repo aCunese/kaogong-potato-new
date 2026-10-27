@@ -155,21 +155,6 @@ export interface ApplyWebUpdateResult {
   controllerChanged?: boolean;
 }
 
-declare global {
-  interface Window {
-    AndroidBridge?: {
-      getAppInfo?: () => string; // returns JSON
-      getInstallPermissionStatus?: () => string; // returns JSON
-      getLastTerminalEvent?: () => string;
-      requestInstallPermission?: () => void;
-      installApk?: (downloadUrl: string, expectedSha256: string) => void;
-      installApkVerified?: (requestJson: string) => void;
-      cancelApkDownload?: () => void;
-    };
-    __kaogongAndroidEvent?: (payload: string) => void;
-  }
-}
-
 // ------------------------------------------------------------------------------
 // 原生桥事件
 // ------------------------------------------------------------------------------
