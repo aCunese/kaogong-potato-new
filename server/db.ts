@@ -166,10 +166,16 @@ export function rotateGenerationId(): string {
   const db = getDb();
   const nextGenId = `gen_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
   db.prepare('INSERT OR REPLACE INTO server_meta (key, value) VALUES (?, ?)').run('generation_id', nextGenId);
+  try {
+    db.prepare('UPDATE workspaces SET generation_id = ?').run(nextGenId);
+  } catch {}
   // Also revoke all existing active sessions to prevent old client replay
   db.prepare('DELETE FROM sessions').run();
   return nextGenId;
 }
+
+export { restoreOffline } from './disasterRecovery';
+export type { RestoreOfflineOptions, RestoreOfflineResult } from './disasterRecovery';
 
 /**
  * Perform safe hot backup using SQLite Online Backup API.

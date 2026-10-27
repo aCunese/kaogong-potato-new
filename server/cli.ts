@@ -16,6 +16,7 @@ import {
   backupDatabaseOnline,
   getAttachmentsDir,
   closeDb,
+  restoreOffline,
 } from './db';
 import { auditMediaStorage } from './media';
 import { getReleaseValidation } from './app';
@@ -83,6 +84,43 @@ async function run() {
       const oldGen = getCurrentGenerationId();
       const newGen = rotateGenerationId();
       console.log(`\n🔄 同步代际已轮换并撤销所有会话:\n旧代际: ${oldGen}\n新代际: ${newGen}\n`);
+      break;
+    }
+
+    case 'restore-offline': {
+      const flags = new Set(args.filter(a => a.startsWith('--')));
+      const positional = args.filter(a => !a.startsWith('--'));
+      const sourceDir = positional[0];
+      const targetDataDir = positional[1] || process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
+      const offlineConfirmed = flags.has('--offline-confirmed') || process.env.OFFLINE_CONFIRMED === 'true';
+      const skipPreBackup = flags.has('--skip-pre-backup');
+
+      if (!sourceDir) {
+        console.error('用法: bun server/cli.ts restore-offline <sourceDir> [dataDir] [--offline-confirmed] [--skip-pre-backup]');
+        process.exit(1);
+      }
+
+      try {
+        const result = restoreOffline({
+          sourceDir,
+          dataDir: targetDataDir,
+          offlineConfirmed,
+          skipPreBackup,
+        });
+        console.log(`\n========================================================================`);
+        console.log(` [SUCCESS] 灾难恢复完成！`);
+        console.log(` 数据库与附件已就位，代际已轮换 (${result.generationId})，旧客户端已被安全阻断。`);
+        if (result.safetyBackupDir) {
+          console.log(` 旧库安全快照已保存: ${result.safetyBackupDir}`);
+        }
+        if (result.corruptBackupDir) {
+          console.log(` 损坏现场副本已保存: ${result.corruptBackupDir}`);
+        }
+        console.log(`========================================================================\n`);
+      } catch (err: any) {
+        console.error(`\n❌ [RESTORE_FAILED] 灾难恢复失败:`, err.message || err);
+        process.exit(1);
+      }
       break;
     }
 
@@ -221,6 +259,7 @@ async function run() {
   reset-code <userId>                   为用户生成30分钟一次性密码重置码
   reset-password <code> <newPassword>   使用重置码设置新密码
   rotate-gen                            轮换同步代际（整机灾备恢复后使用）
+  restore-offline <src> [dataDir]       执行停服灾难恢复与代际轮换（原子提交点）
   restore-user <userId> <backupPath>    针对单个用户安全执行备份快照恢复
   hot-backup [targetDir]                执行在线热备份并导出校验清单
   audit-media                           审计媒体存储（孤儿、缺失、损坏及暂存残留）
