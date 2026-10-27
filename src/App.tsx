@@ -86,6 +86,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     updateInfo,
     dismissUpdate,
     applyUpdate,
+    registerUpdateBlocker,
     isAnyTimerRunning,
     offlineReady,
   } = useApp();
@@ -150,6 +151,52 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
       setDismissedConflictKey(null);
     }
   }, [conflictData]);
+
+  // Register update blockers for active modal/dialog editing states (Task 9 / S11)
+  useEffect(() => {
+    if (!addPlanOpen) return;
+    return registerUpdateBlocker('add_plan_modal', '正在添加日程计划，已暂缓应用更新');
+  }, [addPlanOpen, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!completePlan) return;
+    return registerUpdateBlocker('complete_plan_modal', '正在进行学习登记，已暂缓应用更新');
+  }, [completePlan, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!bookModalState.open) return;
+    return registerUpdateBlocker('book_edit_modal', '正在编辑题本资料，已暂缓应用更新');
+  }, [bookModalState.open, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!courseModalState.open) return;
+    return registerUpdateBlocker('course_edit_modal', '正在编辑课程资料，已暂缓应用更新');
+  }, [courseModalState.open, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!customAddOpen) return;
+    return registerUpdateBlocker('custom_add_modal', '正在编辑自定义事项，已暂缓应用更新');
+  }, [customAddOpen, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!focusPlan) return;
+    return registerUpdateBlocker('focus_modal', '专注计时器运行中，已暂缓应用更新');
+  }, [focusPlan, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!photoImportOpen) return;
+    return registerUpdateBlocker('photo_import_modal', '正在导入错题照片，已暂缓应用更新');
+  }, [photoImportOpen, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!backupModalOpen) return;
+    return registerUpdateBlocker('backup_modal', '正在进行数据备份与恢复，已暂缓应用更新');
+  }, [backupModalOpen, registerUpdateBlocker]);
+
+  useEffect(() => {
+    if (!profileModalOpen) return;
+    return registerUpdateBlocker('profile_edit_modal', '正在编辑个人资料，已暂缓应用更新');
+  }, [profileModalOpen, registerUpdateBlocker]);
 
   // Generic Confirm Modal
   const [confirmConfig, setConfirmConfig] = useState<{

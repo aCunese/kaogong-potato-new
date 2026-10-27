@@ -1,0 +1,43 @@
+# ==============================================================================
+# 考公工作台 · 生产环境 Docker Compose 编排 (不可变镜像与独立数据卷)
+#
+# 使用指南：
+# 1. 复制 deploy/release.env.example 为 release.env，并填入真实绝对路径与不可变镜像 tag/digest
+# 2. 检查配置有效性:
+#    docker compose --env-file release.env -f deploy/compose.prod.yml config
+# 3. 部署启动:
+#    docker compose --env-file release.env -f deploy/compose.prod.yml up -d --no-deps --no-build --wait kaogong-app
+# ==============================================================================
+
+services:
+  kaogong-app:
+    image: ${APP_IMAGE:?required}
+    container_name: kaogong-potato-app
+    restart: unless-stopped
+    user: node
+    ports:
+      # 严格绑定本地回环端口，杜绝生产宿主机直接外网暴露，必须由反向代理（Nginx/Caddy）终结 TLS
+      - "127.0.0.1:${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/app/data
+      - PORT=3000
+      - SESSION_SECRET=${SESSION_SECRET:?required}
+    volumes:
+      # 生产真实持久化目录（绝对路径）：包含 potato.db、attachments/、backups/
+      - ${PROD_DATA_DIR:?required}:/app/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

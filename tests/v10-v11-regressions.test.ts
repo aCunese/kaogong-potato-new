@@ -6,6 +6,9 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { AppProvider, useApp } from '../src/context/AppContext';
 import {
   CURRENT_WEB_BUILD,
   CURRENT_WEB_VERSION,
@@ -246,5 +249,38 @@ describe('V11: Client Identity & Cache Binding', () => {
     expect(cached!.webUpdateAvailable).toBe(false);
     expect(cached!.status).toBe('latest');
     expect(cached!.fromCache).toBe(true);
+  });
+});
+
+describe('S11: Update Blocker Guard & Registration (AppContext)', () => {
+  it('registerUpdateBlocker blocks updateGuard and unregisters idempotently', () => {
+    let contextValue: any = null;
+    const TestConsumer = () => {
+      contextValue = useApp();
+      return React.createElement('div', null, 'loaded');
+    };
+
+    renderToStaticMarkup(
+      React.createElement(AppProvider, { preview: true }, React.createElement(TestConsumer, null))
+    );
+
+    expect(contextValue).not.toBeNull();
+    const initialGuard = contextValue.updateGuard();
+    expect(initialGuard.ok).toBe(true);
+
+    // Register a blocker
+    const unregister = contextValue.registerUpdateBlocker('modal_edit', '正在进行题本编辑');
+    const blockedGuard = contextValue.updateGuard();
+    expect(blockedGuard.ok).toBe(false);
+    expect(blockedGuard.reason).toBe('正在进行数据编辑或操作，已暂缓应用更新');
+
+    // Unregister blocker
+    unregister();
+    const unblockedGuard = contextValue.updateGuard();
+    expect(unblockedGuard.ok).toBe(true);
+
+    // Idempotent call to unregister must not throw or affect anything
+    expect(() => unregister()).not.toThrow();
+    expect(contextValue.updateGuard().ok).toBe(true);
   });
 });

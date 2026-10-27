@@ -200,8 +200,9 @@ export interface AppContextType {
   checkForUpdate: (manual?: boolean) => Promise<UpdateCheckResult | null>;
   dismissUpdate: () => void;
   applyUpdate: () => Promise<boolean>;
-  /** Guard used by update UI: blocks install/activate while timers run or a conflict is unresolved. */
+  /** Guard used by update UI: blocks install/activate while timers run, conflict is unresolved, sync pending, or editing is active. */
   updateGuard: () => { ok: boolean; reason?: string };
+  registerUpdateBlocker: (id: string, reason: string) => () => void;
   isAnyTimerRunning: () => boolean;
 }
 
@@ -846,21 +847,37 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     setUpdateInfo(null);
   }, [updateInfo]);
 
+  const updateBlockersRef = useRef<Map<string, string>>(new Map());
+
+  const registerUpdateBlocker = useCallback((id: string, reason: string): (() => void) => {
+    updateBlockersRef.current.set(id, reason);
+    let unregistered = false;
+    return () => {
+      if (unregistered) return;
+      unregistered = true;
+      updateBlockersRef.current.delete(id);
+    };
+  }, []);
+
   const isAnyTimerRunning = useCallback((): boolean => {
     return state.plans.some(p => !p.done && p.timerStart > 0);
   }, [state.plans]);
 
   const updateGuard = useCallback((): { ok: boolean; reason?: string } => {
-    if (isAnyTimerRunning()) {
-      return { ok: false, reason: '当前有正在运行的计时器，请先暂停或完成计时' };
+    if (updateBlockersRef.current.size > 0) {
+      return { ok: false, reason: '正在进行数据编辑或操作，已暂缓应用更新' };
+    }
+    if (pendingSyncCount > 0) {
+      return { ok: false, reason: '本地有尚未保存到服务器的内容，请先完成同步再更新' };
     }
     if (conflictData) {
       return { ok: false, reason: '存在待处理的版本冲突，请先完成冲突处理再更新' };
     }
-    // Pending sync changes are already durably persisted before this guard runs;
-    // updates must never clear the queue, and this path never does.
+    if (isAnyTimerRunning()) {
+      return { ok: false, reason: '当前有正在运行的计时器，请先暂停或完成计时' };
+    }
     return { ok: true };
-  }, [conflictData, isAnyTimerRunning]);
+  }, [conflictData, isAnyTimerRunning, pendingSyncCount]);
 
   const applyUpdate = useCallback(async (): Promise<boolean> => {
     const guard = updateGuard();
@@ -2263,6 +2280,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         dismissUpdate,
         applyUpdate,
         updateGuard,
+        registerUpdateBlocker,
         isAnyTimerRunning,
       }}
     >

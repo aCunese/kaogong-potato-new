@@ -1,9 +1,9 @@
 {
-  "version": "1.0.4",
-  "build": "20261027.03",
+  "version": "1.0.5",
+  "build": "20261027.04",
   "schemaVersion": 3,
-  "apkVersion": "1.0.4",
-  "apkVersionCode": 5,
+  "apkVersion": "1.0.5",
+  "apkVersionCode": 6,
   "apkDownloadUrl": "/api/download/apk",
   "apkSha256": "",
   "apkSizeBytes": 0,
@@ -11,5 +11,5 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": false,
   "deployedAt": "2026-10-27T00:00:00Z",
-  "summary": "联合上线冻结候选版：修复 A01-A09 全部缺陷，补齐回归套件与灾备原子验证"
+  "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷"
 }

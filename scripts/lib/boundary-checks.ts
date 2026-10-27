@@ -862,7 +862,8 @@ export async function runV10Check(browser: Browser): Promise<CheckResult> {
       platform: 'browser',
     });
     const bundleJS = bundle.outputFiles[0].text;
-    const oldSW = cp.execFileSync('git', ['show', 'bc368b7:public/sw.js'], { cwd: REPO_ROOT, encoding: 'utf8' });
+    const legacySWPath = path.join(REPO_ROOT, 'tests', 'fixtures', 'sw', 'legacy-sw.js');
+    const oldSW = fs.readFileSync(legacySWPath, 'utf8');
     const newSW = fs.readFileSync(path.join(REPO_ROOT, 'public', 'sw.js'), 'utf8') + '\nself.skipWaiting();';
     let stage = 'old';
 
@@ -1116,8 +1117,7 @@ export async function runV12Check(): Promise<CheckResult> {
 
     // Check 2: Android state machine execution via Java harness (verifying RESULT_FIRST_USER, RESULT_CANCELED, RESULT_OK with lower version, etc.)
     const mainActivityPath = path.join(REPO_ROOT, 'android', 'app', 'src', 'main', 'java', 'com', 'ruyne', 'kaogong', 'MainActivity.java');
-    const templatePath = path.join(REPO_ROOT, 'output', 'audits', '2026-10-27-independent-review', 'repro', 'Harness.template.java');
-    const existingHarnessPath = path.join(REPO_ROOT, 'output', 'audits', '2026-10-27-independent-review', 'repro', 'Harness.java');
+    const templatePath = path.join(REPO_ROOT, 'tests', 'fixtures', 'android-install', 'Harness.template.java');
 
     let javaHarnessPassed = false;
     let javaHarnessOutput = '';
@@ -1135,11 +1135,8 @@ export async function runV12Check(): Promise<CheckResult> {
           harnessCode = templateSource.replace('__ACTUAL_JAVA_METHOD__', actualMethod);
         }
       }
-      if (!harnessCode && fs.existsSync(existingHarnessPath)) {
-        harnessCode = fs.readFileSync(existingHarnessPath, 'utf8');
-      }
       if (!harnessCode) {
-        throw new Error('Unable to construct or find Java state machine harness');
+        throw new Error('Unable to construct Java state machine harness from tests/fixtures and MainActivity.java');
       }
 
       const tempHarnessJava = path.join(javaTempDir, 'Harness.java');
