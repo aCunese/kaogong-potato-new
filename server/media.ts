@@ -99,12 +99,40 @@ export interface SaveMediaResult {
   deduplicated?: boolean;
 }
 
-function ensureAttachmentFile(filename: string, buffer: Buffer, attachmentsDir: string): void {
+function ensureAttachmentFile(
+  filename: string,
+  buffer: Buffer,
+  attachmentsDir: string,
+  expectedSha256?: string
+): void {
   const diskPath = path.join(attachmentsDir, filename);
-  if (fs.existsSync(diskPath)) return;
-  const tmpPath = `${diskPath}.tmp_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  fs.writeFileSync(tmpPath, buffer);
+  let needsRepair = false;
+
   try {
+    if (!fs.existsSync(diskPath)) {
+      needsRepair = true;
+    } else {
+      const stat = fs.statSync(diskPath);
+      if (stat.size !== buffer.length) {
+        needsRepair = true;
+      } else {
+        const fileBytes = fs.readFileSync(diskPath);
+        const targetSha = expectedSha256 || crypto.createHash('sha256').update(buffer).digest('hex');
+        const fileSha = crypto.createHash('sha256').update(fileBytes).digest('hex');
+        if (fileSha !== targetSha) {
+          needsRepair = true;
+        }
+      }
+    }
+  } catch {
+    needsRepair = true;
+  }
+
+  if (!needsRepair) return;
+
+  const tmpPath = path.join(attachmentsDir, `.tmp_repair_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`);
+  try {
+    fs.writeFileSync(tmpPath, buffer);
     fs.renameSync(tmpPath, diskPath);
   } catch {
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
@@ -136,7 +164,20 @@ export function saveUserMedia(
   const attachmentsDir = getAttachmentsDir();
   const db = getDb();
 
-  // 1. Quota check BEFORE creating any temporary or final files on disk!
+  // 1. A05: 先查询当前账号同 SHA 图片；命中直接返回原媒体 ID，不重复计费。
+  // R06：上传幂等（按 user_id + sha256 秒传）。同账号重复上传同一图片直接返回既有记录，
+  // 绝不产生第二条 media_records，也不重复累计配额。
+  const dedupeRow = db.prepare(`
+    SELECT * FROM media_records WHERE user_id = ? AND sha256 = ? ORDER BY created_at ASC, rowid ASC LIMIT 1
+  `).get(userId, sha256) as MediaRecordRow | undefined;
+  if (dedupeRow) {
+    // 同图重试时若文件缺失或损坏，使用本次已验证字节修复；不能只检查文件是否存在
+    // （检查文件是否存在、大小和 sha256，若损坏/不匹配则使用本次 buffer 修复）。
+    ensureAttachmentFile(dedupeRow.filename, buffer, attachmentsDir, sha256);
+    return { ok: true, media: withMediaUrl(dedupeRow), deduplicated: true };
+  }
+
+  // 2. 仅新图片执行落盘前及事务内配额校验。
   const currentTotal = getUserTotalMediaUsage(userId);
   if (currentTotal + buffer.length > MAX_USER_QUOTA_BYTES) {
     return {
@@ -147,27 +188,34 @@ export function saveUserMedia(
     };
   }
 
-  // 2. R06：上传幂等（按 user_id + sha256 秒传）。同账号重复上传同一图片直接返回既有记录，
-  // 绝不产生第二条 media_records，也不重复累计配额。
-  const dedupeRow = db.prepare(`
-    SELECT * FROM media_records WHERE user_id = ? AND sha256 = ? ORDER BY created_at ASC, rowid ASC LIMIT 1
-  `).get(userId, sha256) as MediaRecordRow | undefined;
-  if (dedupeRow) {
-    // 若历史数据的磁盘文件缺失（例如人工清理），按本次上传内容自愈补齐，不新增记账行
-    ensureAttachmentFile(dedupeRow.filename, buffer, attachmentsDir);
-    return { ok: true, media: withMediaUrl(dedupeRow), deduplicated: true };
-  }
-
   // 3. Write new disk file: write to request-unique temp file, then atomically rename
   const diskPath = path.join(attachmentsDir, diskFilename);
   let tempFilePath: string | null = null;
-  if (!fs.existsSync(diskPath)) {
+  let newlyWrittenDiskFile = false;
+
+  let diskFileValid = false;
+  try {
+    if (fs.existsSync(diskPath)) {
+      const stat = fs.statSync(diskPath);
+      if (stat.size === buffer.length) {
+        const fileSha = crypto.createHash('sha256').update(fs.readFileSync(diskPath)).digest('hex');
+        if (fileSha === sha256) {
+          diskFileValid = true;
+        }
+      }
+    }
+  } catch {
+    diskFileValid = false;
+  }
+
+  if (!diskFileValid) {
     const tmpPath = path.join(attachmentsDir, `.tmp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`);
     try {
       fs.writeFileSync(tmpPath, buffer);
       tempFilePath = tmpPath;
       fs.renameSync(tmpPath, diskPath);
       tempFilePath = null;
+      newlyWrittenDiskFile = true;
     } catch (writeErr) {
       if (tempFilePath) {
         try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
@@ -200,10 +248,12 @@ export function saveUserMedia(
     if (tempFilePath) {
       try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
     }
-    // If transaction failed, clean up diskPath only if NO record references it across all users
-    const refCount = db.prepare('SELECT COUNT(*) as count FROM media_records WHERE filename = ?').get(diskFilename) as { count: number };
-    if (refCount.count === 0) {
-      try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
+    // 失败清理只处理本次新建内容，不能删除去重命中的旧附件或其它用户引用的附件
+    if (newlyWrittenDiskFile) {
+      const refCount = db.prepare('SELECT COUNT(*) as count FROM media_records WHERE filename = ?').get(diskFilename) as { count: number };
+      if (refCount.count === 0) {
+        try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
+      }
     }
 
     if (err.message === 'QUOTA_EXCEEDED') {

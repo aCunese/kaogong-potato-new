@@ -16,7 +16,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 import app, { validateReleaseConfig } from '../server/app';
 import { createInviteCode, createPasswordResetCode, restoreUserWorkspace } from '../server/admin';
-import { getCurrentGenerationId, rotateGenerationId, closeDb, getDb } from '../server/db';
+import { getCurrentGenerationId, rotateGenerationId, closeDb, getDb, getAttachmentsDir } from '../server/db';
 import { BLANK_STATE } from '../src/constants/initialData';
 import {
   MAX_WORKSPACE_PAYLOAD_BYTES,
@@ -28,7 +28,7 @@ import {
   WORKSPACE_HISTORY_RECENT_WINDOW_MS,
   SYNC_IDEMPOTENCY_MAX_ROWS,
 } from '../server/retention';
-import { getUserTotalMediaUsage } from '../server/media';
+import { getUserTotalMediaUsage, MAX_USER_QUOTA_BYTES } from '../server/media';
 
 let server: Server;
 let baseUrl: string;
@@ -1455,6 +1455,55 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
 
     // Clean up corrupted test history row
     db.prepare('DELETE FROM workspace_history WHERE id = ?').run(corruptHistId);
+  });
+
+  test('A05) Deduplication runs before quota check, prevents false 413, and retry repairs corrupted disk file with verified bytes', async () => {
+    const db = getDb();
+    const user = await registerTestUser('user_a05');
+    const attachmentsDir = getAttachmentsDir();
+
+    // 1. Upload initial PNG
+    const firstUpload = await uploadTinyPng(user.cookie, user.csrfToken);
+    assert.equal(firstUpload.res.status, 200);
+    assert.equal(firstUpload.json.deduplicated, false);
+    const mediaId = firstUpload.json.media.id;
+    const mediaRow = db.prepare('SELECT filename, byte_size, sha256 FROM media_records WHERE id = ?').get(mediaId) as { filename: string; byte_size: number; sha256: string };
+    assert.ok(mediaRow);
+
+    // 2. Artificially inflate user quota usage to MAX_USER_QUOTA_BYTES using a dummy record
+    const dummyId = `media_dummy_${Date.now()}`;
+    db.prepare(`
+      INSERT INTO media_records (id, user_id, filename, original_name, mime_type, byte_size, sha256, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(dummyId, user.user.id, 'dummy.png', 'dummy.png', 'image/png', MAX_USER_QUOTA_BYTES, 'dummy_sha', new Date().toISOString());
+
+    // 3. Retry uploading the exact same PNG - must succeed (200, deduplicated: true) despite quota being exhausted
+    const retryUnderFullQuota = await uploadTinyPng(user.cookie, user.csrfToken);
+    assert.equal(retryUnderFullQuota.res.status, 200, 'Deduplicated retry must not be blocked by quota check');
+    assert.equal(retryUnderFullQuota.json.deduplicated, true);
+    assert.equal(retryUnderFullQuota.json.media.id, mediaId);
+
+    // Remove dummy quota filler
+    db.prepare('DELETE FROM media_records WHERE id = ?').run(dummyId);
+
+    // 4. Corrupt the disk file with bad bytes
+    const diskPath = path.join(attachmentsDir, mediaRow.filename);
+    assert.ok(fs.existsSync(diskPath));
+    const corruptBytes = Buffer.alloc(mediaRow.byte_size, 0x7f);
+    fs.writeFileSync(diskPath, corruptBytes);
+
+    // Verify disk file is currently corrupted
+    assert.ok(!fs.readFileSync(diskPath).equals(Buffer.from(TINY_PNG_BASE64, 'base64')));
+
+    // 5. Retry upload - server must repair the corrupted disk file using the verified incoming buffer
+    const retryRepair = await uploadTinyPng(user.cookie, user.csrfToken);
+    assert.equal(retryRepair.res.status, 200);
+    assert.equal(retryRepair.json.deduplicated, true);
+    assert.equal(retryRepair.json.media.id, mediaId);
+
+    // 6. Verify disk file has been repaired with genuine PNG bytes
+    const repairedBytes = fs.readFileSync(diskPath);
+    assert.ok(repairedBytes.equals(Buffer.from(TINY_PNG_BASE64, 'base64')), 'Corrupted disk file must be repaired with verified bytes on retry');
   });
 });
 
