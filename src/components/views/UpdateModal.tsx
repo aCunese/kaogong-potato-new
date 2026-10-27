@@ -6,6 +6,7 @@ import {
   applyWebUpdate,
   startNativeApkInstall,
   onNativeInstallEvent,
+  getNativeInstallState,
   cancelNativeApkInstall,
   requestNativeInstallPermission,
   copyOfficialApkUrl,
@@ -139,11 +140,17 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
     void runInternalCheck();
   }, [onRecheck, runInternalCheck]);
 
-  // 打开弹窗时重置动作状态；非受控模式下自动发起一次手动检查
+  // 打开弹窗时读取原生最新状态并重置动作状态；非受控模式下自动发起一次手动检查
   useEffect(() => {
     if (!isOpen) return;
-    setNativePhase('idle');
-    setNativeMessage('');
+    const initialNative = getNativeInstallState();
+    if (initialNative) {
+      setNativePhase(initialNative.phase);
+      setNativeMessage(initialNative.message);
+    } else {
+      setNativePhase('idle');
+      setNativeMessage('');
+    }
     setProgress(null);
     setWebPhase('idle');
     setWebMessage('');
@@ -192,11 +199,12 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           break;
         case 'download_failed':
         case 'verification_failed':
+        case 'install_failed':
         case 'bridge_error':
           setNativePhase('error');
           setNativeMessage(
             event.message
-              || (event.errorCode ? `更新失败（${event.errorCode}）` : '更新失败，请稍后重试'),
+              || (event.errorCode || event.code ? `更新失败（${event.errorCode || event.code}）` : '更新失败，请稍后重试'),
           );
           break;
         case 'cancelled':

@@ -100,6 +100,8 @@ export interface NativeBridgeInfo {
   sdkInt?: number;
   state?: string;
   reason?: string;
+  activeOperationId?: string;
+  lastTerminalEvent?: NativeUpdateEvent | null;
 }
 
 export interface UpdateCheckResult {
@@ -117,6 +119,9 @@ export interface UpdateCheckResult {
   message?: string;
   /** 结果是否来自 30 分钟节流缓存（true 时 checkedAt 为上次成功核验时间） */
   fromCache?: boolean;
+  activeOperationId?: string;
+  lastTerminalEvent?: NativeUpdateEvent | null;
+  nativeState?: string;
 }
 
 /** 旧接口兼容返回体（SettingsView 等历史代码继续使用） */
@@ -155,6 +160,7 @@ declare global {
     AndroidBridge?: {
       getAppInfo?: () => string; // returns JSON
       getInstallPermissionStatus?: () => string; // returns JSON
+      getLastTerminalEvent?: () => string;
       requestInstallPermission?: () => void;
       installApk?: (downloadUrl: string, expectedSha256: string) => void;
       installApkVerified?: (requestJson: string) => void;
@@ -179,6 +185,7 @@ export type NativeUpdateEventType =
   | 'install_permission_required'
   | 'install_permission_denied'
   | 'install_cancelled'
+  | 'install_failed'
   | 'installed'
   | 'cancelled'
   | 'update_busy'
@@ -189,6 +196,9 @@ export interface NativeUpdateEvent {
   type: NativeUpdateEventType;
   message?: string;
   errorCode?: string;
+  code?: string;
+  resultCode?: number;
+  operationId?: string;
   reason?: string;
   downloadId?: number;
   downloaded?: number;
@@ -318,6 +328,29 @@ export function getNativeBridgeInfo(): NativeBridgeInfo | null {
       ? parsed.installPermission
       : 'unknown';
   const reason = typeof parsed.reason === 'string' ? parsed.reason : undefined;
+  const activeOperationId = typeof parsed.activeOperationId === 'string' && parsed.activeOperationId
+    ? parsed.activeOperationId
+    : undefined;
+  let lastTerminalEvent: NativeUpdateEvent | null = null;
+  if (parsed.lastTerminalEvent && typeof parsed.lastTerminalEvent === 'object') {
+    const rawEvt = parsed.lastTerminalEvent as Record<string, unknown>;
+    if (typeof rawEvt.type === 'string') {
+      lastTerminalEvent = rawEvt as unknown as NativeUpdateEvent;
+    }
+  }
+  if (!lastTerminalEvent && typeof bridge.getLastTerminalEvent === 'function') {
+    try {
+      const rawTerm = bridge.getLastTerminalEvent();
+      if (rawTerm && typeof rawTerm === 'string') {
+        const obj = JSON.parse(rawTerm);
+        if (obj && typeof obj === 'object' && typeof obj.type === 'string') {
+          lastTerminalEvent = obj as NativeUpdateEvent;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   return {
     protocol,
@@ -332,6 +365,8 @@ export function getNativeBridgeInfo(): NativeBridgeInfo | null {
     sdkInt: typeof parsed.sdkInt === 'number' ? parsed.sdkInt : undefined,
     state: typeof parsed.state === 'string' ? parsed.state : undefined,
     reason,
+    activeOperationId,
+    lastTerminalEvent,
   };
 }
 
@@ -344,6 +379,71 @@ export function getNativeAppInfo(): NativeAppInfo | null {
     versionName: bridge.versionName,
     packageName: bridge.packageName,
   };
+}
+
+export interface NativeInstallState {
+  state: string;
+  activeOperationId?: string;
+  lastTerminalEvent: NativeUpdateEvent | null;
+  phase: 'idle' | 'downloading' | 'verifying' | 'install_ready' | 'installing' | 'permission' | 'error';
+  message: string;
+}
+
+/**
+ * 读取原生更新状态机当前任务与最近终态。
+ * 供弹窗重新打开或检查版本时调用，避免单纯依赖实时广播事件。
+ */
+export function getNativeInstallState(): NativeInstallState | null {
+  const bridge = getNativeBridgeInfo();
+  if (!bridge || !bridge.available) return null;
+
+  const state = bridge.state || 'idle';
+  const activeOperationId = bridge.activeOperationId;
+  const lastTerminalEvent = bridge.lastTerminalEvent || null;
+
+  if (state === 'downloading') {
+    return { state, activeOperationId, lastTerminalEvent, phase: 'downloading', message: '正在安全下载更新包...' };
+  }
+  if (state === 'verifying') {
+    return { state, activeOperationId, lastTerminalEvent, phase: 'verifying', message: '正在校验安装包完整性...' };
+  }
+  if (state === 'ready') {
+    return { state, activeOperationId, lastTerminalEvent, phase: 'install_ready', message: '安装包校验全部通过' };
+  }
+  if (state === 'installer_open') {
+    return { state, activeOperationId, lastTerminalEvent, phase: 'installing', message: '已调起系统安装程序，请按系统提示确认覆盖安装' };
+  }
+  if (state === 'needs_permission') {
+    return { state, activeOperationId, lastTerminalEvent, phase: 'permission', message: '需要授予“安装未知应用”权限后才能继续' };
+  }
+
+  if (lastTerminalEvent) {
+    switch (lastTerminalEvent.type) {
+      case 'installed':
+        return { state, activeOperationId, lastTerminalEvent, phase: 'idle', message: lastTerminalEvent.message || '应用已成功安装更新' };
+      case 'download_failed':
+      case 'verification_failed':
+      case 'install_failed':
+      case 'bridge_error':
+        return {
+          state,
+          activeOperationId,
+          lastTerminalEvent,
+          phase: 'error',
+          message: lastTerminalEvent.message
+            || (lastTerminalEvent.errorCode || lastTerminalEvent.code ? `更新失败（${lastTerminalEvent.errorCode || lastTerminalEvent.code}）` : '更新失败，请稍后重试'),
+        };
+      case 'cancelled':
+      case 'install_cancelled':
+        return { state, activeOperationId, lastTerminalEvent, phase: 'idle', message: lastTerminalEvent.message || '已取消更新下载' };
+      case 'install_permission_denied':
+        return { state, activeOperationId, lastTerminalEvent, phase: 'idle', message: lastTerminalEvent.message || '未授予安装未知应用权限' };
+      default:
+        break;
+    }
+  }
+
+  return { state, activeOperationId, lastTerminalEvent, phase: 'idle', message: '' };
 }
 
 /** 是否为缺少现代桥接的旧版 Android WebView 容器 */
@@ -821,6 +921,9 @@ function decideNativeResult(
     webUpdateAvailable,
     apkUpdateAvailable: false,
     cacheState: 'fresh',
+    activeOperationId: bridge.activeOperationId,
+    lastTerminalEvent: bridge.lastTerminalEvent,
+    nativeState: bridge.state,
   };
 
   // 包名一致性（防止把别的应用的安装包当成更新）

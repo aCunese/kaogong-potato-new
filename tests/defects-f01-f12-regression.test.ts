@@ -2,6 +2,12 @@ import { describe, it, expect } from 'bun:test';
 import { BLANK_STATE, INITIAL_BOOKS, INITIAL_COURSES } from '../src/constants/initialData';
 import { validateWorkspacePayload } from '../server/workspace';
 import {
+  getNativeBridgeInfo,
+  getNativeInstallState,
+  onNativeInstallEvent,
+  type NativeUpdateEvent,
+} from '../src/utils/versionCheck';
+import {
   quarantineOutboxItem,
   getPendingOutbox,
   getUnresolvedLocalChanges,
@@ -234,5 +240,137 @@ describe('Defect Regression Suite (F01–F12)', () => {
     };
     const good = validateWorkspacePayload(validState, 3);
     expect(good.valid).toBe(true);
+  });
+
+  // A08: Android 安装路径终态与状态机同步回归测试
+  it('A08: getNativeBridgeInfo parses activeOperationId and lastTerminalEvent', () => {
+    const hadWindow = 'window' in globalThis;
+    const originalWindow = (globalThis as any).window;
+    if (!hadWindow) {
+      (globalThis as any).window = {};
+    }
+
+    (globalThis as any).window.AndroidBridge = {
+      getAppInfo: () =>
+        JSON.stringify({
+          bridgeProtocol: 2,
+          available: true,
+          trusted: true,
+          versionCode: 4,
+          versionName: '1.0.3',
+          packageName: 'com.ruyne.kaogong',
+          installPermission: 'granted',
+          state: 'idle',
+          activeOperationId: 'op_active_123',
+          lastTerminalEvent: {
+            type: 'install_failed',
+            code: 'install_failed_result',
+            resultCode: 1,
+            operationId: 'op_old_999',
+            message: '系统安装失败（返回码: 1）',
+          },
+        }),
+    };
+
+    try {
+      const bridge = getNativeBridgeInfo();
+      expect(bridge).not.toBeNull();
+      expect(bridge?.available).toBe(true);
+      expect(bridge?.activeOperationId).toBe('op_active_123');
+      expect(bridge?.lastTerminalEvent?.type).toBe('install_failed');
+      expect(bridge?.lastTerminalEvent?.operationId).toBe('op_old_999');
+      expect(bridge?.lastTerminalEvent?.resultCode).toBe(1);
+
+      // getNativeInstallState 必须读取到终态
+      const installState = getNativeInstallState();
+      expect(installState).not.toBeNull();
+      expect(installState?.phase).toBe('error');
+      expect(installState?.message).toContain('系统安装失败');
+    } finally {
+      if (hadWindow) {
+        (globalThis as any).window = originalWindow;
+      } else {
+        delete (globalThis as any).window;
+      }
+    }
+  });
+
+  it('A08: getNativeInstallState correctly prioritizes active running phases over terminal events', () => {
+    const hadWindow = 'window' in globalThis;
+    const originalWindow = (globalThis as any).window;
+    if (!hadWindow) {
+      (globalThis as any).window = {};
+    }
+
+    (globalThis as any).window.AndroidBridge = {
+      getAppInfo: () =>
+        JSON.stringify({
+          bridgeProtocol: 2,
+          available: true,
+          trusted: true,
+          versionCode: 4,
+          versionName: '1.0.3',
+          packageName: 'com.ruyne.kaogong',
+          installPermission: 'granted',
+          state: 'downloading',
+          activeOperationId: 'op_current_progress',
+          lastTerminalEvent: {
+            type: 'install_cancelled',
+            operationId: 'op_previous',
+          },
+        }),
+    };
+
+    try {
+      const state = getNativeInstallState();
+      expect(state).not.toBeNull();
+      expect(state?.phase).toBe('downloading');
+      expect(state?.activeOperationId).toBe('op_current_progress');
+    } finally {
+      if (hadWindow) {
+        (globalThis as any).window = originalWindow;
+      } else {
+        delete (globalThis as any).window;
+      }
+    }
+  });
+
+  it('A08: onNativeInstallEvent delivers install_failed with operationId and resultCode', () => {
+    const hadWindow = 'window' in globalThis;
+    const originalWindow = (globalThis as any).window;
+    if (!hadWindow) {
+      (globalThis as any).window = {};
+    }
+
+    const received: NativeUpdateEvent[] = [];
+    const unsubscribe = onNativeInstallEvent((evt) => {
+      received.push(evt);
+    });
+
+    try {
+      expect(typeof (globalThis as any).window.__kaogongAndroidEvent).toBe('function');
+      (globalThis as any).window.__kaogongAndroidEvent(
+        JSON.stringify({
+          type: 'install_failed',
+          code: 'install_failed_result',
+          resultCode: 1,
+          operationId: 'op_fail_event',
+          message: '系统安装失败（返回码: 1）',
+        }),
+      );
+
+      expect(received.length).toBe(1);
+      expect(received[0].type).toBe('install_failed');
+      expect(received[0].code).toBe('install_failed_result');
+      expect(received[0].resultCode).toBe(1);
+      expect(received[0].operationId).toBe('op_fail_event');
+    } finally {
+      unsubscribe();
+      if (hadWindow) {
+        (globalThis as any).window = originalWindow;
+      } else {
+        delete (globalThis as any).window;
+      }
+    }
   });
 });

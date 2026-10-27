@@ -14,6 +14,7 @@ import {
 import {
   checkAppUpdate,
   getNativeBridgeInfo,
+  getNativeInstallState,
   startNativeApkInstall,
   onNativeInstallEvent,
   cancelNativeApkInstall,
@@ -76,8 +77,19 @@ export const DownloadApkModal: React.FC<{
     if (!isOpen) return;
     setShaCopied(false);
     setUrlCopied(false);
-    setInstallPhase('idle');
-    setInstallMessage('');
+    const initialNative = getNativeInstallState();
+    if (initialNative) {
+      const phase = initialNative.phase === 'permission'
+        ? 'idle'
+        : initialNative.phase === 'install_ready'
+          ? 'verifying'
+          : initialNative.phase;
+      setInstallPhase(phase);
+      setInstallMessage(initialNative.message);
+    } else {
+      setInstallPhase('idle');
+      setInstallMessage('');
+    }
     setProgress(null);
     void runCheck();
   }, [isOpen, runCheck]);
@@ -117,9 +129,13 @@ export const DownloadApkModal: React.FC<{
           break;
         case 'download_failed':
         case 'verification_failed':
+        case 'install_failed':
         case 'bridge_error':
           setInstallPhase('error');
-          setInstallMessage(event.message || '更新失败，请稍后重试');
+          setInstallMessage(
+            event.message
+              || (event.errorCode || event.code ? `更新失败（${event.errorCode || event.code}）` : '更新失败，请稍后重试'),
+          );
           break;
         case 'cancelled':
         case 'install_cancelled':

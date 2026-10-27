@@ -132,6 +132,7 @@ public class MainActivity extends Activity {
     private File pendingVerifiedApk = null;
     private String pendingDownloadFilename = null;
     private boolean resumeInstallAfterPermission = false;
+    private volatile JSONObject lastTerminalEvent = null;
 
     // 已安装应用自身签名证书 SHA-256 缓存（小写十六进制）
     private String selfCertSha256 = null;
@@ -566,6 +567,13 @@ public class MainActivity extends Activity {
                 out.put("officialHost", getOfficialHost());
                 out.put("installPermission", describeInstallPermission());
                 out.put("state", describeState(nativeUpdateState));
+                String activeOpId = pendingInstallRequest != null ? pendingInstallRequest.optString("operationId", "") : "";
+                out.put("activeOperationId", activeOpId);
+                if (lastTerminalEvent != null) {
+                    out.put("lastTerminalEvent", lastTerminalEvent);
+                } else {
+                    out.put("lastTerminalEvent", JSONObject.NULL);
+                }
                 return out.toString();
             } catch (Exception e) {
                 Log.e(TAG, "getAppInfo failed", e);
@@ -598,6 +606,12 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 return "{\"available\":false,\"granted\":false,\"reason\":\"internal_error\"}";
             }
+        }
+
+        @JavascriptInterface
+        public String getLastTerminalEvent() {
+            if (!cachedPageTrusted || lastTerminalEvent == null) return "";
+            return lastTerminalEvent.toString();
         }
 
         /** 打开“安装未知应用”授权页；授权返回后自动续跑 */
@@ -762,6 +776,7 @@ public class MainActivity extends Activity {
             if (normalized == null) return;
 
             pendingInstallRequest = normalized;
+            lastTerminalEvent = null;
 
             // 3) Android 8+ 安装未知应用权限检查
             if (!hasInstallPermission()) {
@@ -781,30 +796,31 @@ public class MainActivity extends Activity {
 
     /** 返回归一化后的请求；校验失败时发出 bridge 事件并返回 null。 */
     private JSONObject normalizeInstallRequest(JSONObject req) {
+        String operationId = req != null ? req.optString("operationId", "") : "";
         try {
             if (req == null) {
-                emitBridgeError("invalid_request", "安装请求为空");
+                emitBridgeError("invalid_request", "安装请求为空", operationId);
                 return null;
             }
             String rawUrl = req.optString("url", "");
             String fullUrl = resolveAndValidateDownloadUrl(rawUrl);
             if (fullUrl == null) {
                 emitBridgeError("untrusted_download_url",
-                        "安全拦截：安装包地址不是官方受信 HTTPS 来源，已拒绝下载");
+                        "安全拦截：安装包地址不是官方受信 HTTPS 来源，已拒绝下载", operationId);
                 return null;
             }
 
             String sha256 = req.optString("sha256", "").trim();
             if (!sha256.matches("^[a-fA-F0-9]{64}$")) {
                 emitBridgeError("invalid_sha256",
-                        "安全拦截：缺少合法的 64 位 SHA-256 完整性指纹，已拒绝下载");
+                        "安全拦截：缺少合法的 64 位 SHA-256 完整性指纹，已拒绝下载", operationId);
                 return null;
             }
 
             String expectedPackage = req.optString("packageName", getPackageName());
             if (!getPackageName().equals(expectedPackage)) {
                 emitBridgeError("package_mismatch",
-                        "安全拦截：安装包目标包名与当前应用不一致，已拒绝下载");
+                        "安全拦截：安装包目标包名与当前应用不一致，已拒绝下载", operationId);
                 return null;
             }
 
@@ -812,7 +828,7 @@ public class MainActivity extends Activity {
             int declaredCode = req.optInt("versionCode", -1);
             if (declaredCode != -1 && declaredCode <= installedCode) {
                 emitBridgeError("version_not_incremented",
-                        "安全拦截：云端安装包 versionCode(" + declaredCode + ") 未高于当前安装版本(" + installedCode + ")");
+                        "安全拦截：云端安装包 versionCode(" + declaredCode + ") 未高于当前安装版本(" + installedCode + ")", operationId);
                 return null;
             }
 
@@ -822,12 +838,14 @@ public class MainActivity extends Activity {
                 String selfCert = getSelfCertSha256();
                 if (declaredCert == null || selfCert == null || !declaredCert.equalsIgnoreCase(selfCert)) {
                     emitBridgeError("cert_mismatch",
-                            "安全拦截：云端声明的签名证书与当前已安装应用证书不一致，已拒绝下载");
+                            "安全拦截：云端声明的签名证书与当前已安装应用证书不一致，已拒绝下载", operationId);
                     return null;
                 }
             }
 
-            String operationId = req.optString("operationId", "op_" + System.currentTimeMillis());
+            if (operationId.isEmpty()) {
+                operationId = "op_" + System.currentTimeMillis();
+            }
             JSONObject out = new JSONObject();
             out.put("operationId", operationId);
             out.put("url", fullUrl);
@@ -841,7 +859,7 @@ public class MainActivity extends Activity {
             return out;
         } catch (Exception e) {
             Log.e(TAG, "normalizeInstallRequest failed", e);
-            emitBridgeError("invalid_request", "安装请求校验异常：" + e.getMessage());
+            emitBridgeError("invalid_request", "安装请求校验异常：" + e.getMessage(), operationId);
             return null;
         }
     }
@@ -1048,6 +1066,9 @@ public class MainActivity extends Activity {
                 evt.put("reasonCode", reason);
                 evt.put("reason", mapDownloadFailureReason(reason));
                 evt.put("retryable", true);
+                if (pendingInstallRequest != null) {
+                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                }
                 evt.put("message", "安装包下载失败：" + mapDownloadFailureReason(reason));
             } catch (Exception ignored) {
             }
@@ -1064,8 +1085,10 @@ public class MainActivity extends Activity {
         File apkFile = resolveDownloadedApk(localUri);
         if (apkFile == null || !apkFile.exists() || apkFile.length() <= 0) {
             nativeUpdateState = STATE_FAILED;
-            emitBridgeError("downloaded_file_missing", "下载完成但未找到安装包文件，请重试");
+            String opId = pendingInstallRequest != null ? pendingInstallRequest.optString("operationId", "") : "";
+            emitBridgeError("downloaded_file_missing", "下载完成但未找到安装包文件，请重试", opId);
             deleteUpdateArtifacts();
+            pendingInstallRequest = null;
             return;
         }
 
@@ -1073,6 +1096,9 @@ public class MainActivity extends Activity {
         JSONObject evt = new JSONObject();
         try {
             evt.put("type", "verification_started");
+            if (pendingInstallRequest != null) {
+                evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+            }
             evt.put("message", "下载完成，正在校验安装包完整性、包名、版本号与签名证书");
         } catch (Exception ignored) {
         }
@@ -1458,6 +1484,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+        String opId = pendingInstallRequest != null ? pendingInstallRequest.optString("operationId", "") : "";
         stopProgressPolling();
         unregisterDownloadReceiver();
         activeDownloadId = -1L;
@@ -1468,6 +1495,9 @@ public class MainActivity extends Activity {
         JSONObject evt = new JSONObject();
         try {
             evt.put("type", "cancelled");
+            if (!opId.isEmpty()) {
+                evt.put("operationId", opId);
+            }
             evt.put("message", "已取消更新下载");
         } catch (Exception ignored) {
         }
@@ -1680,19 +1710,48 @@ public class MainActivity extends Activity {
     }
 
     private void emitBridgeError(String code, String message) {
+        String opId = pendingInstallRequest != null ? pendingInstallRequest.optString("operationId", "") : "";
+        emitBridgeError(code, message, opId);
+    }
+
+    private void emitBridgeError(String code, String message, String operationId) {
         JSONObject evt = new JSONObject();
         try {
             evt.put("type", "bridge_error");
             evt.put("errorCode", code);
             evt.put("message", message);
+            if (operationId != null && !operationId.isEmpty()) {
+                evt.put("operationId", operationId);
+            }
         } catch (Exception ignored) {
         }
         emitBridgeEvent(evt);
         toast(message);
     }
 
+    private static boolean isTerminalEventType(String type) {
+        if (type == null) return false;
+        switch (type) {
+            case "installed":
+            case "install_cancelled":
+            case "install_failed":
+            case "cancelled":
+            case "download_failed":
+            case "verification_failed":
+            case "install_permission_denied":
+            case "bridge_error":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private void emitBridgeEvent(final JSONObject event) {
         if (event == null || destroyed) return;
+        String type = event.optString("type", "");
+        if (isTerminalEventType(type)) {
+            lastTerminalEvent = event;
+        }
         final String payload = event.toString();
         Runnable deliver = new Runnable() {
             @Override
@@ -1771,6 +1830,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                 }
                 emitBridgeEvent(evt);
+                pendingInstallRequest = null;
             }
             return;
         }
@@ -1814,6 +1874,7 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {
                     }
                     emitBridgeEvent(evt);
+                    pendingInstallRequest = null;
                 }
             }
         }
@@ -1866,19 +1927,24 @@ public class MainActivity extends Activity {
 
     private void handleInstallActivityResult(int resultCode, Intent data) {
         Log.i(TAG, "install activity result: resultCode=" + resultCode);
-        int targetVersionCode = -1;
-        if (pendingInstallRequest != null) {
-            targetVersionCode = pendingInstallRequest.optInt("versionCode", -1);
+        if (pendingInstallRequest == null) {
+            Log.i(TAG, "ignoring install activity result: no pending install request or already cancelled");
+            return;
         }
+
+        String operationId = pendingInstallRequest.optString("operationId", "");
+        int targetVersionCode = pendingInstallRequest.optInt("versionCode", -1);
         int currentCode = getInstalledVersionCode();
-        if (resultCode == Activity.RESULT_OK || (targetVersionCode > 0 && currentCode >= targetVersionCode)) {
+
+        // 只有实际安装版本达到目标 (currentCode >= targetVersionCode)，才能声明 installed
+        if (targetVersionCode > 0 && currentCode >= targetVersionCode) {
             nativeUpdateState = STATE_INSTALLED;
             JSONObject evt = new JSONObject();
             try {
                 evt.put("type", "installed");
                 evt.put("versionCode", currentCode);
-                if (pendingInstallRequest != null) {
-                    evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
+                if (!operationId.isEmpty()) {
+                    evt.put("operationId", operationId);
                 }
                 evt.put("message", "应用已成功安装更新");
             } catch (Exception ignored) {
@@ -1887,53 +1953,53 @@ public class MainActivity extends Activity {
             deleteUpdateArtifacts();
             pendingInstallRequest = null;
         } else if (resultCode == Activity.RESULT_CANCELED) {
-            if (targetVersionCode > 0 && currentCode >= targetVersionCode) {
-                nativeUpdateState = STATE_INSTALLED;
-                JSONObject evt = new JSONObject();
-                try {
-                    evt.put("type", "installed");
-                    evt.put("versionCode", currentCode);
-                    if (pendingInstallRequest != null) {
-                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
-                    }
-                    evt.put("message", "应用已成功安装更新");
-                } catch (Exception ignored) {
+            nativeUpdateState = STATE_IDLE;
+            JSONObject evt = new JSONObject();
+            try {
+                evt.put("type", "install_cancelled");
+                evt.put("resultCode", resultCode);
+                if (!operationId.isEmpty()) {
+                    evt.put("operationId", operationId);
                 }
-                emitBridgeEvent(evt);
-                deleteUpdateArtifacts();
-                pendingInstallRequest = null;
-            } else {
-                nativeUpdateState = STATE_IDLE;
-                JSONObject evt = new JSONObject();
-                try {
-                    evt.put("type", "install_cancelled");
-                    if (pendingInstallRequest != null) {
-                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
-                    }
-                    evt.put("message", "用户已取消安装或系统安装未完成");
-                } catch (Exception ignored) {
-                }
-                emitBridgeEvent(evt);
+                evt.put("message", "用户已取消安装或系统安装未完成");
+            } catch (Exception ignored) {
             }
+            emitBridgeEvent(evt);
+            pendingInstallRequest = null;
+        } else if (resultCode == Activity.RESULT_OK) {
+            // resultCode 为 RESULT_OK 但实际版本未达到目标，作为安装未完成/失败处理
+            nativeUpdateState = STATE_IDLE;
+            JSONObject evt = new JSONObject();
+            try {
+                evt.put("type", "install_failed");
+                evt.put("code", "install_failed_result");
+                evt.put("resultCode", resultCode);
+                if (!operationId.isEmpty()) {
+                    evt.put("operationId", operationId);
+                }
+                evt.put("retryable", true);
+                evt.put("message", "系统安装返回成功但版本未更新至目标版本(" + targetVersionCode + ")");
+            } catch (Exception ignored) {
+            }
+            emitBridgeEvent(evt);
+            pendingInstallRequest = null;
         } else {
-            if (targetVersionCode > 0 && currentCode >= targetVersionCode) {
-                nativeUpdateState = STATE_INSTALLED;
-                JSONObject evt = new JSONObject();
-                try {
-                    evt.put("type", "installed");
-                    evt.put("versionCode", currentCode);
-                    if (pendingInstallRequest != null) {
-                        evt.put("operationId", pendingInstallRequest.optString("operationId", ""));
-                    }
-                    evt.put("message", "应用已成功安装更新");
-                } catch (Exception ignored) {
+            // RESULT_FIRST_USER 或其他非预期返回码，发送明确失败事件并重置为可重试状态
+            nativeUpdateState = STATE_IDLE;
+            JSONObject evt = new JSONObject();
+            try {
+                evt.put("type", "install_failed");
+                evt.put("code", "install_failed_result");
+                evt.put("resultCode", resultCode);
+                if (!operationId.isEmpty()) {
+                    evt.put("operationId", operationId);
                 }
-                emitBridgeEvent(evt);
-                deleteUpdateArtifacts();
-                pendingInstallRequest = null;
-            } else {
-                nativeUpdateState = STATE_IDLE;
+                evt.put("retryable", true);
+                evt.put("message", "系统安装失败（返回码: " + resultCode + "）");
+            } catch (Exception ignored) {
             }
+            emitBridgeEvent(evt);
+            pendingInstallRequest = null;
         }
     }
 
@@ -1956,6 +2022,7 @@ public class MainActivity extends Activity {
             emitBridgeEvent(evt);
             emitBridgeError("install_permission_denied",
                     "未授予“安装未知应用”权限，无法完成覆盖更新。可稍后在系统设置中开启后重试");
+            pendingInstallRequest = null;
             return;
         }
         if (resumeInstallAfterPermission && pendingInstallRequest != null) {
