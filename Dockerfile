@@ -8,7 +8,7 @@ FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install --ignore-scripts
 
 COPY . .
 RUN npm run build
@@ -22,15 +22,16 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/app/data
 
-# Install compilation toolchain for native SQLite/Argon2 addon build, then strip tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Configure reliable debian mirror and install compilation toolchain for native SQLite/Argon2 addon build, then strip tools
+RUN (sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list || true) && \
+    apt-get update -o Acquire::Retries=3 && apt-get install -y -o Acquire::Retries=3 --no-install-recommends \
     python3 \
     make \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Strip build tools to keep image clean and secure (keep python3 for dataLock helper)
 RUN apt-get purge -y --auto-remove make g++ && \
