@@ -236,3 +236,9 @@ export interface OperationScope {
   signal?: AbortSignal;
 }
 
+export interface OperationContext {
+  scope: OperationScope;
+  isCurrent: () => boolean;
+  abortSignal?: AbortSignal;
+}
+

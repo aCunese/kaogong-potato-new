@@ -1,11 +1,11 @@
 {
-  "runId": "run-20261026-184422-187db2",
-  "startedAt": "2026-10-26T18:44:22.676Z",
-  "finishedAt": "2026-10-26T18:44:24.522Z",
-  "durationMs": 1846,
-  "gitHead": "be281f93fd177be936e4a076b870fdb833510559",
-  "gitBranch": "codex/prod-release-m1-m4",
-  "gitWorktreeSha256": "8479c520e037cb9ff9706826b4dba1d5cac4ea451f17d31b20b1884f40f9d005",
+  "runId": "run-20261027-015642-fd0088",
+  "startedAt": "2026-10-27T01:56:42.314Z",
+  "finishedAt": "2026-10-27T01:56:44.337Z",
+  "durationMs": 2023,
+  "gitHead": "2250c9f2d28872c1cc427064e350ce4d7874bb94",
+  "gitBranch": "codex/joint-release-hardening",
+  "gitWorktreeSha256": "c17fc91bb4c7394a367f175bd7cdfdb81d2e04c6e4a5e52bb38c896b9ad996fa",
   "total": 12,
   "passed": 12,
   "failed": 0,
@@ -14,7 +14,7 @@
       "id": "V01",
       "name": "V01: 账号锁可被平行异步调用绕过；fallback 还存在嵌套死锁",
       "passed": true,
-      "durationMs": 190,
+      "durationMs": 206,
       "detail": {
         "bypassResult": {
           "hasWebLocks": true,
@@ -38,7 +38,7 @@
       "id": "V02",
       "name": "V02: 自动重试在退避期转成假冲突；已过期上传租约永远不能重领",
       "passed": true,
-      "durationMs": 119,
+      "durationMs": 131,
       "detail": {
         "conflictResult": {
           "firstCode": "NETWORK",
@@ -59,7 +59,7 @@
       "id": "V03",
       "name": "V03: 初始化选择和重连会话缺少 epoch 守卫，迟到响应仍污染新账号或复活已退出身份",
       "passed": true,
-      "durationMs": 418,
+      "durationMs": 425,
       "detail": {
         "initChoiceResult": {
           "before": {
@@ -98,7 +98,7 @@
       "id": "V04",
       "name": "V04: 强制裁决第二次 GET 偷换审核基线，仍能覆盖用户未审阅的云端内容",
       "passed": true,
-      "durationMs": 126,
+      "durationMs": 159,
       "detail": {
         "forceUploadResult": {
           "status": "conflict",
@@ -117,7 +117,7 @@
       "id": "V05",
       "name": "V05: 媒体映射事务中等待异步 hash，快照/outbox/媒体可能部分提交",
       "passed": true,
-      "durationMs": 209,
+      "durationMs": 222,
       "detail": {
         "mediaResult": {
           "result": {
@@ -135,16 +135,16 @@
       "id": "V06",
       "name": "V06: Docker最终镜像漏复制 release.json，部署后版本接口退化为unknown，健康检查仍绿",
       "passed": true,
-      "durationMs": 175,
+      "durationMs": 217,
       "detail": {
         "hasCopyRelease": true,
         "runtimeHealthyWithMissingConfig": false,
         "healthData": {
           "ok": true,
           "status": "healthy",
-          "generationId": "gen_1793040264008_1f0538d493a538af",
-          "time": "2026-10-26T18:44:24.008Z",
-          "uptime": 0.127592625
+          "generationId": "gen_1793066203797_a9c6e51a5dfe50bc",
+          "time": "2026-10-27T01:56:43.797Z",
+          "uptime": 0.166622208
         },
         "versionData": {
           "version": "1.0.3",
@@ -160,7 +160,7 @@
           "apkReleased": false,
           "deployedAt": "2026-10-27T00:00:00Z",
           "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
-          "servedAt": "2026-10-26T18:44:24.013Z"
+          "servedAt": "2026-10-27T01:56:43.802Z"
         }
       }
     },
@@ -168,7 +168,7 @@
       "id": "V07",
       "name": "V07: 上传配额检查发生在落盘之后，拒绝请求仍能生成不记账的孤儿附件",
       "passed": true,
-      "durationMs": 176,
+      "durationMs": 186,
       "detail": {
         "firstStatus": 200,
         "rejects": [
@@ -183,7 +183,7 @@
       "id": "V08",
       "name": "V08: 历史恢复不检查已删除的媒体，恢复成功后同步被 INVALID_MEDIA_REF 堵塞",
       "passed": true,
-      "durationMs": 178,
+      "durationMs": 191,
       "detail": {
         "restoreStatus": 200,
         "laterSyncStatus": 200
@@ -193,11 +193,11 @@
       "id": "V09",
       "name": "V09: 游客 StudyRecord 的 sourceId 没有随自定义题本/课程重映射",
       "passed": true,
-      "durationMs": 0,
+      "durationMs": 1,
       "detail": {
-        "mergedBookId": "gb_mvplvmj0_p1f9",
-        "planSourceId": "gb_mvplvmj0_p1f9",
-        "recordSourceId": "gb_mvplvmj0_p1f9",
+        "mergedBookId": "gb_mvq1bltf_a44j",
+        "planSourceId": "gb_mvq1bltf_a44j",
+        "recordSourceId": "gb_mvq1bltf_a44j",
         "recordHasExistingBook": true
       }
     },
@@ -205,21 +205,21 @@
       "id": "V10",
       "name": "V10: SW先自动接管，点击更新时却只等未来controllerchange，稳定误报12秒更新失败",
       "passed": true,
-      "durationMs": 87,
+      "durationMs": 92,
       "detail": {
         "result": {
           "ok": true,
           "controllerChanged": true,
           "message": "新版本已激活，刷新页面即可完成更新"
         },
-        "applyElapsedMs": 1
+        "applyElapsedMs": 2
       }
     },
     {
       "id": "V11",
       "name": "V11: 版本节流缓存未绑定本地build/安装身份，升级后仍提示同一个更新",
       "passed": true,
-      "durationMs": 9,
+      "durationMs": 10,
       "detail": {
         "currentBuild": "20261027.02",
         "status": "latest",
@@ -232,7 +232,7 @@
       "id": "V12",
       "name": "V12: Android安装流程有两个可达状态机缺口：首次授权不续跑、取消安装后一直busy",
       "passed": true,
-      "durationMs": 3,
+      "durationMs": 4,
       "detail": {
         "firstInstallDenied": {
           "ok": false,

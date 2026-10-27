@@ -1,4 +1,4 @@
-import { AppState, MediaRecord } from '../types';
+import { AppState, MediaRecord, OperationScope, OperationContext } from '../types';
 import {
   applyMediaRefMappings,
   createMediaMigrationOutbox,
@@ -28,6 +28,7 @@ export interface MediaFlushFailure {
   ok: false;
   code:
     | 'SESSION_EXPIRED'
+    | 'AUTH_EPOCH_CHANGED'
     | 'CSRF_INVALID'
     | 'QUOTA_EXCEEDED'
     | 'UPLOAD_FAILED'
@@ -265,6 +266,19 @@ async function uploadOneMedia(csrfToken: string, ref: string, userId?: string): 
 export interface FlushMediaOptions {
   /** Called right before a mutating transaction so callers can verify auth epoch. */
   guard?: () => boolean;
+  scope?: OperationScope;
+  context?: OperationContext;
+  signal?: AbortSignal;
+}
+
+function isMediaSyncCancelled(options?: FlushMediaOptions): boolean {
+  if (!options) return false;
+  if (options.guard && !options.guard()) return true;
+  if (options.context && !options.context.isCurrent()) return true;
+  if (options.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return true;
+  if (options.scope?.signal?.aborted) return true;
+  if (options.signal?.aborted) return true;
+  return false;
 }
 
 /**
@@ -276,11 +290,17 @@ export async function flushLegacyMedia(
   csrfToken: string,
   options: FlushMediaOptions = {}
 ): Promise<MediaFlushResult> {
+  if (isMediaSyncCancelled(options)) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
+  }
   if (!csrfToken) {
     return { ok: false, code: 'CSRF_INVALID', message: '缺少安全令牌，正在重新验证会话。', retryable: true };
   }
 
   const snapshot = await loadSnapshot(userId);
+  if (isMediaSyncCancelled(options)) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
+  }
   if (!snapshot) {
     return { ok: true, uploaded: 0, alreadyRemote: 0, changed: false };
   }
@@ -298,8 +318,8 @@ export async function flushLegacyMedia(
   const cache = new Map<string, UploadSuccess>();
 
   for (const legacyRef of refs) {
-    if (options.guard && !options.guard()) {
-      return { ok: false, code: 'SESSION_EXPIRED', message: '账号状态已变化，已暂停附件上传。', retryable: true };
+    if (isMediaSyncCancelled(options)) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
     }
     const cached = cache.get(legacyRef.ref);
     if (cached) {
@@ -308,6 +328,9 @@ export async function flushLegacyMedia(
     }
 
     const outcome = await uploadOneMedia(csrfToken, legacyRef.ref, userId);
+    if (isMediaSyncCancelled(options)) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
+    }
     if (!outcome.ok) {
       return outcome.failure;
     }
@@ -335,11 +358,22 @@ export async function flushLegacyMedia(
     }
   }
 
-  if (options.guard && !options.guard()) {
-    return { ok: false, code: 'SESSION_EXPIRED', message: '账号状态已变化，已暂停附件上传。', retryable: true };
+  if (isMediaSyncCancelled(options)) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
   }
 
-  await applyMediaRefMappings(userId, replacements, mediaRecords);
+  try {
+    await applyMediaRefMappings(userId, replacements, mediaRecords, options);
+  } catch (err) {
+    if (isMediaSyncCancelled(options) || (err as any)?.code === 'AUTH_EPOCH_CHANGED') {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
+    }
+    throw err;
+  }
+
+  if (isMediaSyncCancelled(options)) {
+    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已终止附件上传。', retryable: false };
+  }
 
   // Ensure the migrated content will actually be pushed to the cloud.
   const unresolved = await getUnresolvedLocalChanges(userId);

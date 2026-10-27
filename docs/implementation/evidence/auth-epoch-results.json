@@ -1,8 +1,8 @@
 {
-  "runId": "run-20261026-184427-5676dc",
-  "checkedAt": "2026-10-26T18:44:45.196Z",
-  "baseUrl": "http://127.0.0.1:57975",
-  "dataDir": "/tmp/run-20261026-184427-5676dc-vl4zar/data",
+  "runId": "run-20261027-015620-bbe666",
+  "checkedAt": "2026-10-27T01:56:37.828Z",
+  "baseUrl": "http://127.0.0.1:60466",
+  "dataDir": "/tmp/run-20261027-015620-bbe666-v3bqdt/data",
   "webBuild": {
     "version": "1.0.3",
     "build": "20261027.02",
@@ -17,10 +17,10 @@
     "apkReleased": false,
     "deployedAt": "2026-10-27T00:00:00Z",
     "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复",
-    "servedAt": "2026-10-26T18:44:45.198Z",
-    "nonce": "run-20261026-184427-5676dc"
+    "servedAt": "2026-10-27T01:56:37.830Z",
+    "nonce": "run-20261027-015620-bbe666"
   },
-  "gitHead": "be281f93fd177be936e4a076b870fdb833510559",
+  "gitHead": "2250c9f2d28872c1cc427064e350ce4d7874bb94",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793040283565_457054e52e05"
+        "image": "/api/media/media_1793066196210_f8a00e8c5fcb"
       }
     },
     {

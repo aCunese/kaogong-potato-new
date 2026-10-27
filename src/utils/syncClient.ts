@@ -1,4 +1,4 @@
-import { AppState, OutboxRecord, SnapshotRecord, SyncConflictRecord, LockScope, OperationScope } from '../types';
+import { AppState, OutboxRecord, SnapshotRecord, SyncConflictRecord, LockScope, OperationScope, OperationContext } from '../types';
 import {
   getUnresolvedLocalChanges,
   claimOutboxTask,
@@ -63,11 +63,12 @@ export interface ServerSnapshot {
 }
 
 /** Fetch the raw cloud workspace snapshot (single source of truth for CAS checks). */
-export async function fetchServerSnapshot(userId?: string): Promise<ServerSnapshot> {
+export async function fetchServerSnapshot(userId?: string, signal?: AbortSignal): Promise<ServerSnapshot> {
   try {
     const res = await fetch('/api/workspace', {
       cache: 'no-store',
       headers: userId ? { 'x-workspace-user': userId } : undefined,
+      signal,
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -176,12 +177,36 @@ function conflictResultFromRecord(record: SyncConflictRecord): SyncResult {
 const LOCAL_STATE_UNRESOLVED_MESSAGE =
   '检测到本机仍有未解决的本地修改或待确认的版本冲突，已暂停自动覆盖。请确认要保留的内容后处理冲突。';
 
+export interface SyncOptions {
+  /** Called after async steps to ensure the same user/auth epoch is still current. */
+  guard?: () => boolean;
+  scope?: OperationScope;
+  context?: OperationContext;
+  signal?: AbortSignal;
+}
+
+export function isSyncCancelled(options?: SyncOptions): boolean {
+  if (!options) return false;
+  if (options.guard && !options.guard()) return true;
+  if (options.context && !options.context.isCurrent()) return true;
+  if (options.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return true;
+  if (options.scope?.signal?.aborted) return true;
+  if (options.signal?.aborted) return true;
+  return false;
+}
+
 /**
  * Pull path (no local unresolved changes): compare CONTENT + revision + generation,
  * then install the server snapshot with a matching sync baseline.
  */
 async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockScope): Promise<SyncResult> {
-  const server = await fetchServerSnapshot(userId);
+  if (isSyncCancelled(options)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+  }
+  const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
+  if (isSyncCancelled(options)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+  }
   if (!server.ok) {
     if (server.code === 'SESSION_ACCOUNT_MISMATCH') {
       return { ok: false, status: 'failed', code: 'SESSION_ACCOUNT_MISMATCH', message: server.message, needsRelogin: true };
@@ -194,7 +219,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
   if (lockScope && lockScope.isExpired()) {
     return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
   }
-  if (options?.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
 
@@ -227,7 +252,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     if (lockScope && lockScope.isExpired()) {
       return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
     }
-    if (options?.guard && !options.guard()) {
+    if (isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     const installed = await installConfirmedServerState(userId, server.state!, {
@@ -235,9 +260,15 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       generationId: server.generationId || server.snapshotGenerationId,
       contentHash: server.contentHash,
       snapshotGenerationId: server.snapshotGenerationId,
-    }, { force: false, guard: options?.guard });
+    }, {
+      force: false,
+      guard: options?.guard,
+      scope: options?.scope,
+      context: options?.context,
+      signal: options?.signal,
+    });
     if (!installed.ok) {
-      if (installed.code === 'AUTH_EPOCH_CHANGED') {
+      if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(options)) {
         return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
       }
       return buildConflictResult(
@@ -246,6 +277,9 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
         'LOCAL_UNRESOLVED',
         '云端代际已轮换，但本机仍有未解决的本地修改，已暂停覆盖，请确认冲突处理。'
       );
+    }
+    if (isSyncCancelled(options)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     return {
       ok: true,
@@ -262,7 +296,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     if (lockScope && lockScope.isExpired()) {
       return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
     }
-    if (options?.guard && !options.guard()) {
+    if (isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     const installed = await installConfirmedServerState(userId, server.state!, {
@@ -270,12 +304,21 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       generationId: server.generationId || server.snapshotGenerationId,
       contentHash: server.contentHash,
       snapshotGenerationId: server.snapshotGenerationId,
-    }, { force: false, guard: options?.guard });
+    }, {
+      force: false,
+      guard: options?.guard,
+      scope: options?.scope,
+      context: options?.context,
+      signal: options?.signal,
+    });
     if (!installed.ok) {
-      if (installed.code === 'AUTH_EPOCH_CHANGED') {
+      if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(options)) {
         return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
       }
       return buildConflictResult(userId, server, 'LOCAL_UNRESOLVED', LOCAL_STATE_UNRESOLVED_MESSAGE);
+    }
+    if (isSyncCancelled(options)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     return {
       ok: true,
@@ -302,7 +345,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     if (lockScope && lockScope.isExpired()) {
       return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
     }
-    if (options?.guard && !options.guard()) {
+    if (isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     await saveSyncBaseline({
@@ -312,6 +355,9 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       contentHash: server.contentHash,
       updatedAt: new Date().toISOString(),
     });
+    if (isSyncCancelled(options)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+    }
     return {
       ok: true,
       status: 'synced',
@@ -356,13 +402,16 @@ async function pushPath(
   if (lockScope && lockScope.isExpired()) {
     return { result: { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' }, remaining: 1 };
   }
-  if (options?.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: 1 };
   }
 
   // 1. Upload any local-only photos/avatar BEFORE pushing the snapshot.
-  const mediaResult = await flushLegacyMedia(userId, csrfToken);
+  const mediaResult = await flushLegacyMedia(userId, csrfToken, options);
   if (!mediaResult.ok) {
+    if (mediaResult.code === 'AUTH_EPOCH_CHANGED') {
+      return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: mediaResult.message }, remaining: 1 };
+    }
     if (mediaResult.code === 'SESSION_EXPIRED') {
       return { result: { ok: false, status: 'failed', code: 'SESSION_EXPIRED', message: mediaResult.message, needsRelogin: true }, remaining: 1 };
     }
@@ -381,7 +430,7 @@ async function pushPath(
     if (lockScope && lockScope.isExpired()) {
       return { result: { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' }, remaining: 1 };
     }
-    if (options?.guard && !options.guard()) {
+    if (isSyncCancelled(options)) {
       return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: 1 };
     }
 
@@ -390,7 +439,7 @@ async function pushPath(
       return { result: conflictResultFromRecord(unresolved.conflict), remaining: unresolved.total };
     }
     if (unresolved.quarantined.length > 0) {
-      const server = await fetchServerSnapshot(userId);
+      const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
       return {
         result: await buildConflictResult(userId, server, 'QUARANTINED_LOCAL_CHANGES', LOCAL_STATE_UNRESOLVED_MESSAGE),
         remaining: unresolved.total,
@@ -452,7 +501,10 @@ async function pushPath(
     const generationId = baseline?.generationId || snapshot.generationId || '';
     if (!generationId) {
       // Unknown generation: fetch the server's current generation before pushing.
-      const server = await fetchServerSnapshot(userId);
+      const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
+      if (isSyncCancelled(options)) {
+        return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
+      }
       if (!server.ok) return { result: failureFromStatus(server.status, server.code, server.message), remaining: flushable.length };
       const conflict = await buildConflictResult(
         userId,
@@ -463,6 +515,10 @@ async function pushPath(
       return { result: conflict, remaining: flushable.length };
     }
 
+    if (isSyncCancelled(options)) {
+      return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
+    }
+
     // Newest task identity + latest local content = compacted push (older tasks superseded).
     const target = flushable[flushable.length - 1];
     const compacted = await compactOutboxForFlush(userId, target.requestId, snapshot.state, confirmedRevision, generationId);
@@ -470,10 +526,19 @@ async function pushPath(
       return { result: { ok: false, status: 'failed', code: 'QUEUE_CHANGED', message: '同步队列已被其他页面更新，正在重试' }, remaining: flushable.length };
     }
 
+    if (isSyncCancelled(options)) {
+      return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
+    }
+
     // Cross-tab exclusive claim: a stale flush from another tab cannot resurrect a task.
     const claimed = await claimOutboxTask(compacted.id, owner);
     if (!claimed) {
       return { result: { ok: false, status: 'failed', code: 'TASK_CLAIMED_BY_OTHER_TAB', message: '另一标签页已接管本次同步' }, remaining: flushable.length };
+    }
+
+    if (isSyncCancelled(options)) {
+      await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
+      return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
     }
 
     let response: Response;
@@ -494,9 +559,16 @@ async function pushPath(
           state: claimed.state,
           reason: claimed.reason || 'sync',
         }),
+        signal: options?.signal || options?.context?.abortSignal || options?.scope?.signal,
       });
-    } catch {
+    } catch (err) {
       await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
+      if (isSyncCancelled(options) || (err as any)?.name === 'AbortError') {
+        return {
+          result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' },
+          remaining: flushable.length,
+        };
+      }
       return {
         result: { ok: false, status: 'failed', code: 'NETWORK', message: '网络通信异常，修改已安全保留在本机，恢复连接后将自动重试' },
         remaining: flushable.length,
@@ -508,7 +580,7 @@ async function pushPath(
         await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
         return { result: { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' }, remaining: flushable.length };
       }
-      if (options?.guard && !options.guard()) {
+      if (isSyncCancelled(options)) {
         await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
         return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
       }
@@ -518,12 +590,22 @@ async function pushPath(
       const confirmedRevisionResult = typeof json.revision === 'number' ? json.revision : claimed.expectedRevision + 1;
       const confirmedGeneration = typeof json.generationId === 'string' && json.generationId ? json.generationId : claimed.generationId;
       const confirmedHash = typeof json.contentHash === 'string' && json.contentHash ? json.contentHash : pushedHash;
+
+      if (isSyncCancelled(options)) {
+        await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
+        return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
+      }
+
       await confirmOutboxPush(userId, claimed.requestId, {
         revision: confirmedRevisionResult,
         generationId: confirmedGeneration,
         contentHash: confirmedHash,
       }, pushedHash, claimed.attemptFence, claimed.id);
       saveActiveGenerationId(userId, confirmedGeneration);
+
+      if (isSyncCancelled(options)) {
+        return { result: { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' }, remaining: flushable.length };
+      }
       if (json.needsInitChoice !== undefined) {
         // R10: surface server-driven empty-library initialization state.
       }
@@ -622,11 +704,6 @@ async function pushPath(
   };
 }
 
-export interface SyncOptions {
-  /** Called after async steps to ensure the same user/auth epoch is still current. */
-  guard?: () => boolean;
-}
-
 /**
  * Normal bidirectional sync:
  * - Persisted conflict / quarantined local changes => conflict (never treated as "no local changes")
@@ -658,7 +735,7 @@ export async function syncWithLockScope(
   if (scope.isExpired()) {
     return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
   }
-  if (options.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
 
@@ -669,17 +746,20 @@ export async function syncWithLockScope(
   }
   const unresolved = await getUnresolvedLocalChanges(userId);
   if (unresolved.quarantined.length > 0) {
-    const server = await fetchServerSnapshot(userId);
+    const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
+    if (isSyncCancelled(options)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+    }
     const result = await buildConflictResult(userId, server, 'QUARANTINED_LOCAL_CHANGES', LOCAL_STATE_UNRESOLVED_MESSAGE);
     return { ...result, pendingCount: unresolved.total };
   }
-  if (options.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
 
   if (unresolved.flushable.length > 0) {
     const { result } = await pushPath(userId, csrfToken, options, scope);
-    if (options.guard && !options.guard()) {
+    if (isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
     }
     const remaining = await getUnresolvedLocalChanges(userId);
@@ -720,7 +800,7 @@ export async function syncWithLockScope(
   }
 
   const result = await pullPath(userId, options, scope);
-  if (options.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
   const remaining = await getUnresolvedLocalChanges(userId);
@@ -756,7 +836,7 @@ export async function initialHydrateInternal(
   if (scope.isExpired()) {
     return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
   }
-  if (options.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
   }
 
@@ -769,7 +849,10 @@ export async function initialHydrateInternal(
     return { ...result, localState: latest.state, localRevision: latest.revision };
   }
 
-  const server = await fetchServerSnapshot(userId);
+  const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
+  if (isSyncCancelled(options)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
+  }
   if (!server.ok) {
     if (server.status === 401 || server.code === 'SESSION_EXPIRED') {
       return { ok: false, status: 'failed', code: 'SESSION_EXPIRED', message: '登录状态已失效，请重新登录', needsRelogin: true };
@@ -802,7 +885,7 @@ export async function initialHydrateInternal(
   if (scope.isExpired()) {
     return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
   }
-  if (options.guard && !options.guard()) {
+  if (isSyncCancelled(options)) {
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
   }
 
@@ -827,15 +910,28 @@ export async function initialHydrateInternal(
     generationId: server.generationId || server.snapshotGenerationId,
     contentHash: server.contentHash,
     snapshotGenerationId: server.snapshotGenerationId,
-  }, { force: false, saveRecovery: true, guard: options.guard });
+  }, {
+    force: false,
+    saveRecovery: true,
+    guard: options?.guard,
+    scope: options?.scope,
+    context: options?.context,
+    signal: options?.signal,
+  });
   if (!installed.ok) {
-    if (installed.code === 'AUTH_EPOCH_CHANGED') {
+    if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
     }
     return { ok: false, status: 'conflict', code: installed.code, message: installed.message || '本机存在未同步修改，无法直接载入云端数据' };
   }
+  if (isSyncCancelled(options)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
+  }
   saveActiveGenerationId(userId, server.generationId || server.snapshotGenerationId);
   const latest = await loadLatestState(userId);
+  if (isSyncCancelled(options)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消初始化' };
+  }
   return {
     ok: true,
     status: 'synced',
@@ -881,16 +977,38 @@ export async function forceUploadLocal(
   csrfToken: string,
   reviewed?: { serverRevision?: number; serverGenerationId?: string; serverContentHash?: string },
   expectedLocalRevision?: number,
-  lockScope?: LockScope
+  lockScope?: LockScope,
+  options?: SyncOptions
 ): Promise<SyncResult> {
+  let effectiveLockScope = lockScope;
+  let effectiveOptions = options;
+  if (lockScope && typeof (lockScope as any).isExpired !== 'function' && typeof (lockScope as any).extend !== 'function') {
+    effectiveOptions = lockScope as unknown as SyncOptions;
+    effectiveLockScope = undefined;
+  }
+
+  if (isSyncCancelled(effectiveOptions)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+  }
+
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { ok: false, status: 'offline', message: '当前离线，无法上传覆盖云端' };
   }
 
   const run = async (scope: LockScope): Promise<SyncResult> => {
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     // 1. Verify expectedLocalRevision: if local snapshot revision does not match expectedLocalRevision, abort with LOCAL_CHANGED
     const local = await loadLatestState(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const snapshot = await loadSnapshot(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const currentLocalRevision = snapshot?.revision ?? local.revision;
     if (expectedLocalRevision !== undefined && currentLocalRevision !== expectedLocalRevision) {
       return {
@@ -903,6 +1021,9 @@ export async function forceUploadLocal(
 
     // 2. Re-verify reviewed server state
     const refreshed = await verifyReviewedServerState(reviewed, userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     if (refreshed && (!refreshed.ok || refreshed.hasCloudData === false || refreshed.revision !== reviewed?.serverRevision || refreshed.generationId !== reviewed?.serverGenerationId || (reviewed?.serverContentHash && refreshed.contentHash !== reviewed.serverContentHash))) {
       return buildConflictResult(
         userId,
@@ -913,7 +1034,10 @@ export async function forceUploadLocal(
     }
 
     // 3. MUST NOT perform a second GET that silently replaces server.revision with an unreviewed new revision!
-    const server = await fetchServerSnapshot(userId);
+    const server = await fetchServerSnapshot(userId, effectiveOptions?.signal || effectiveOptions?.context?.abortSignal || effectiveOptions?.scope?.signal);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     if (!server.ok) return failureFromStatus(server.status, server.code, server.message);
     if (!server.hasCloudData) {
       return { ok: false, status: 'failed', code: 'CLOUD_EMPTY', message: '云端暂无工作区，无法覆盖' };
@@ -963,18 +1087,37 @@ export async function forceUploadLocal(
       reason: 'force_local_override',
     };
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     try {
-      await atomicResolveConflict(userId, forcedSnapshot, localVersion, newOutboxItem);
+      await atomicResolveConflict(userId, forcedSnapshot, localVersion, newOutboxItem, {
+        guard: effectiveOptions?.guard,
+        scope: effectiveOptions?.scope,
+        context: effectiveOptions?.context,
+        signal: effectiveOptions?.signal,
+      });
     } catch (err) {
+      if ((err as any)?.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(effectiveOptions)) {
+        return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+      }
       return { ok: false, status: 'failed', code: 'LOCAL_CHANGED', message: err instanceof Error ? err.message : '本机数据已变化，请重新确认' };
     }
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     // Push immediately under the same lock; the push path re-reads queue state.
-    const { result } = await pushPath(userId, csrfToken, undefined, scope);
+    const { result } = await pushPath(userId, csrfToken, effectiveOptions, scope);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     return result;
   };
 
-  return withUserLock(userId, run, lockScope).finally(async () => {
+  return withUserLock(userId, run, effectiveLockScope).finally(async () => {
     void userId;
   });
 }
@@ -995,18 +1138,41 @@ export async function forcePullRemote(
     serverState?: AppState;
   },
   lockScope?: LockScope,
-  csrfToken?: string
+  csrfToken?: string,
+  options?: SyncOptions
 ): Promise<SyncResult> {
+  let effectiveLockScope = lockScope;
+  let effectiveCsrf = typeof csrfToken === 'string' ? csrfToken : '';
+  let effectiveOptions = options;
+
+  if (lockScope && typeof (lockScope as any).isExpired !== 'function' && typeof (lockScope as any).extend !== 'function') {
+    effectiveOptions = lockScope as unknown as SyncOptions;
+    effectiveLockScope = undefined;
+  } else if (typeof csrfToken !== 'string' && csrfToken !== undefined) {
+    effectiveOptions = csrfToken as unknown as SyncOptions;
+  }
+
+  if (isSyncCancelled(effectiveOptions)) {
+    return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+  }
+
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return { ok: false, status: 'offline', message: '当前离线，无法拉取云端存档' };
   }
 
   const run = async (scope: LockScope): Promise<SyncResult> => {
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     // 1. Verify reviewed cloud identity still matches server. If cloud changed, return conflict.
     const reviewedIdentity = reviewed ?? {
       serverRevision: targetServerRevision,
     };
     const refreshed = await verifyReviewedServerState(reviewedIdentity, userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     if (refreshed) {
       if (!refreshed.ok) return failureFromStatus(refreshed.status, refreshed.code, refreshed.message);
       return buildConflictResult(
@@ -1016,7 +1182,10 @@ export async function forcePullRemote(
         '云端内容在你确认期间已发生变化，已停止覆盖，请重新核对最新云端内容后再选择。'
       );
     }
-    const server = await fetchServerSnapshot(userId);
+    const server = await fetchServerSnapshot(userId, effectiveOptions?.signal || effectiveOptions?.context?.abortSignal || effectiveOptions?.scope?.signal);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     if (!server.ok) return failureFromStatus(server.status, server.code, server.message);
     if (!server.hasCloudData || !server.state) {
       return { ok: false, status: 'failed', code: 'CLOUD_EMPTY', message: '云端暂无可用工作区数据' };
@@ -1038,7 +1207,13 @@ export async function forcePullRemote(
 
     // 2. Verify local state revision matches expectedLocalRevision. If local has new edits, return LOCAL_CHANGED / re-confirm.
     const local = await loadLatestState(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const snapshot = await loadSnapshot(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const currentLocalRevision = snapshot?.revision ?? local.revision;
     if (expectedLocalRevision !== undefined && currentLocalRevision !== expectedLocalRevision) {
       return {
@@ -1054,6 +1229,10 @@ export async function forcePullRemote(
       await saveDamagedCache(stableStateJson(local.state), 'pre_force_pull_remote_barrier');
     } catch {}
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     const effectiveServerState = reviewed?.serverState ?? server.state ?? targetServerState;
     const effectiveServerRevision = reviewed?.serverRevision ?? server.revision;
     const effectiveGenerationId = reviewed?.serverGenerationId || server.generationId || server.snapshotGenerationId;
@@ -1061,17 +1240,21 @@ export async function forcePullRemote(
     const barrierRequestId = `barrier_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // 4. Send barrier POST to /api/workspace
-    let effectiveCsrf = csrfToken || '';
-    if (!effectiveCsrf && typeof fetch !== 'undefined') {
+    let sendCsrf = effectiveCsrf;
+    if (!sendCsrf && typeof fetch !== 'undefined') {
       try {
         const meRes = await fetch('/api/auth/me', { method: 'GET' });
         if (meRes.ok) {
           const meData = await meRes.json().catch(() => ({}));
           if (meData?.csrfToken) {
-            effectiveCsrf = meData.csrfToken;
+            sendCsrf = meData.csrfToken;
           }
         }
       } catch {}
+    }
+
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
     }
 
     let barrierResponse: Response;
@@ -1080,7 +1263,7 @@ export async function forcePullRemote(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-csrf-token': effectiveCsrf,
+          'x-csrf-token': sendCsrf,
           'x-workspace-user': userId,
         },
         body: JSON.stringify({
@@ -1092,8 +1275,17 @@ export async function forcePullRemote(
           reason: 'keep_remote_barrier',
           schemaVersion: 3,
         }),
+        signal: effectiveOptions?.signal || effectiveOptions?.context?.abortSignal || effectiveOptions?.scope?.signal,
       });
-    } catch {
+    } catch (err) {
+      if (isSyncCancelled(effectiveOptions) || (err as any)?.name === 'AbortError') {
+        return {
+          ok: false,
+          status: 'failed',
+          code: 'AUTH_EPOCH_CHANGED',
+          message: '账号状态已变化，已取消本次操作',
+        };
+      }
       return {
         ok: false,
         status: 'failed',
@@ -1102,10 +1294,17 @@ export async function forcePullRemote(
       };
     }
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     // 5. If barrier POST fails with 409, fail safely with conflict.
     if (!barrierResponse.ok) {
       if (barrierResponse.status === 409) {
-        const freshServer = await fetchServerSnapshot(userId);
+        const freshServer = await fetchServerSnapshot(userId, effectiveOptions?.signal || effectiveOptions?.context?.abortSignal || effectiveOptions?.scope?.signal);
+        if (isSyncCancelled(effectiveOptions)) {
+          return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+        }
         return buildConflictResult(
           userId,
           freshServer,
@@ -1131,9 +1330,18 @@ export async function forcePullRemote(
     if (scope.isExpired()) {
       return { ok: false, status: 'failed', code: 'LOCK_EXPIRED', message: '操作锁已过期' };
     }
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
 
     const recheckLocal = await loadLatestState(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const recheckSnapshot = await loadSnapshot(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
     const recheckLocalRevision = recheckSnapshot?.revision ?? recheckLocal.revision;
     if (expectedLocalRevision !== undefined && recheckLocalRevision !== expectedLocalRevision) {
       return {
@@ -1144,22 +1352,58 @@ export async function forcePullRemote(
       };
     }
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     const installed = await installConfirmedServerState(userId, effectiveServerState, {
       revision: nextRevision,
       generationId: nextGenerationId,
       contentHash: nextContentHash,
       snapshotGenerationId: nextGenerationId,
-    }, { force: true, saveRecovery: false });
+    }, {
+      force: true,
+      saveRecovery: false,
+      guard: effectiveOptions?.guard,
+      scope: effectiveOptions?.scope,
+      context: effectiveOptions?.context,
+      signal: effectiveOptions?.signal,
+    });
 
     if (!installed.ok) {
+      if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(effectiveOptions)) {
+        return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+      }
       return { ok: false, status: 'failed', code: installed.code || 'INSTALL_FAILED', message: installed.message || '采用云端数据失败' };
     }
 
-    await clearOutbox(userId);
-    await clearConflictRecord(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
+    await clearOutbox(userId, {
+      guard: effectiveOptions?.guard,
+      scope: effectiveOptions?.scope,
+      context: effectiveOptions?.context,
+      signal: effectiveOptions?.signal,
+    });
+    await clearConflictRecord(userId, {
+      guard: effectiveOptions?.guard,
+      scope: effectiveOptions?.scope,
+      context: effectiveOptions?.context,
+      signal: effectiveOptions?.signal,
+    });
     saveActiveGenerationId(userId, nextGenerationId);
 
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     const latest = await loadLatestState(userId);
+    if (isSyncCancelled(effectiveOptions)) {
+      return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次操作' };
+    }
+
     return {
       ok: true,
       status: 'synced',
@@ -1172,17 +1416,17 @@ export async function forcePullRemote(
     };
   };
 
-  return withUserLock(userId, run, lockScope);
+  return withUserLock(userId, run, effectiveLockScope);
 }
 
 /** Pull-only helper kept for callers/tests. */
-export async function pullLatestFromServer(userId: string, lockScope?: LockScope): Promise<SyncResult> {
-  return withUserLock(userId, (scope) => pullPath(userId, undefined, scope), lockScope);
+export async function pullLatestFromServer(userId: string, lockScope?: LockScope, options?: SyncOptions): Promise<SyncResult> {
+  return withUserLock(userId, (scope) => pullPath(userId, options, scope), lockScope);
 }
 
 /** Clear a persisted conflict after the user's explicit resolution. */
-export async function discardConflictRecord(userId: string): Promise<void> {
-  await clearConflictRecord(userId);
+export async function discardConflictRecord(userId: string, options?: SyncOptions): Promise<void> {
+  await clearConflictRecord(userId, options);
 }
 
 export { saveSyncBaseline };

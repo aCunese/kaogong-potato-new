@@ -9,9 +9,10 @@ import {
   SyncConflictRecord,
   LockScope,
   OperationScope,
+  OperationContext,
 } from '../types';
 
-export type { LockScope, OperationScope };
+export type { LockScope, OperationScope, OperationContext };
 import { BLANK_STATE } from '../constants/initialData';
 import { validateAndMigrateBackup } from './backupValidator';
 
@@ -541,13 +542,24 @@ async function writeMutationToDB(
   newMedia?: MediaRecord[],
   deletedMediaIds?: string[],
   expectedRevision: number = (snapshot.revision ?? 0) - 1,
-  outboxItem?: OutboxRecord
+  outboxItem?: OutboxRecord,
+  guard?: () => boolean
 ): Promise<void> {
   checkStorageAvailable();
+  if (guard && !guard()) {
+    const err = new Error('账号状态已变化，已取消写入');
+    (err as any).code = 'AUTH_EPOCH_CHANGED';
+    throw err;
+  }
   const key = snapshot.key;
   if (!hasNativeIdb()) {
     if ((memoryStore.snapshots.get(key)?.revision ?? 0) !== expectedRevision) {
       throw new RevisionConflictError();
+    }
+    if (guard && !guard()) {
+      const err = new Error('账号状态已变化，已取消写入');
+      (err as any).code = 'AUTH_EPOCH_CHANGED';
+      throw err;
     }
     const mediaCopies = newMedia?.map(m => structuredClone(m));
     memoryStore.snapshots.set(key, structuredClone(snapshot));
@@ -572,6 +584,11 @@ async function writeMutationToDB(
     const snapshotsStore = tx.objectStore(SNAPSHOTS_STORE);
     const request = snapshotsStore.get(key);
     request.onsuccess = () => {
+      if (guard && !guard()) {
+        failure = Object.assign(new Error('账号状态已变化，已取消写入'), { code: 'AUTH_EPOCH_CHANGED' });
+        tx.abort();
+        return;
+      }
       // Compare and write under the same IndexedDB lock, shared by all tabs.
       if ((request.result?.revision ?? 0) !== expectedRevision) {
         failure = new RevisionConflictError();
@@ -734,6 +751,10 @@ export interface CommitOptions {
   /** local mutation version override (used when installing a pulled snapshot) */
   targetRevision?: number;
   reason?: string;
+  guard?: () => boolean;
+  scope?: OperationScope;
+  context?: OperationContext;
+  signal?: AbortSignal;
   /**
    * Builds the outbox record for this mutation. The provided meta carries the
    * SEPARATED versions: localMutationVersion (local writes), confirmedRevision
@@ -764,6 +785,19 @@ export async function commitMutation<T>(
 ): Promise<MutationResult<T>> {
   return enqueue(async () => {
     try {
+      const checkGuard = (): boolean => {
+        if (options?.guard && !options.guard()) return false;
+        if (options?.context && !options.context.isCurrent()) return false;
+        if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+        if (options?.scope?.signal?.aborted) return false;
+        if (options?.signal?.aborted) return false;
+        return true;
+      };
+
+      if (!checkGuard()) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+      }
+
       const targetUserId = options?.userId !== undefined ? options.userId : activeUserId;
       const targetKey = getSnapshotKey(targetUserId);
       const currentSnapshot = await getSnapshotFromDB(targetUserId);
@@ -777,6 +811,10 @@ export async function commitMutation<T>(
       const stateClone: AppState = JSON.parse(JSON.stringify(currentState));
 
       const mutationResult = await mutator(stateClone);
+
+      if (!checkGuard()) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+      }
 
       if ('error' in mutationResult && mutationResult.error) {
         return {
@@ -817,7 +855,8 @@ export async function commitMutation<T>(
           mutationResult.newMedia,
           mutationResult.deletedMediaIds,
           currentLocalVersion,
-          outboxItem
+          outboxItem,
+          checkGuard
         );
 
         return {
@@ -833,6 +872,9 @@ export async function commitMutation<T>(
         message: 'Mutator 返回了未知的数据结构',
       };
     } catch (err) {
+      if (err && ((err as any).code === 'AUTH_EPOCH_CHANGED' || (err as any).message?.includes('账号状态已变化'))) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
+      }
       return {
         ok: false,
         code: err instanceof RevisionConflictError ? 'REVISION_CONFLICT' : 'COMMIT_FAILED',
@@ -1383,7 +1425,20 @@ export async function deleteOutboxItem(id: string): Promise<void> {
 /**
  * Clears all outbox tasks for a specific user partition
  */
-export async function clearOutbox(userId: string): Promise<void> {
+export async function clearOutbox(
+  userId: string,
+  options?: { guard?: () => boolean; scope?: OperationScope; context?: OperationContext; signal?: AbortSignal }
+): Promise<void> {
+  const checkGuard = (): boolean => {
+    if (options?.guard && !options.guard()) return false;
+    if (options?.context && !options.context.isCurrent()) return false;
+    if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+    if (options?.scope?.signal?.aborted) return false;
+    if (options?.signal?.aborted) return false;
+    return true;
+  };
+  if (!checkGuard()) return;
+
   if (!hasNativeIdb()) {
     for (const [id, item] of memoryStore.outbox.entries()) {
       if (item.userId === userId) memoryStore.outbox.delete(id);
@@ -1392,10 +1447,18 @@ export async function clearOutbox(userId: string): Promise<void> {
   }
   const db = await initDatabase();
   return new Promise<void>((resolve, reject) => {
+    if (!checkGuard()) {
+      resolve();
+      return;
+    }
     const tx = db.transaction(OUTBOX_STORE, 'readwrite');
     const store = tx.objectStore(OUTBOX_STORE);
     const req = store.getAll();
     req.onsuccess = () => {
+      if (!checkGuard()) {
+        tx.abort();
+        return;
+      }
       const all = (req.result || []) as OutboxRecord[];
       for (const item of all) {
         if (item.userId === userId) store.delete(item.id);
@@ -1403,7 +1466,7 @@ export async function clearOutbox(userId: string): Promise<void> {
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onabort = () => resolve();
   });
 }
 
@@ -1713,13 +1776,35 @@ export async function getSyncBaseline(userId: string): Promise<SyncBaseline | nu
   });
 }
 
-export async function saveSyncBaseline(baseline: SyncBaseline): Promise<void> {
+export async function saveSyncBaseline(
+  baseline: SyncBaseline,
+  options?: { guard?: () => boolean; scope?: OperationScope; context?: OperationContext; signal?: AbortSignal }
+): Promise<void> {
+  const checkGuard = (): boolean => {
+    if (options?.guard && !options.guard()) return false;
+    if (options?.context && !options.context.isCurrent()) return false;
+    if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+    if (options?.scope?.signal?.aborted) return false;
+    if (options?.signal?.aborted) return false;
+    return true;
+  };
+
+  if (!checkGuard()) {
+    const err = new Error('账号状态已变化，已取消更新同步基线');
+    (err as any).code = 'AUTH_EPOCH_CHANGED';
+    throw err;
+  }
+
   if (!hasNativeIdb()) {
     memoryStore.syncState.set(baseline.userId, structuredClone(baseline));
     return;
   }
   const db = await initDatabase();
   return new Promise<void>((resolve, reject) => {
+    if (!checkGuard()) {
+      reject(Object.assign(new Error('账号状态已变化，已取消更新同步基线'), { code: 'AUTH_EPOCH_CHANGED' }));
+      return;
+    }
     const tx = db.transaction(SYNC_STATE_STORE, 'readwrite');
     tx.objectStore(SYNC_STATE_STORE).put(baseline);
     tx.oncomplete = () => resolve();
@@ -1762,13 +1847,30 @@ export async function saveConflictRecord(record: SyncConflictRecord): Promise<vo
   });
 }
 
-export async function clearConflictRecord(userId: string): Promise<void> {
+export async function clearConflictRecord(
+  userId: string,
+  options?: { guard?: () => boolean; scope?: OperationScope; context?: OperationContext; signal?: AbortSignal }
+): Promise<void> {
+  const checkGuard = (): boolean => {
+    if (options?.guard && !options.guard()) return false;
+    if (options?.context && !options.context.isCurrent()) return false;
+    if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+    if (options?.scope?.signal?.aborted) return false;
+    if (options?.signal?.aborted) return false;
+    return true;
+  };
+  if (!checkGuard()) return;
+
   if (!hasNativeIdb()) {
     memoryStore.conflicts.delete(userId);
     return;
   }
   const db = await initDatabase();
   return new Promise<void>((resolve, reject) => {
+    if (!checkGuard()) {
+      resolve();
+      return;
+    }
     const tx = db.transaction(SYNC_STATE_STORE, 'readwrite');
     tx.objectStore(SYNC_STATE_STORE).delete(`conflict_${userId}`);
     tx.oncomplete = () => resolve();
@@ -1792,12 +1894,23 @@ export async function installConfirmedServerState(
   userId: string,
   serverState: AppState,
   meta: { revision: number; generationId: string; contentHash: string; snapshotGenerationId?: string },
-  options: { force?: boolean; saveRecovery?: boolean; localMutationVersion?: number; guard?: () => boolean; scope?: OperationScope } = {}
+  options: {
+    force?: boolean;
+    saveRecovery?: boolean;
+    localMutationVersion?: number;
+    guard?: () => boolean;
+    scope?: OperationScope;
+    context?: OperationContext;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<{ ok: boolean; code?: string; message?: string }> {
   return enqueue(async () => {
     const checkGuard = (): boolean => {
       if (options.guard && !options.guard()) return false;
+      if (options.context && !options.context.isCurrent()) return false;
       if (options.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+      if (options.scope?.signal?.aborted) return false;
+      if (options.signal?.aborted) return false;
       return true;
     };
 
@@ -1928,11 +2041,37 @@ export async function atomicResolveConflict(
   userId: string,
   newSnapshot: SnapshotRecord,
   expectedRevision: number,
-  newOutboxItem?: OutboxRecord
+  newOutboxItem?: OutboxRecord,
+  options?: {
+    guard?: () => boolean;
+    scope?: OperationScope;
+    context?: OperationContext;
+    signal?: AbortSignal;
+  }
 ): Promise<void> {
   return enqueue(async () => {
+    const checkGuard = (): boolean => {
+      if (options?.guard && !options.guard()) return false;
+      if (options?.context && !options.context.isCurrent()) return false;
+      if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+      if (options?.scope?.signal?.aborted) return false;
+      if (options?.signal?.aborted) return false;
+      return true;
+    };
+
+    if (!checkGuard()) {
+      const err = new Error('账号状态已变化，已取消写入');
+      (err as any).code = 'AUTH_EPOCH_CHANGED';
+      throw err;
+    }
+
     const contentHash = newSnapshot.contentHash || await hashState(newSnapshot.state);
     if (!hasNativeIdb()) {
+      if (!checkGuard()) {
+        const err = new Error('账号状态已变化，已取消写入');
+        (err as any).code = 'AUTH_EPOCH_CHANGED';
+        throw err;
+      }
       const current = memoryStore.snapshots.get(newSnapshot.key);
       const curRev = current ? current.revision : 0;
       if (expectedRevision > 0 && curRev !== expectedRevision) {
@@ -1992,6 +2131,11 @@ export async function atomicResolveConflict(
 
       const getReq = snapStore.get(newSnapshot.key);
       getReq.onsuccess = () => {
+        if (!checkGuard()) {
+          tx.abort();
+          reject(Object.assign(new Error('账号状态已变化，已取消写入'), { code: 'AUTH_EPOCH_CHANGED' }));
+          return;
+        }
         const curSnap = getReq.result as SnapshotRecord | undefined;
         const curRev = curSnap ? curSnap.revision : 0;
         if (expectedRevision > 0 && curRev !== expectedRevision) {
@@ -2026,6 +2170,11 @@ export async function atomicResolveConflict(
         // 2. Delete all existing outbox items for this user
         const outReq = outStore.getAll();
         outReq.onsuccess = () => {
+          if (!checkGuard()) {
+            tx.abort();
+            reject(Object.assign(new Error('账号状态已变化，已取消写入'), { code: 'AUTH_EPOCH_CHANGED' }));
+            return;
+          }
           const items = (outReq.result || []) as OutboxRecord[];
           for (const item of items) {
             if (item.userId === userId) {
@@ -2263,8 +2412,23 @@ export interface MediaRefReplacement {
 export async function applyMediaRefMappings(
   userId: string,
   replacements: MediaRefReplacement[],
-  mediaRecords: MediaRecord[]
+  mediaRecords: MediaRecord[],
+  options?: {
+    guard?: () => boolean;
+    scope?: OperationScope;
+    context?: OperationContext;
+    signal?: AbortSignal;
+  }
 ): Promise<{ changed: boolean; revision: number; pendingRequestId?: string }> {
+  const checkGuard = (): boolean => {
+    if (options?.guard && !options.guard()) return false;
+    if (options?.context && !options.context.isCurrent()) return false;
+    if (options?.scope && typeof (options.scope as any).isExpired === 'function' && (options.scope as any).isExpired()) return false;
+    if (options?.scope?.signal?.aborted) return false;
+    if (options?.signal?.aborted) return false;
+    return true;
+  };
+
   const effective = replacements.filter(r => r.from && r.to && r.from !== r.to);
   if (effective.length === 0) {
     const snapshot = await getSnapshotFromDB(userId);
@@ -2283,12 +2447,23 @@ export async function applyMediaRefMappings(
   };
 
   return enqueue(async () => {
+    if (!checkGuard()) {
+      const err = new Error('账号状态已变化，已取消写入');
+      (err as any).code = 'AUTH_EPOCH_CHANGED';
+      throw err;
+    }
+
     if (!hasNativeIdb()) {
       const key = getSnapshotKey(userId);
       const snapshot = memoryStore.snapshots.get(key);
       if (!snapshot) return { changed: false, revision: 0 };
       const nextState = applyState(snapshot.state);
       const contentHash = await hashState(nextState);
+      if (!checkGuard()) {
+        const err = new Error('账号状态已变化，已取消写入');
+        (err as any).code = 'AUTH_EPOCH_CHANGED';
+        throw err;
+      }
       const nextSnapshot: SnapshotRecord = {
         ...snapshot,
         state: nextState,
@@ -2311,6 +2486,11 @@ export async function applyMediaRefMappings(
 
     const maxRetries = 5;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (!checkGuard()) {
+        const err = new Error('账号状态已变化，已取消写入');
+        (err as any).code = 'AUTH_EPOCH_CHANGED';
+        throw err;
+      }
       // 1. Read-only preparation phase:
       const snapshot = await getSnapshotFromDB(userId);
       if (!snapshot) return { changed: false, revision: 0 };
@@ -2325,6 +2505,12 @@ export async function applyMediaRefMappings(
         const nextItemState = applyState(item.state);
         updatedOutbox.push({ ...item, state: nextItemState });
         pendingRequestId = item.requestId;
+      }
+
+      if (!checkGuard()) {
+        const err = new Error('账号状态已变化，已取消写入');
+        (err as any).code = 'AUTH_EPOCH_CHANGED';
+        throw err;
       }
 
       // 2. Short readwrite IDB transaction (no async Promise/hash inside):
@@ -2358,6 +2544,12 @@ export async function applyMediaRefMappings(
 
         const snapReq = snapStore.get(key);
         snapReq.onsuccess = () => {
+          if (!checkGuard()) {
+            drifted = true;
+            tx.abort();
+            safeReject(Object.assign(new Error('账号状态已变化，已取消写入'), { code: 'AUTH_EPOCH_CHANGED' }));
+            return;
+          }
           const currentSnap = snapReq.result as SnapshotRecord | undefined;
           if (!currentSnap || currentSnap.revision !== snapshot.revision) {
             drifted = true;
