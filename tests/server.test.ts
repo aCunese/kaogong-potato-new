@@ -1360,5 +1360,101 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
     assert.equal(idemRows.filter(r => r.created_at < ttlCutoff).length, 0, 'idempotency rows older than 30 days must be pruned');
     assert.ok(idemRows.some(r => String(r.request_id).startsWith('req-ret-idem-')), 'new idempotency record must be retained');
   });
+
+  test('A09) Unified pure media reference extraction, false media rejection, delete protection and corrupted JSON handling', async () => {
+    const db = getDb();
+    // 1. Setup user and upload real media
+    const user = await registerTestUser('user_a09');
+    const uploadRes = await uploadTinyPng(user.cookie, user.csrfToken);
+    const mediaId = uploadRes.json.media.id;
+
+    // 2. Set profile.name to 'media:plain-note', wrong[].note to 'media:fake-image', courses[0].url to 'https://example.com/media:foo'
+    const curWs = await getWorkspace(user.cookie);
+    const stateWithPseudoMedia = cloneState(curWs.state);
+    stateWithPseudoMedia.profile.name = 'media:plain-note';
+    stateWithPseudoMedia.wrong = [
+      buildWrongRecord(stateWithPseudoMedia.books[0].id, {
+        note: `media:${mediaId}_fake`,
+        image: '',
+      }),
+    ];
+    stateWithPseudoMedia.courses[0].url = 'https://study.example.com/media:video';
+
+    // Push revision with pseudo media text
+    const pushPseudo = await postWorkspace({
+      cookie: user.cookie,
+      csrfToken: user.csrfToken,
+      expectedRevision: curWs.revision,
+      requestId: `req-a09-pseudo-${Date.now()}`,
+      state: stateWithPseudoMedia,
+    });
+    assert.equal(pushPseudo.res.status, 200);
+
+    // Push clear revision to create history entry
+    const clearState = cloneState(curWs.state);
+    const pushClear = await postWorkspace({
+      cookie: user.cookie,
+      csrfToken: user.csrfToken,
+      expectedRevision: pushPseudo.json.revision,
+      requestId: `req-a09-clear-${Date.now()}`,
+      state: clearState,
+    });
+    assert.equal(pushClear.res.status, 200);
+
+    // Retrieve history record for pseudo media revision
+    const historyRes = await fetch(`${baseUrl}/api/backups/history`, {
+      headers: { cookie: user.cookie },
+    });
+    const { history } = await historyRes.json();
+    const pseudoHistory = history.find((h: any) => h.revision === pushPseudo.json.revision);
+    assert.ok(pseudoHistory);
+
+    // Restore from history - MUST SUCCEED with 200 (not 409 RESTORE_MEDIA_UNAVAILABLE)
+    const restoreRes = await fetch(`${baseUrl}/api/backups/restore-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': user.csrfToken, cookie: user.cookie },
+      body: JSON.stringify({ historyId: pseudoHistory.id }),
+    });
+    assert.equal(restoreRes.status, 200);
+    const restoreData = await restoreRes.json();
+    assert.equal(restoreData.ok, true);
+
+    // 3. Delete protection: ordinary text with 'media:' does NOT block deleting another media
+    const deleteRes = await fetch(`${baseUrl}/api/media/${mediaId}`, {
+      method: 'DELETE',
+      headers: { 'x-csrf-token': user.csrfToken, cookie: user.cookie },
+    });
+    assert.equal(deleteRes.status, 200);
+
+    // 4. Corrupted history JSON explicitly refuses restore (400 CORRUPTED_HISTORY_JSON)
+    const corruptHistId = `hist_corrupt_${Date.now()}`;
+    db.prepare(`
+      INSERT INTO workspace_history (id, user_id, revision, reason, state_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(corruptHistId, user.user.id, 999, 'corrupt_test', 'INVALID_JSON{broken', new Date().toISOString());
+
+    const corruptRestoreRes = await fetch(`${baseUrl}/api/backups/restore-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': user.csrfToken, cookie: user.cookie },
+      body: JSON.stringify({ historyId: corruptHistId }),
+    });
+    assert.equal(corruptRestoreRes.status, 400);
+    const corruptData = await corruptRestoreRes.json();
+    assert.equal(corruptData.code, 'CORRUPTED_HISTORY_JSON');
+
+    // 5. Corrupted history JSON explicitly protects deletion (409 MEDIA_REFERENCE_CHECK_FAILED)
+    const newUpload = await uploadTinyPng(user.cookie, user.csrfToken);
+    const newMediaId = newUpload.json.media.id;
+    const deleteBlockedRes = await fetch(`${baseUrl}/api/media/${newMediaId}`, {
+      method: 'DELETE',
+      headers: { 'x-csrf-token': user.csrfToken, cookie: user.cookie },
+    });
+    assert.equal(deleteBlockedRes.status, 409);
+    const deleteBlockedJson = await deleteBlockedRes.json();
+    assert.equal(deleteBlockedJson.code, 'MEDIA_REFERENCE_CHECK_FAILED');
+
+    // Clean up corrupted test history row
+    db.prepare('DELETE FROM workspace_history WHERE id = ?').run(corruptHistId);
+  });
 });
 

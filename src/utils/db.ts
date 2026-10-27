@@ -1639,6 +1639,18 @@ export async function createPortableBackupState(
   for (const wrong of portable.wrong) {
     wrong.image = await resolveImage(wrong.image, wrong.storagePath);
     delete wrong.storagePath;
+    const legacyImages = (wrong as unknown as { images?: unknown }).images;
+    if (Array.isArray(legacyImages)) {
+      const limit = Math.min(legacyImages.length, 9);
+      const resolvedList: string[] = [];
+      for (let j = 0; j < limit; j++) {
+        const img = legacyImages[j];
+        if (typeof img === 'string') {
+          resolvedList.push(await resolveImage(img));
+        }
+      }
+      wrong.images = resolvedList;
+    }
   }
   portable.profile.avatar = await resolveImage(portable.profile.avatar);
   return portable;

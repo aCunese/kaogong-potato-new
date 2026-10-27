@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { getDb, getCurrentGenerationId, getAttachmentsDir } from './db';
-import { extractMediaIdsFromStateJson } from './media';
+import {
+  extractMediaIdsFromState,
+  extractMediaIdsFromStateJson,
+  parseMediaRef,
+  MEDIA_ID_RE,
+} from './media';
+export { parseMediaRef, MEDIA_ID_RE };
 import {
   pruneWorkspaceHistory,
   pruneSyncIdempotency,
@@ -85,7 +91,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const POSE_RE = /^pose-[0-7]$/;
 const BRANDING_PATH_RE = /^\/branding\/[A-Za-z0-9._\-\/]+$/;
 const LEGACY_IMAGE_DATA_URL_RE = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
-const MEDIA_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 
 const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version']);
 
@@ -110,22 +115,6 @@ function isNonEmptyString(val: any, maxLen: number): boolean {
 
 function isOptionalString(val: any, maxLen: number): boolean {
   return val === undefined || val === null || (typeof val === 'string' && val.length <= maxLen);
-}
-
-/** 解析受支持的媒体引用形式：`media:<id>` / `/api/media/<id>` / 兼容裸 `<media_id>` */
-export function parseMediaRef(value: string): string | null {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  let id: string | null = null;
-  if (value.startsWith('/api/media/')) {
-    id = value.slice('/api/media/'.length);
-  } else if (value.startsWith('media:')) {
-    id = value.slice('media:'.length);
-  } else if (value.startsWith('media_')) {
-    id = value;
-  }
-  if (!id) return null;
-  if (!MEDIA_ID_RE.test(id)) return null;
-  return id;
 }
 
 interface ImageRefResult {
@@ -1039,7 +1028,10 @@ export function getUserWorkspaceHistory(userId: string): WorkspaceHistoryItem[] 
 
 export function getUserBackupExport(userId: string) {
   const current = getUserWorkspace(userId);
-  if (!current) return null;
+  if (!current || !current.state) return null;
+
+  // A09: 统一使用精确媒体引用解析函数
+  extractMediaIdsFromState(current.state);
 
   return {
     version: 3,
@@ -1071,7 +1063,17 @@ export function restoreUserFromHistory(userId: string, historyId: string) {
   }
 
   // Before restoring, extract all media references from historyRow.state_json
-  const mediaIds = extractMediaIdsFromStateJson(historyRow.state_json);
+  let mediaIds: string[];
+  try {
+    mediaIds = extractMediaIdsFromStateJson(historyRow.state_json);
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      code: 'CORRUPTED_HISTORY_JSON',
+      message: '该历史版本数据已损坏，无法恢复',
+    };
+  }
   if (mediaIds.length > 0) {
     const ownership = validateMediaRefsOwnership(userId, mediaIds);
     if (!ownership.valid) {

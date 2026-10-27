@@ -324,7 +324,19 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     });
   }
 
-  // Validate & sanitize wrong records
+  function isValidBackupImageRef(ref: unknown): boolean {
+  if (typeof ref !== 'string') return false;
+  if (ref === '') return true;
+  if (/^pose-[0-7]$/.test(ref)) return true;
+  if (ref.startsWith('/branding/')) return true;
+  if (ref.startsWith('/api/media/')) return true;
+  if (ref.startsWith('media:') || ref.startsWith('media_')) return true;
+  if (/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(ref)) return true;
+  if (/^https?:\/\//i.test(ref)) return true;
+  return false;
+}
+
+// Validate & sanitize wrong records
   const wrong: WrongRecord[] = [];
   for (let i = 0; i < target.wrong.length; i++) {
     const w = target.wrong[i];
@@ -332,19 +344,36 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       return { valid: false, error: `错题记录中第 ${i + 1} 项的日期格式无效: ${w.date}` };
     }
 
-    if (w.image && (typeof w.image !== 'string' || !/^(data:image\/|https?:\/\/)/i.test(w.image))) {
+    if (w.image && !isValidBackupImageRef(w.image)) {
       return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的本地图片引用，请重新导出完整备份` };
     }
     if (w.storagePath && !w.image) {
       return { valid: false, error: `错题记录中第 ${i + 1} 项缺少图片附件内容` };
     }
+
+    let images: string[] | undefined = undefined;
+    if (w.images !== undefined) {
+      if (!Array.isArray(w.images)) {
+        return { valid: false, error: `错题记录中第 ${i + 1} 项多图数据必须为数组` };
+      }
+      images = [];
+      const limit = Math.min(w.images.length, 9);
+      for (let j = 0; j < limit; j++) {
+        const item = w.images[j];
+        if (typeof item !== 'string' || (item !== '' && !isValidBackupImageRef(item))) {
+          return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的多图图片引用，请重新导出完整备份` };
+        }
+        images.push(item);
+      }
+    }
+
     wrong.push({
       id: typeof w.id === 'string' && w.id.trim() ? w.id.trim() : `wrong-${Date.now()}-${i}`,
       date: w.date.trim(),
       bookId: typeof w.bookId === 'string' ? w.bookId.trim() : '',
       note: typeof w.note === 'string' ? w.note : '',
       image: typeof w.image === 'string' ? w.image : '',
-
+      ...(images !== undefined ? { images } : {}),
     });
   }
 

@@ -4,6 +4,8 @@ import { hashPassword, revokeAllUserSessions, UserRow } from './auth';
 import { pruneWorkspaceHistory } from './retention';
 import { AppState } from '../src/types';
 import { validateAndMigrateBackup } from '../src/utils/backupValidator';
+import { extractMediaIdsFromState } from './media';
+import { validateMediaRefsOwnership } from './workspace';
 
 export function createInviteCode(createdBy: string = 'admin'): string {
   const db = getDb();
@@ -116,9 +118,30 @@ export function restoreUserWorkspace(
   backupJsonString: string,
   reason: string = 'admin_restore'
 ): { ok: boolean; revision?: number; message?: string } {
+  try {
+    const parsed = JSON.parse(backupJsonString);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, message: '备份数据必须为有效 JSON 对象' };
+    }
+  } catch {
+    return { ok: false, message: '备份数据必须为有效 JSON 格式，损坏内容已拒绝恢复' };
+  }
+
   const validation = validateAndMigrateBackup(backupJsonString);
   if (!validation.valid || !validation.migratedState) {
     return { ok: false, message: `备份数据结构校验未通过: ${validation.error || '非法结构'}` };
+  }
+
+  // A09: 统一使用精确媒体引用解析函数校验备份中的媒体归属与完整性
+  const mediaIds = extractMediaIdsFromState(validation.migratedState);
+  if (mediaIds.length > 0) {
+    const ownership = validateMediaRefsOwnership(userId, mediaIds);
+    if (!ownership.valid) {
+      return {
+        ok: false,
+        message: `备份引用的媒体附件已缺失或损坏，无法恢复: ${ownership.invalidRefs.join(', ')}`,
+      };
+    }
   }
 
   const db = getDb();

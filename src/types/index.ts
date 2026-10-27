@@ -85,6 +85,7 @@ export interface WrongRecord {
   note: string;
   image: string; // base64 or object URL or media ID
   storagePath?: string;
+  images?: string[];
 }
 
 export interface Profile {

@@ -269,8 +269,9 @@ export function deleteUserMedia(userId: string, mediaId: string): DeleteMediaRes
   }
 
   for (const jsonStr of statesToCheck) {
+    let referencedMediaIds: string[];
     try {
-      JSON.parse(jsonStr);
+      referencedMediaIds = extractMediaIdsFromStateJson(jsonStr);
     } catch {
       return {
         ok: false,
@@ -280,10 +281,7 @@ export function deleteUserMedia(userId: string, mediaId: string): DeleteMediaRes
       };
     }
 
-    if (
-      jsonStr.includes(`/api/media/${mediaId}`) ||
-      jsonStr.includes(`media:${mediaId}`)
-    ) {
+    if (referencedMediaIds.includes(mediaId)) {
       return {
         ok: false,
         status: 409,
@@ -305,23 +303,82 @@ export function deleteUserMedia(userId: string, mediaId: string): DeleteMediaRes
   return { ok: true, status: 200, message: '图片已安全删除' };
 }
 
-export function extractMediaIdsFromStateJson(stateJson: string): string[] {
-  const ids = new Set<string>();
-  if (!stateJson || typeof stateJson !== 'string') return [];
+export const MEDIA_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 
-  // Match /api/media/<id>
-  const apiMatches = stateJson.matchAll(/\/api\/media\/([A-Za-z0-9_\-]+)/g);
-  for (const m of apiMatches) {
-    if (m[1]) ids.add(m[1]);
+/** 解析受支持的媒体引用形式：`media:<id>` / `/api/media/<id>` / 兼容裸 `<media_id>` */
+export function parseMediaRef(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  let id: string | null = null;
+  if (value.startsWith('/api/media/')) {
+    id = value.slice('/api/media/'.length);
+  } else if (value.startsWith('media:')) {
+    id = value.slice('media:'.length);
+  } else if (value.startsWith('media_')) {
+    id = value;
+  }
+  if (!id) return null;
+  if (!MEDIA_ID_RE.test(id)) return null;
+  return id;
+}
+
+/**
+ * A09: 统一纯函数精确解析媒体引用。
+ * 仅遍历：
+ * 1. profile.avatar
+ * 2. wrong[].image
+ * 3. wrong[].images[]（服务端兼容多图，最多 9 张）
+ * 其它字段（例如 profile.name, wrong[].note, courses[].url 等）即使包含 'media:' 也绝不作为媒体引用提取。
+ */
+export function extractMediaIdsFromState(state: unknown): string[] {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return [];
+  }
+  const s = state as Record<string, any>;
+  const ids = new Set<string>();
+
+  // 1. profile.avatar
+  if (s.profile && typeof s.profile === 'object' && !Array.isArray(s.profile)) {
+    if (typeof s.profile.avatar === 'string') {
+      const id = parseMediaRef(s.profile.avatar);
+      if (id) ids.add(id);
+    }
   }
 
-  // Match media:<id>
-  const prefixMatches = stateJson.matchAll(/media:([A-Za-z0-9_\-]+)/g);
-  for (const m of prefixMatches) {
-    if (m[1]) ids.add(m[1]);
+  // 2. wrong[].image 与 wrong[].images[] (最多 9 张)
+  if (Array.isArray(s.wrong)) {
+    for (const w of s.wrong) {
+      if (!w || typeof w !== 'object' || Array.isArray(w)) continue;
+      if (typeof w.image === 'string') {
+        const id = parseMediaRef(w.image);
+        if (id) ids.add(id);
+      }
+      if (Array.isArray(w.images)) {
+        const limit = Math.min(w.images.length, 9);
+        for (let i = 0; i < limit; i++) {
+          const img = w.images[i];
+          if (typeof img === 'string') {
+            const id = parseMediaRef(img);
+            if (id) ids.add(id);
+          }
+        }
+      }
+    }
   }
 
   return Array.from(ids);
+}
+
+/**
+ * A09: 从 JSON 字符串精确解析媒体引用。
+ * 若传入损坏的 JSON 字符串，会抛出 SyntaxError，由调用方明确拒绝恢复或删除。
+ */
+export function extractMediaIdsFromStateJson(stateJson: string): string[] {
+  if (!stateJson || typeof stateJson !== 'string') return [];
+  const parsed = JSON.parse(stateJson);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new SyntaxError('State JSON must be a non-array object');
+  }
+  return extractMediaIdsFromState(parsed);
 }
 
 export interface MediaAuditReport {
@@ -370,7 +427,13 @@ export function auditMediaStorage(): MediaAuditReport {
 
   const workspaces = db.prepare('SELECT user_id, state_json FROM workspaces').all() as Array<{ user_id: string; state_json: string }>;
   for (const ws of workspaces) {
-    const ids = extractMediaIdsFromStateJson(ws.state_json);
+    let ids: string[];
+    try {
+      ids = extractMediaIdsFromStateJson(ws.state_json);
+    } catch {
+      corruptedReferences.push({ type: 'workspace', userId: ws.user_id, mediaId: '', reason: 'Corrupted state JSON' });
+      continue;
+    }
     for (const id of ids) {
       const record = dbMediaMap.get(id);
       if (!record) {
@@ -385,7 +448,13 @@ export function auditMediaStorage(): MediaAuditReport {
 
   const history = db.prepare('SELECT user_id, state_json FROM workspace_history').all() as Array<{ user_id: string; state_json: string }>;
   for (const h of history) {
-    const ids = extractMediaIdsFromStateJson(h.state_json);
+    let ids: string[];
+    try {
+      ids = extractMediaIdsFromStateJson(h.state_json);
+    } catch {
+      corruptedReferences.push({ type: 'history', userId: h.user_id, mediaId: '', reason: 'Corrupted state JSON' });
+      continue;
+    }
     for (const id of ids) {
       const record = dbMediaMap.get(id);
       if (!record) {
