@@ -205,7 +205,7 @@ export interface AppContextType {
   isAnyTimerRunning: () => boolean;
 }
 
-const AppContext = createContext<AppContextType | null>(null);
+export const AppContext = createContext<AppContextType | null>(null);
 
 function createPreviewState(): AppState {
   const demo = structuredClone(DEMO_STATE);

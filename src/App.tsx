@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   Info,
   AlertCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult } from './types';
 
@@ -128,6 +129,26 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [syncModalOpen, setSyncModalOpen] = useState<boolean>(false);
   const [backupModalOpen, setBackupModalOpen] = useState<boolean>(false);
   const [profileModalOpen, setProfileModalOpen] = useState<boolean>(false);
+
+  // Conflict Deferral State (S09: conflict deferral & recoverable workflow)
+  const [dismissedConflictKey, setDismissedConflictKey] = useState<string | null>(null);
+
+  const currentUserId = currentUser?.id ?? '';
+  const currentConflictKey = conflictData
+    ? `${currentUserId}_${conflictData.serverGenerationId || ''}_${conflictData.serverRevision}_${conflictData.serverContentHash || ''}`
+    : null;
+  const isConflictDeferred = Boolean(
+    conflictData && currentConflictKey && dismissedConflictKey === currentConflictKey
+  );
+  const isConflictModalOpen = Boolean(
+    conflictData && currentConflictKey && dismissedConflictKey !== currentConflictKey
+  );
+
+  useEffect(() => {
+    if (!conflictData) {
+      setDismissedConflictKey(null);
+    }
+  }, [conflictData]);
 
   // Generic Confirm Modal
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -470,6 +491,12 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         setProfileModalOpen(false);
         return true;
       }
+      if (isConflictModalOpen) {
+        if (currentConflictKey) {
+          setDismissedConflictKey(currentConflictKey);
+        }
+        return true;
+      }
 
       // 2. If showStatesPreview or showConfirmModalsView is open, close it and return true
       if (showStatesPreview) {
@@ -513,6 +540,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     syncModalOpen,
     backupModalOpen,
     profileModalOpen,
+    isConflictModalOpen,
+    currentConflictKey,
     showStatesPreview,
     showConfirmModalsView,
     activeTab,
@@ -685,6 +714,23 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           </div>
         )}
 
+        {/* 冲突待处理常驻通知横条 (S09: 暂缓后在顶部常驻提醒并提供处理入口) */}
+        {isConflictDeferred && (
+          <div className="flex-none bg-amber-500/15 border-b border-amber-500/30 px-3.5 py-2 flex items-center justify-between z-40 text-xs text-ink-main">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+              <span className="font-bold text-ink-main truncate">数据版本冲突待处理</span>
+              <span className="text-[11px] text-ink-muted hidden sm:inline">（已暂缓，可在设置中随时重新处理）</span>
+            </div>
+            <button
+              onClick={() => setDismissedConflictKey(null)}
+              className="px-2.5 py-1 bg-amber-600 text-white font-bold rounded-lg text-xs hover:bg-amber-700 transition-all shadow-sm shrink-0"
+            >
+              立即处理
+            </button>
+          </div>
+        )}
+
         {/* 顶部移动端小工具条（屏幕宽度较小时提供轻量直达入口） */}
         {preview && <div className="flex-none flex items-center justify-between px-3.5 py-1.5 bg-paper/90 border-b border-line text-xs shrink-0 z-30">
           <span className="font-bold text-ink-main flex items-center gap-1">
@@ -811,6 +857,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : (
             <SettingsView
+              onOpenConflict={() => setDismissedConflictKey(null)}
               onOpenProfile={() => setProfileModalOpen(true)}
               onOpenBackup={() => setBackupModalOpen(true)}
               onOpenResetConfirm={() => {
@@ -865,12 +912,15 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                   setForcedGuestMode(false);
                   setActiveTab(tab.id as MainTab);
                 }}
-                className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+                className={`relative flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
                   active ? 'text-sage font-bold scale-105' : 'text-ink-muted hover:text-ink-main'
                 }`}
               >
                 <Icon size={20} className={active ? 'stroke-[2.5]' : 'stroke-[1.8]'} />
                 <span className="text-[11px] mt-1">{tab.label}</span>
+                {tab.id === 'settings' && isConflictDeferred && (
+                  <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                )}
               </button>
             );
           })}
@@ -1032,21 +1082,31 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         />
 
         <ConflictModal
-          isOpen={Boolean(conflictData)}
-          onClose={() => {}}
+          isOpen={isConflictModalOpen}
+          onClose={() => {
+            if (currentConflictKey) {
+              setDismissedConflictKey(currentConflictKey);
+            }
+          }}
           localState={state}
           localRevision={localRevision}
           serverState={conflictData?.serverState ?? null}
           serverRevision={conflictData?.serverRevision ?? 0}
-          onKeepLocal={() => {
-            resolveConflict('keep_local').then(r => {
-              showToast(r.ok ? '已保留本机记录并更新云端' : r.message || '同步失败');
-            });
+          onKeepLocal={async () => {
+            const r = await resolveConflict('keep_local');
+            if (r.ok) {
+              showToast('已保留本机记录并更新云端');
+              setDismissedConflictKey(null);
+            }
+            return r;
           }}
-          onKeepRemote={() => {
-            resolveConflict('keep_remote').then(r => {
-              showToast(r.ok ? '已采用云端最新数据覆盖本机' : r.message || '同步失败');
-            });
+          onKeepRemote={async () => {
+            const r = await resolveConflict('keep_remote');
+            if (r.ok) {
+              showToast('已采用云端最新数据覆盖本机');
+              setDismissedConflictKey(null);
+            }
+            return r;
           }}
         />
 

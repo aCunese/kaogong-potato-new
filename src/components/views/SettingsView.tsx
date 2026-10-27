@@ -31,6 +31,7 @@ import {
 interface SettingsViewProps {
   onOpenProfile: () => void;
   onOpenBackup: () => void;
+  onOpenConflict?: () => void;
   onOpenLogoutConfirm: () => void;
   onOpenResetConfirm: () => void;
   onToast: (msg: string) => void;
@@ -39,6 +40,7 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenProfile,
   onOpenBackup,
+  onOpenConflict,
   onOpenLogoutConfirm,
   onOpenResetConfirm,
   onToast,
@@ -49,6 +51,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     syncStatus,
     syncMessage,
     triggerSync,
+    conflictData,
     storageError,
     clearStorageError,
     offlineReady,
@@ -103,6 +106,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onToast('当前处于离线状态，修改已安全保存在本地');
       } else if (res.status === 'conflict') {
         onToast('检测到版本冲突，请根据弹窗确认裁决方向');
+        if (onOpenConflict) onOpenConflict();
       } else {
         onToast(res.message || '同步暂未完成，正在自动重试');
       }
@@ -153,19 +157,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </span>
       );
     }
+    if (syncStatus === 'conflict' || Boolean(conflictData)) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-alarm-light text-alarm rounded-full text-[11px] font-medium">
+          <AlertTriangle size={11} />
+          需要处理版本冲突
+        </span>
+      );
+    }
     if (syncStatus === 'synced') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sage-light text-sage-dark rounded-full text-[11px] font-medium">
           <CheckCircle2 size={11} className="text-sage" />
           {pendingSyncCount > 0 ? `已保存到服务器 · 待传 ${pendingSyncCount} 项` : '已保存到服务器'}
-        </span>
-      );
-    }
-    if (syncStatus === 'conflict') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-alarm-light text-alarm rounded-full text-[11px] font-medium">
-          <AlertTriangle size={11} />
-          需要处理版本冲突
         </span>
       );
     }
@@ -230,6 +234,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <button onClick={clearStorageError} className="underline text-[11px] shrink-0">
             关闭提示
           </button>
+        </div>
+      )}
+
+      {/* 冲突待处理醒目提示卡片 (S09) */}
+      {conflictData && (
+        <div className="p-3.5 bg-amber-500/15 border border-amber-500/30 rounded-2xl flex items-center justify-between gap-3 text-xs text-ink-main shadow-sm animate-fade-in">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-bold text-ink-main text-xs">检测到数据版本冲突待处理</div>
+              <div className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                云端与本机记录存在分叉版本，为保护您的学情资料，已暂停自动覆盖。
+              </div>
+            </div>
+          </div>
+          {onOpenConflict && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onOpenConflict}
+              className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3 py-1.5"
+            >
+              处理冲突
+            </Button>
+          )}
         </div>
       )}
 

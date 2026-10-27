@@ -1,17 +1,17 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Button, Card } from '../common/UIComponents';
-import { AlertTriangle, ArrowUpRight, ArrowDownLeft, ShieldCheck } from 'lucide-react';
-import { AppState } from '../../types';
+import { AlertTriangle, ArrowUpRight, ArrowDownLeft, ShieldCheck, Clock } from 'lucide-react';
+import { AppState, MutationResult } from '../../types';
 
-interface ConflictModalProps {
+export interface ConflictModalProps {
   isOpen: boolean;
   onClose: () => void;
   localState: AppState;
   localRevision: number;
   serverState: AppState | null;
   serverRevision: number;
-  onKeepLocal: () => void;
-  onKeepRemote: () => void;
+  onKeepLocal: () => Promise<MutationResult<void>>;
+  onKeepRemote: () => Promise<MutationResult<void>>;
 }
 
 export const ConflictModal: React.FC<ConflictModalProps> = ({
@@ -24,13 +24,49 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
   onKeepLocal,
   onKeepRemote,
 }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingChoice, setSubmittingChoice] = useState<'local' | 'remote' | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsSubmitting(false);
+      setSubmittingChoice(null);
+      setErrorMessage(null);
+    }
+  }, [isOpen]);
+
+  const handleResolve = async (choice: 'local' | 'remote') => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmittingChoice(choice);
+    setErrorMessage(null);
+    try {
+      const action = choice === 'local' ? onKeepLocal : onKeepRemote;
+      const res = await action();
+      if (!res.ok) {
+        setErrorMessage(res.message || '处理冲突失败，请重试');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || '处理冲突发生异常，请重试');
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingChoice(null);
+    }
+  };
+
+  const handleDefer = () => {
+    if (isSubmitting) return;
+    onClose();
+  };
+
   const localPlansCount = localState?.plans?.length ?? 0;
   const localRecordsCount = localState?.records?.length ?? 0;
   const serverPlansCount = serverState?.plans?.length ?? 0;
   const serverRecordsCount = serverState?.records?.length ?? 0;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="检测到数据版本冲突">
+    <Modal isOpen={isOpen} onClose={handleDefer} title="检测到数据版本冲突">
       <div className="space-y-4">
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-ink-main">
           <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
@@ -41,6 +77,14 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* 错误提示横条（如果裁决失败，留在弹窗内明确报错） */}
+        {errorMessage && (
+          <div className="p-2.5 bg-alarm-light text-alarm border border-alarm/30 rounded-xl flex items-start gap-2 text-xs">
+            <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed font-medium">{errorMessage}</div>
+          </div>
+        )}
 
         {/* 双方版本对比卡片 */}
         <div className="grid grid-cols-2 gap-2.5">
@@ -80,11 +124,12 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
           <Button
             variant="secondary"
             className="w-full justify-between text-xs py-2.5"
-            onClick={onKeepRemote}
+            onClick={() => handleResolve('remote')}
+            disabled={isSubmitting}
           >
             <span className="flex items-center gap-1.5">
               <ArrowDownLeft size={14} className="text-sage" />
-              采用云端记录（覆盖本机）
+              {submittingChoice === 'remote' ? '正在采用云端记录...' : '采用云端记录（覆盖本机）'}
             </span>
             <span className="text-[10px] text-ink-muted">自动先存本机恢复快照</span>
           </Button>
@@ -92,13 +137,23 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
           <Button
             variant="primary"
             className="w-full justify-between text-xs py-2.5"
-            onClick={onKeepLocal}
+            onClick={() => handleResolve('local')}
+            disabled={isSubmitting}
           >
             <span className="flex items-center gap-1.5">
               <ArrowUpRight size={14} />
-              保留本机记录（覆盖云端）
+              {submittingChoice === 'local' ? '正在推送到云端...' : '保留本机记录（覆盖云端）'}
             </span>
             <span className="text-[10px] text-white/80">以当前手机为准推送到云端</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            className="w-full justify-center text-xs py-2 text-ink-muted hover:text-ink-main border border-line/60"
+            onClick={handleDefer}
+            disabled={isSubmitting}
+          >
+            稍后处理 (暂缓)
           </Button>
         </div>
       </div>

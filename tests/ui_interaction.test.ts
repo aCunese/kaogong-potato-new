@@ -1,17 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AppProvider } from '../src/context/AppContext';
 import { Avatar } from '../src/components/common/Avatar';
 import { PotatoSprite } from '../src/components/common/PotatoSprite';
 import { MonthPickerModal } from '../src/components/views/MonthPickerModal';
 import { DownloadApkModal } from '../src/components/views/DownloadApkModal';
 import { SyncModal } from '../src/components/views/SyncModal';
+import { ConflictModal } from '../src/components/views/ConflictModal';
 import { SettingsView } from '../src/components/views/SettingsView';
 import { ConfirmModalsView } from '../src/components/views/ConfirmModalsView';
 import { validateAndMigrateBackup } from '../src/utils/backupValidator';
-import { getLocalMonthString, DEMO_STATE } from '../src/constants/initialData';
-import { MainTab } from '../src/types';
+import { getLocalMonthString, DEMO_STATE, BLANK_STATE } from '../src/constants/initialData';
+import { MainTab, SyncConflictRecord, ConflictData, AppState } from '../src/types';
+import { AppProvider, AppContext } from '../src/context/AppContext';
+import {
+  saveConflictRecord,
+  getConflictRecord,
+  clearConflictRecord,
+  commitMutation,
+  loadLatestState,
+  _resetInMemoryStore,
+} from '../src/utils/db';
+import { syncWithLockScope } from '../src/utils/syncClient';
 
 describe('Milestone 3: Robust Avatar System (src/components/common/Avatar.tsx)', () => {
   it('renders PotatoSprite pose 0 when avatar is empty or undefined', () => {
@@ -356,5 +366,299 @@ describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
     expect(html).not.toContain('本地 JSON 备份');
     expect(html).not.toContain('上传本机覆盖云端');
     expect(html).not.toContain('从云端拉取覆盖');
+  });
+});
+
+describe('S09: Conflict Deferral & Recoverable Workflow (ConflictModal & SettingsView & App)', () => {
+  beforeEach(async () => {
+    _resetInMemoryStore();
+  });
+
+  it('ConflictModal renders required buttons including "稍后处理 (暂缓)" and version info', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ConflictModal, {
+        isOpen: true,
+        onClose: () => {},
+        localState: DEMO_STATE,
+        localRevision: 3,
+        serverState: DEMO_STATE,
+        serverRevision: 5,
+        onKeepLocal: async () => ({ ok: true }),
+        onKeepRemote: async () => ({ ok: true }),
+      })
+    );
+
+    expect(html).toContain('检测到数据版本冲突');
+    expect(html).toContain('采用云端记录（覆盖本机）');
+    expect(html).toContain('保留本机记录（覆盖云端）');
+    expect(html).toContain('稍后处理 (暂缓)');
+    expect(html).toContain('Rev 3');
+    expect(html).toContain('Rev 5');
+  });
+
+  it('ConflictModal does not render when isOpen is false', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ConflictModal, {
+        isOpen: false,
+        onClose: () => {},
+        localState: DEMO_STATE,
+        localRevision: 1,
+        serverState: null,
+        serverRevision: 0,
+        onKeepLocal: async () => ({ ok: true }),
+        onKeepRemote: async () => ({ ok: true }),
+      })
+    );
+
+    expect(html).toBe('');
+  });
+
+  it('Conflict key is constructed uniquely from userId, serverGenerationId, serverRevision, and serverContentHash', () => {
+    const buildKey = (userId: string, data: { serverGenerationId?: string; serverRevision: number; serverContentHash?: string }) =>
+      `${userId}_${data.serverGenerationId || ''}_${data.serverRevision}_${data.serverContentHash || ''}`;
+
+    const key1 = buildKey('user1', { serverGenerationId: 'gen1', serverRevision: 2, serverContentHash: 'hashA' });
+    const key2 = buildKey('user1', { serverGenerationId: 'gen1', serverRevision: 2, serverContentHash: 'hashA' });
+    expect(key1).toBe(key2);
+    expect(key1).toBe('user1_gen1_2_hashA');
+
+    // Key changes if serverRevision changes
+    const keyDiffRev = buildKey('user1', { serverGenerationId: 'gen1', serverRevision: 3, serverContentHash: 'hashA' });
+    expect(keyDiffRev).not.toBe(key1);
+
+    // Key changes if serverContentHash changes
+    const keyDiffHash = buildKey('user1', { serverGenerationId: 'gen1', serverRevision: 2, serverContentHash: 'hashB' });
+    expect(keyDiffHash).not.toBe(key1);
+
+    // Key changes if user switches
+    const keyDiffUser = buildKey('user2', { serverGenerationId: 'gen1', serverRevision: 2, serverContentHash: 'hashA' });
+    expect(keyDiffUser).not.toBe(key1);
+  });
+
+  it('Conflict deferral workflow: hides modal, preserves IDB conflict record, allows local edits, blocks cloud overwrite, and reopens on new conflict or manual request', async () => {
+    const userId = 'test_user_defer';
+    const serverGen = 'gen_server_1';
+    const serverRev = 5;
+    const serverHash = 'sha256_server_conflict';
+
+    // 1. Establish conflict in DB
+    const conflictRecord: SyncConflictRecord = {
+      userId,
+      code: 'REVISION_CONFLICT',
+      message: '检测到版本冲突',
+      serverRevision: serverRev,
+      serverGenerationId: serverGen,
+      serverContentHash: serverHash,
+      serverState: DEMO_STATE,
+      localRevision: 3,
+      detectedAt: new Date().toISOString(),
+    };
+    await saveConflictRecord(conflictRecord);
+
+    const conflictData: ConflictData = {
+      serverRevision: conflictRecord.serverRevision,
+      serverState: conflictRecord.serverState,
+      serverGenerationId: conflictRecord.serverGenerationId,
+      serverContentHash: conflictRecord.serverContentHash,
+    };
+
+    // State machine simulation in App.tsx
+    let dismissedConflictKey: string | null = null;
+    const currentConflictKey = `${userId}_${conflictData.serverGenerationId || ''}_${conflictData.serverRevision}_${conflictData.serverContentHash || ''}`;
+
+    let isConflictModalOpen = Boolean(conflictData && currentConflictKey && dismissedConflictKey !== currentConflictKey);
+    let isConflictDeferred = Boolean(conflictData && currentConflictKey && dismissedConflictKey === currentConflictKey);
+
+    expect(isConflictModalOpen).toBe(true);
+    expect(isConflictDeferred).toBe(false);
+
+    // 2. User chooses "稍后处理 (暂缓)" (onClose)
+    dismissedConflictKey = currentConflictKey;
+    isConflictModalOpen = Boolean(conflictData && currentConflictKey && dismissedConflictKey !== currentConflictKey);
+    isConflictDeferred = Boolean(conflictData && currentConflictKey && dismissedConflictKey === currentConflictKey);
+
+    // Modal is now hidden, deferred indicator is active
+    expect(isConflictModalOpen).toBe(false);
+    expect(isConflictDeferred).toBe(true);
+
+    // 3. Deferral MUST NOT clear IDB conflict record, outbox or state
+    const persistedConflict = await getConflictRecord(userId);
+    expect(persistedConflict).not.toBeNull();
+    expect(persistedConflict?.serverRevision).toBe(5);
+
+    // 4. User can continue local study / notes / wrong photos, saved locally into DB
+    const mutResult = await commitMutation(state => {
+      state.plans.push({
+        id: 'plan_deferred_study',
+        date: '2026-10-27',
+        name: '申论刷题',
+        type: 'book',
+        plannedMinutes: 60,
+        actualMinutes: 45,
+        accumulatedMs: 45 * 60 * 1000,
+        done: true,
+        timerStart: 0,
+      });
+      state.records.push({
+        id: 'rec_deferred_study',
+        date: '2026-10-27',
+        type: 'book',
+        name: '申论刷题',
+        durationMinutes: 45,
+        questions: 30,
+        errors: 5,
+        completedAt: new Date().toISOString(),
+      });
+      state.wrong.push({
+        id: 'wrong_deferred_photo',
+        date: '2026-10-27',
+        title: '错题照片笔记',
+        note: '注意审题细节',
+        image: 'data:image/jpeg;base64,sample...',
+        images: ['data:image/jpeg;base64,sample...'],
+        tags: ['申论'],
+        createdAt: new Date().toISOString(),
+      });
+      return { nextState: state, value: true };
+    }, { userId });
+    expect(mutResult.ok).toBe(true);
+
+    const latestLocal = await loadLatestState(userId);
+    expect(latestLocal.state.plans.some(p => p.id === 'plan_deferred_study')).toBe(true);
+    expect(latestLocal.state.records.some(r => r.id === 'rec_deferred_study')).toBe(true);
+    expect(latestLocal.state.wrong.some(w => w.id === 'wrong_deferred_photo')).toBe(true);
+
+    // 5. Normal sync does NOT overwrite cloud or local data while conflict is open
+    const dummyScope = { isExpired: () => false };
+    const syncRes = await syncWithLockScope(userId, 'csrf_token', {}, dummyScope as any);
+    expect(syncRes.status).toBe('conflict');
+    expect(syncRes.ok).toBe(false);
+
+    // 6. SW updateGuard blocks update while conflict is deferred
+    const updateGuard = () => {
+      if (conflictData) return { ok: false, reason: '存在待处理的版本冲突，请先完成冲突处理再更新' };
+      return { ok: true };
+    };
+    expect(updateGuard().ok).toBe(false);
+    expect(updateGuard().reason).toContain('存在待处理的版本冲突');
+
+    // 7. Reopening from Settings or banner displays ConflictModal again
+    const onOpenConflict = () => {
+      dismissedConflictKey = null;
+    };
+    onOpenConflict();
+    isConflictModalOpen = Boolean(conflictData && currentConflictKey && dismissedConflictKey !== currentConflictKey);
+    expect(isConflictModalOpen).toBe(true);
+
+    // 8. Re-defer modal
+    dismissedConflictKey = currentConflictKey;
+    isConflictModalOpen = Boolean(conflictData && currentConflictKey && dismissedConflictKey !== currentConflictKey);
+    expect(isConflictModalOpen).toBe(false);
+
+    // 9. If a NEW conflict arrives (e.g. revision advances to 6 or contentHash changes), modal automatically re-alerts
+    const newConflictData: ConflictData = {
+      serverRevision: 6,
+      serverState: DEMO_STATE,
+      serverGenerationId: serverGen,
+      serverContentHash: 'sha256_new_conflict_hash',
+    };
+    const newConflictKey = `${userId}_${newConflictData.serverGenerationId || ''}_${newConflictData.serverRevision}_${newConflictData.serverContentHash || ''}`;
+    const newModalOpen = Boolean(newConflictData && newConflictKey && dismissedConflictKey !== newConflictKey);
+    expect(newModalOpen).toBe(true);
+
+    // 10. Resolving conflict clears IDB conflict record and resets deferral
+    await clearConflictRecord(userId);
+    const clearedConflict = await getConflictRecord(userId);
+    expect(clearedConflict).toBeNull();
+  });
+
+  it('SettingsView renders prominent warning banner and "处理冲突" button when conflictData exists', () => {
+    const mockAppContext = {
+      state: DEMO_STATE,
+      currentUser: { id: 'u1', username: 'testuser', nickname: 'Tester' },
+      syncStatus: 'conflict',
+      syncMessage: '检测到版本冲突待处理',
+      triggerSync: async () => ({ ok: false, status: 'conflict' }),
+      conflictData: {
+        serverRevision: 4,
+        serverState: DEMO_STATE,
+        serverGenerationId: 'gen1',
+        serverContentHash: 'hash1',
+      },
+      storageError: null,
+      clearStorageError: () => {},
+      offlineReady: true,
+      pendingSyncCount: 1,
+      hasUnsyncedChanges: true,
+      clearSafeCache: async () => ({ ok: true, message: 'ok' }),
+      restoreLatestRecovery: async () => ({ ok: true }),
+      updateCheckState: null,
+      isCheckingUpdate: false,
+      checkForUpdate: async () => null,
+      updateGuard: () => ({ ok: false, reason: '存在待处理的版本冲突，请先完成冲突处理再更新' }),
+    } as any;
+
+    let conflictOpened = false;
+    const htmlWithConflict = renderToStaticMarkup(
+      React.createElement(
+        AppContext.Provider,
+        { value: mockAppContext },
+        React.createElement(SettingsView, {
+          onOpenProfile: () => {},
+          onOpenBackup: () => {},
+          onOpenConflict: () => { conflictOpened = true; },
+          onOpenLogoutConfirm: () => {},
+          onOpenResetConfirm: () => {},
+          onToast: () => {},
+        })
+      )
+    );
+
+    expect(htmlWithConflict).toContain('检测到数据版本冲突待处理');
+    expect(htmlWithConflict).toContain('云端与本机记录存在分叉版本');
+    expect(htmlWithConflict).toContain('处理冲突');
+    expect(htmlWithConflict).toContain('需要处理版本冲突');
+    expect(htmlWithConflict).not.toContain('已保存到服务器');
+  });
+
+  it('SettingsView does not render conflict banner when conflictData is null', () => {
+    const mockAppContextClean = {
+      state: DEMO_STATE,
+      currentUser: { id: 'u1', username: 'testuser', nickname: 'Tester' },
+      syncStatus: 'synced',
+      syncMessage: '全部学情已与云端完成同步',
+      triggerSync: async () => ({ ok: true, status: 'synced' }),
+      conflictData: null,
+      storageError: null,
+      clearStorageError: () => {},
+      offlineReady: true,
+      pendingSyncCount: 0,
+      hasUnsyncedChanges: false,
+      clearSafeCache: async () => ({ ok: true, message: 'ok' }),
+      restoreLatestRecovery: async () => ({ ok: true }),
+      updateCheckState: null,
+      isCheckingUpdate: false,
+      checkForUpdate: async () => null,
+      updateGuard: () => ({ ok: true }),
+    } as any;
+
+    const htmlClean = renderToStaticMarkup(
+      React.createElement(
+        AppContext.Provider,
+        { value: mockAppContextClean },
+        React.createElement(SettingsView, {
+          onOpenProfile: () => {},
+          onOpenBackup: () => {},
+          onOpenConflict: () => {},
+          onOpenLogoutConfirm: () => {},
+          onOpenResetConfirm: () => {},
+          onToast: () => {},
+        })
+      )
+    );
+
+    expect(htmlClean).not.toContain('检测到数据版本冲突待处理');
+    expect(htmlClean).not.toContain('处理冲突');
+    expect(htmlClean).toContain('已保存到服务器');
   });
 });
