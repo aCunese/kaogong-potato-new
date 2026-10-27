@@ -122,7 +122,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
 
     // 6. EXECUTE RESTORE via restoreOffline
     const { restoreOffline } = await import('../server/disasterRecovery');
-    const restoreResult = restoreOffline({
+    const restoreResult = await restoreOffline({
       sourceDir: testBackupDir,
       dataDir: testDataDir,
       offlineConfirmed: true,
@@ -389,14 +389,14 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     backupDb.close();
 
     // 3. Reject if offlineConfirmed is false
-    assert.throws(
-      () => restoreOffline({ sourceDir: backupDir, dataDir: liveDir, offlineConfirmed: false }),
+    await assert.rejects(
+      async () => await restoreOffline({ sourceDir: backupDir, dataDir: liveDir, offlineConfirmed: false }),
       /OFFLINE_NOT_CONFIRMED/,
       'must reject when offlineConfirmed is not true'
     );
 
     // 4. Execute successful restore
-    const res = restoreOffline({
+    const res = await restoreOffline({
       sourceDir: backupDir,
       dataDir: liveDir,
       offlineConfirmed: true,
@@ -477,7 +477,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
     let failed = false;
     let errMsg = '';
     try {
-      restoreOffline({
+      await restoreOffline({
         sourceDir: backupDir,
         dataDir: liveDir,
         offlineConfirmed: true,

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
+import { acquireDataDirectoryLock } from './dataLock';
 
 export interface RestoreOfflineOptions {
   sourceDir: string;
@@ -45,7 +46,7 @@ function computeFileSha256(filePath: string): string {
  * 7. 保存可验证旧库安全快照（若损坏则仅标记现场副本 pre_restore_corrupt_...）
  * 8. 以数据库主文件原子替换 (fs.renameSync) 作为恢复提交点，清理旧 wal/shm
  */
-export function restoreOffline(options: RestoreOfflineOptions): RestoreOfflineResult {
+export async function restoreOffline(options: RestoreOfflineOptions): Promise<RestoreOfflineResult> {
   if (options.offlineConfirmed !== true) {
     throw new Error('OFFLINE_NOT_CONFIRMED: restoreOffline 仅支持停服恢复。必须显式确认 offlineConfirmed: true。');
   }
@@ -74,72 +75,27 @@ export function restoreOffline(options: RestoreOfflineOptions): RestoreOfflineRe
     fs.mkdirSync(resolvedDataDir, { recursive: true, mode: 0o700 });
   }
 
-  // 1. 取得恢复独占锁，并确认所有使用该数据目录的服务已停止
-  const serverPidFile = path.join(resolvedDataDir, 'server.pid');
-  const serverLockFile = path.join(resolvedDataDir, '.server.lock');
-  for (const lockPath of [serverPidFile, serverLockFile]) {
-    if (fs.existsSync(lockPath)) {
-      try {
-        const raw = fs.readFileSync(lockPath, 'utf8').trim();
-        const pid = parseInt(raw, 10) || (JSON.parse(raw)?.pid);
-        if (pid && typeof pid === 'number' && pid !== process.pid) {
-          try {
-            process.kill(pid, 0);
-            throw new Error(`SERVER_RUNNING: 检测到活跃的服务进程 (PID: ${pid}) 正在占用数据目录。恢复必须在停服状态下执行。`);
-          } catch (e: any) {
-            if (e.message?.includes('SERVER_RUNNING')) throw e;
-            // 进程不存在，锁文件为陈旧残留
-          }
-        }
-      } catch (e: any) {
-        if (e.message?.includes('SERVER_RUNNING')) throw e;
-      }
-    }
-  }
-
-  const targetDbFile = path.join(resolvedDataDir, 'potato.db');
-  if (fs.existsSync(targetDbFile)) {
-    try {
-      const probeDb = new Database(targetDbFile, { timeout: 100 });
-      try {
-        probeDb.pragma('busy_timeout = 100');
-        probeDb.exec('BEGIN EXCLUSIVE; ROLLBACK;');
-      } finally {
-        probeDb.close();
-      }
-    } catch (err: any) {
-      if (err?.code === 'SQLITE_BUSY' || (err?.message && (err.message.includes('locked') || err.message.includes('busy')))) {
-        throw new Error(`DATABASE_LOCKED: 目标数据库 ${targetDbFile} 正在被其他服务进程独占或活跃占用。必须停止所有服务后方可恢复。`);
-      }
-    }
-  }
-
-  const restoreLockFile = path.join(resolvedDataDir, '.restore.lock');
-  if (fs.existsSync(restoreLockFile)) {
-    try {
-      const raw = fs.readFileSync(restoreLockFile, 'utf8');
-      const parsed = JSON.parse(raw);
-      if (parsed.pid && parsed.pid !== process.pid) {
-        try {
-          process.kill(parsed.pid, 0);
-          throw new Error(`RESTORE_IN_PROGRESS: 另一个恢复进程 (PID: ${parsed.pid}) 正在对该数据目录执行恢复。`);
-        } catch (e: any) {
-          if (e.message?.includes('RESTORE_IN_PROGRESS')) throw e;
-          // 陈旧残留恢复锁，移除
-          try { fs.unlinkSync(restoreLockFile); } catch {}
-        }
-      }
-    } catch (e: any) {
-      if (e.message?.includes('RESTORE_IN_PROGRESS')) throw e;
-      try { fs.unlinkSync(restoreLockFile); } catch {}
-    }
-  }
-
-  fs.writeFileSync(restoreLockFile, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }), { mode: 0o600 });
-  let lockAcquired = true;
+  // 1. 取得数据目录独占维护锁 (POSIX fcntl.flock)
+  const lock = await acquireDataDirectoryLock(resolvedDataDir, 'exclusive');
   let stagingDirToClean: string | null = null;
 
   try {
+    const targetDbFile = path.join(resolvedDataDir, 'potato.db');
+    if (fs.existsSync(targetDbFile)) {
+      try {
+        const probeDb = new Database(targetDbFile, { timeout: 100 });
+        try {
+          probeDb.pragma('busy_timeout = 100');
+          probeDb.exec('BEGIN EXCLUSIVE; ROLLBACK;');
+        } finally {
+          probeDb.close();
+        }
+      } catch (err: any) {
+        if (err?.code === 'SQLITE_BUSY' || (err?.message && (err.message.includes('locked') || err.message.includes('busy')))) {
+          throw new Error(`DATABASE_LOCKED: 目标数据库 ${targetDbFile} 正在被其他服务进程独占或活跃占用。必须停止所有服务后方可恢复。`);
+        }
+      }
+    }
     // 2. 严格核验源备份完整性、数据库引用附件与校验和
     const manifestPath = path.join(resolvedSource, 'manifest.json');
     if (fs.existsSync(manifestPath)) {
@@ -431,8 +387,6 @@ export function restoreOffline(options: RestoreOfflineOptions): RestoreOfflineRe
     if (stagingDirToClean && fs.existsSync(stagingDirToClean)) {
       try { fs.rmSync(stagingDirToClean, { recursive: true, force: true }); } catch {}
     }
-    if (lockAcquired && fs.existsSync(restoreLockFile)) {
-      try { fs.unlinkSync(restoreLockFile); } catch {}
-    }
+    await lock.release();
   }
 }

@@ -17,7 +17,9 @@ import {
   getAttachmentsDir,
   closeDb,
   restoreOffline,
+  getDataDir,
 } from './db';
+import { acquireDataDirectoryLock, DataDirectoryLock } from './dataLock';
 import { auditMediaStorage } from './media';
 import { getReleaseValidation } from './app';
 
@@ -101,7 +103,7 @@ async function run() {
       }
 
       try {
-        const result = restoreOffline({
+        const result = await restoreOffline({
           sourceDir,
           dataDir: targetDataDir,
           offlineConfirmed,
@@ -271,4 +273,49 @@ async function run() {
   }
 }
 
-run().finally(() => closeDb());
+async function main() {
+  const DB_COMMANDS = new Set([
+    'create-invite',
+    'list-users',
+    'disable-user',
+    'enable-user',
+    'reset-code',
+    'reset-password',
+    'rotate-gen',
+    'restore-user',
+    'hot-backup',
+    'audit-media',
+  ]);
+
+  let lock: DataDirectoryLock | null = null;
+  try {
+    if (command && DB_COMMANDS.has(command)) {
+      const dataDir = getDataDir();
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+      }
+      lock = await acquireDataDirectoryLock(dataDir, 'shared');
+    }
+    await run();
+  } catch (err: any) {
+    if (err?.code === 'DATA_LOCK_BUSY' || String(err).includes('DATA_LOCK_BUSY')) {
+      console.error(`\n❌ [DATA_LOCK_BUSY] 数据目录正被独占维护或其它进程占用，无法执行命令: ${err.message || err}`);
+      process.exit(2);
+    }
+    if (err?.code === 'DATA_LOCK_UNAVAILABLE' || String(err).includes('DATA_LOCK_UNAVAILABLE')) {
+      console.error(`\n❌ [DATA_LOCK_UNAVAILABLE] 数据目录锁不可用: ${err.message || err}`);
+      process.exit(3);
+    }
+    throw err;
+  } finally {
+    closeDb();
+    if (lock) {
+      await lock.release();
+    }
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

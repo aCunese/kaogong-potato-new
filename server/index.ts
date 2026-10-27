@@ -1,5 +1,7 @@
+import fs from 'node:fs';
 import app, { getReleaseValidation } from './app';
-import { getDb, getCurrentGenerationId } from './db';
+import { getDb, getCurrentGenerationId, getDataDir, closeDb } from './db';
+import { acquireDataDirectoryLock, DataDirectoryLock } from './dataLock';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -11,7 +13,28 @@ if (!releaseStatus.valid || !releaseStatus.config) {
   process.exit(1);
 }
 
-// Ensure DB is initialized
+// 1. 在碰 DB 与监听前，取得共享维护锁
+const dataDir = getDataDir();
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+}
+
+let lock: DataDirectoryLock;
+try {
+  lock = await acquireDataDirectoryLock(dataDir, 'shared');
+} catch (err: any) {
+  const errMsg = err?.message || String(err);
+  console.error('❌ [DATA_LOCK_FATAL] Failed to acquire data directory lock:', errMsg);
+  process.exit(err?.code === 'DATA_LOCK_BUSY' || errMsg.includes('DATA_LOCK_BUSY') ? 2 : 1);
+}
+
+// 2. 监听意外丢锁：helper 意外死亡时，必须立即停止写服务并以非零退出
+lock.lost.catch((err) => {
+  console.error('❌ [FATAL] Data directory maintenance lock lost:', err?.message || err);
+  process.exit(1);
+});
+
+// 3. Ensure DB is initialized
 getDb();
 const genId = getCurrentGenerationId();
 
@@ -24,16 +47,42 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`========================================\n`);
 });
 
-process.on('SIGINT', () => {
-  console.log('收到 SIGINT 信号，正在平稳关闭服务...');
-  server.close(() => {
-    process.exit(0);
-  });
-});
+// 4. 平稳关闭：先停止监听请求 -> 等待在途连接 -> 关闭数据库 -> 释放维护锁 -> 退出
+let isShuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`收到 ${signal} 信号，正在平稳关闭服务...`);
 
-process.on('SIGTERM', () => {
-  console.log('收到 SIGTERM 信号，正在平稳关闭服务...');
-  server.close(() => {
+  if (typeof (server as any).closeIdleConnections === 'function') {
+    (server as any).closeIdleConnections();
+  }
+
+  const forceTimeout = setTimeout(() => {
+    console.error('关闭超时，强制终止。');
+    try { closeDb(); } catch {}
+    lock.release().finally(() => process.exit(1));
+  }, 10000);
+  forceTimeout.unref?.();
+
+  server.close(async (err) => {
+    clearTimeout(forceTimeout);
+    if (err) {
+      console.error('关闭 HTTP 服务异常:', err);
+    }
+    try {
+      closeDb();
+    } catch (dbErr) {
+      console.error('关闭数据库异常:', dbErr);
+    }
+    try {
+      await lock.release();
+    } catch (lockErr) {
+      console.error('释放数据目录锁异常:', lockErr);
+    }
     process.exit(0);
   });
-});
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

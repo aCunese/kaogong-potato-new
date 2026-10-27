@@ -32,8 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Strip build tools to keep image clean and secure
-RUN apt-get purge -y --auto-remove python3 make g++ && \
+# Strip build tools to keep image clean and secure (keep python3 for dataLock helper)
+RUN apt-get purge -y --auto-remove make g++ && \
     rm -rf /var/lib/apt/lists/* /root/.npm
 
 # Copy compiled frontend and server source
@@ -45,7 +45,7 @@ COPY tsconfig.server.json ./
 COPY release.json ./release.json
 RUN mkdir -p /app/release/apk /app/scripts
 COPY release/apk/ ./release/apk/
-COPY scripts/backup.sh scripts/restore.sh ./scripts/
+COPY scripts/ ./scripts/
 
 # Setup data directory permissions for non-root node user
 RUN mkdir -p /app/data/attachments /app/data/backups && \
