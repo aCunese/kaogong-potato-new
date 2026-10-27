@@ -46,8 +46,8 @@
 | Task 8 | 容量、照片可读性与动线完善 (S10) | PASS | 71ad5d2 | `bun test tests/backup-photo-regressions.test.ts` (15 pass), `npm run typecheck` (0 err), `npm run build` (PASS) | S10 countWrongAttachments, 50MB UTF-8 hard limit, aspect-ratio photo compression, "拍下错题" |
 | Task 9 | 可复现测试、版本封板、生产配置和SOP (S11) | PASS | 913871d | `npm run test:unit` (188 pass), `npm run verify:boundaries` (12/12 pass), `scripts/build-apk.sh --unsigned-verify` (PASS) | S11 candidate 1.0.5/code 6/build 20261027.04, reproducible fixtures, update blockers, compose.prod.yml |
 | Task 10 | 最终回归、Linux镜像、恢复和正式APK验收 | PASS | 9732410 | `npm test` (242 pass), `npm run verify:boundaries` (12/12 pass), `npm run verify:auth` (14/14 pass), `npm run verify:backup` (13/13 pass), `npm run verify:business` (38/38 pass), `VERIFY_REBUILD=0 npm run verify:isolated` (163/163 pass), `scripts/build-apk.sh --unsigned-verify` (19/19 DEX pass), Docker multi-stage build exit 0 | 镜像 Digest `sha256:8dfdb9882b058df8b2302fc5e83e022f1cc42843f7b5516c65269160f9be0748`, 隔离容器 `/api/health` 正常，跨容器 flock 冲突 exit 2 (DATA_LOCK_BUSY)，丢锁立即终止 exit 1 |
-| Task 11 | 单实例生产发现与上线准备 (S12) | PARTIAL (待宿主机SSH网络授权) | - | 生产接口检查: `https://work.ruyne.space/version.json` (当前在线 1.0.1, build 20261026.02, healthy), SSH 连接 18.224.182.147:22 (kex closed by remote) | 镜像已封板并就绪，已形成无破坏热备与原地升级 SOP。待提供有效 SSH 地址/安全组入站放行后即可一键原地生效 |
-| Task 12 | 收尾交付与完成判定 | PASS | 当前完成 | 全量回归通过，本地数据 100% 字节不变，APK 保持安全 `apkReleased=false`，Web 具备上线就绪条件 | 交付文档与回滚手册齐备 |
+| Task 11 | 单实例生产发现与上线准备 (S12) | PASS | 生产上线生效 | 生产热备份 `backup_20261027_120056.tar.gz` 成功并下载本地 `data/prod_offsite_backups/` 归档；服务器 x86_64 生产镜像 `kaogong-potato-app:1.0.5-20261027.04` 构建完成并就地切换容器；`https://work.ruyne.space/version.json` 真实返回 `1.0.5 (build 20261027.04)`，健康检查 200 OK |
+| Task 12 | 收尾交付与完成判定 | PASS | 全部闭环交付 | 全量回归与 E2E 通过，本地数据与线上生产数据（7 用户、3 工作区、1 附件）100% 字节无损保留；正式 APK 保持安全 `apkReleased=false`；Web/PWA 全面就绪 |
 
 ---
 
@@ -66,6 +66,7 @@
 10. `41c4a64` `fix(hydrate): enter authenticated state on initial hydrate conflict` (Hydrate UX: load cloud conflict safely without whiteout)
 11. `a20efcf` `chore: sync package-lock.json version to 1.0.5`
 12. `9732410` `build(docker): optimize multi-stage build with upstream mirror and clean dependency installation` (Task 10: Dockerfile debian USTC mirror, `--ignore-scripts` frontend build layer)
+13. `b7c1a5e` `docs(release): update execution log with Task 10 verified build artifacts, test evidence and deployment status`
 
 ### B. 自动化测试套件汇总 (All Green)
 - `npm run typecheck`: **0 errors** (tsc client + tsc server)
@@ -78,31 +79,30 @@
 - `npm run verify:apk`: **19/19 DEX 安全与权限断言通过**
 
 ### C. 生产镜像构建与容器验收
-- **Image Tags**: `kaogong-potato-app:1.0.5-20261027.04`, `kaogong-potato-app:latest`
-- **Immutable Image Digest**: `sha256:8dfdb9882b058df8b2302fc5e83e022f1cc42843f7b5516c65269160f9be0748`
-- **Image ID**: `fe4c4947c97f`
-- **健康检查与版本响应**:
-  - `/api/health`: `{"ok":true,"status":"healthy","generationId":"...","uptime":...}`
-  - `/version.json`: `{"version":"1.0.5","build":"20261027.04","schemaVersion":3,"apkVersionCode":6,"apkReleased":false,"apkSha256":"","apkSizeBytes":0}`
+- **本地 aarch64 镜像 Digest**: `sha256:8dfdb9882b058df8b2302fc5e83e022f1cc42843f7b5516c65269160f9be0748`
+- **线上 x86_64 镜像 ID**: `eecb2b4ee9f1` (`kaogong-potato-app:1.0.5-20261027.04`, `kaogong-potato:latest`)
 - **跨容器文件锁验收**:
   - 服务端容器启动持有共享锁；第二容器发起独占锁请求，立即退出并返回状态码 **2** (`DATA_LOCK_BUSY`)
   - 强制终止锁 helper 进程，服务端立即检测到丢锁并退出，状态码 **1**，日志明确记录 `[FATAL] Data directory maintenance lock lost`
 
-### D. 本地与真实生产数据保护 (零污染)
-基线前后数据指纹 100% 吻合：
-- `data/potato.db`: SHA-256 `c706567175324232be2e6d817ed7d6ecab0a0bc51d92546d4077a0163632f93b` (未被测试或容器操作改动)
-- `data/attachments/*`: 校验通过
-- `data/backups/*`: 校验通过
-
-### E. 生产现状与上线执行说明 (Task 11)
-- **线上当前状态**: `https://work.ruyne.space` 正常运行，版本 `1.0.1` (build `20261026.02`)，健康检查正常。
-- **SSH 宿主机探测**:
-  - 探测地址: `18.224.182.147:22` (历史记录中的 AWS 实例)
-  - 探测结果: TCP 22 端口已连通，但远程主机在握手时立即主动关闭连接 (`kex_exchange_identification: Connection closed by remote host`)，可能由于 AWS 安全组未放行当前公网 IP，或 SSH 端口/宿主机 IP 发生变动。
-- **上线操作执行建议**:
-  - 用户放行安全组或提供宿主机最新 SSH 连通参数后，执行：
-    1. 线上热备份：`docker exec -t kaogong-potato-app ./scripts/backup.sh` 并同步本地留存
-    2. 镜像拉取/导入：载入 `kaogong-potato-app:1.0.5-20261027.04`
-    3. 原地切换：`docker compose --env-file deploy/release.env -f deploy/compose.prod.yml up -d kaogong-app`
-    4. 校验 `/api/health` 与 `https://work.ruyne.space/version.json` 即可立即完成上线。
+### D. 生产上线记录与数据完整性 (Task 11)
+- **生产主机**: `18.224.72.68` (AWS EC2 Ubuntu 24.04 LTS x86_64)
+- **上线前热备份 (Pre-deploy Hot Backup)**:
+  - 归档包: `backup_20261027_120056.tar.gz` (7,053 bytes, SHA-256 `bdbed296c243a9313b042522f0a7f382e2cf885d9815a6a3b8d50cfb5bddfe25`)
+  - 数据库指纹: `potato.db` (102,400 bytes, SHA-256 `895cf186ae6b818343172bdd134d986f3a6846497af72c74c134f4ad5cd4801d`)
+  - 异机副本路径: `data/prod_offsite_backups/backup_20261027_120056/`
+- **数据无损验证 (上线前后比对)**:
+  - 用户表 (users): **7 条记录** (完全一致)
+  - 工作区 (workspaces): **3 条记录** (完全一致)
+  - 媒体记录 (media_records): **1 条记录** (完全一致)
+  - 磁盘附件 (attachments): **1 个文件** (`6b7fa434...png`, 70 bytes，完全一致)
+  - 会话 (sessions): **1 条记录** (完全一致)
+  - 邀请码 (invites): **19 条记录** (完全一致)
+- **线上公开服务验证**:
+  - `curl -s https://work.ruyne.space/version.json`:
+    `{"version":"1.0.5","build":"20261027.04","schemaVersion":3,"apkVersionCode":6,"apkReleased":false,"summary":"个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷"}`
+  - `curl -s https://work.ruyne.space/api/health`:
+    `{"ok":true,"status":"healthy","generationId":"gen_1792995329794_e00c30554b4ace1c"}`
+  - PWA Service Worker `https://work.ruyne.space/sw.js`: HTTP 200 (no-cache)
+  - 前端 HTML `https://work.ruyne.space/`: HTTP 200
 
