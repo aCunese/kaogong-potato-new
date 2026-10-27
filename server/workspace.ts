@@ -1,3 +1,4 @@
+import { validateStudyExtensions } from '../src/utils/studyExtensions';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -94,7 +95,7 @@ const POSE_RE = /^pose-[0-7]$/;
 const BRANDING_PATH_RE = /^\/branding\/[A-Za-z0-9._\-\/]+$/;
 const LEGACY_IMAGE_DATA_URL_RE = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 
-const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version']);
+const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version', 'todos']);
 
 /** 根数组字段的安全容量上限（防范存储炸弹与内存耗尽 DoS） */
 const MAX_ARRAY_LIMITS: Record<string, number> = {
@@ -203,7 +204,7 @@ export interface WorkspaceValidationResult {
 
 /**
  * R18：工作区全字段递归强类型校验。
- * - state.version 存在时必须为数字 3（缺失视为旧版快照兼容）；
+ * - state.version 支持 3、4，须与传入 schemaVersion 一致（旧版缺失值兼容）；
  * - plan.type / record.type 出现时必须是合法枚举（缺失的历史字段允许兼容，但非法值严格拒绝）；
  * - timerStart / accumulatedMs / plannedMinutes / actualMinutes / targetMinutes 出现时必须是有限非负数；
  * - 所有日期为 YYYY-MM-DD（倒计时允许 '' 表示未设置）；
@@ -211,18 +212,22 @@ export interface WorkspaceValidationResult {
  * - R06：wrong[].image / wrong[].images / profile.avatar 走统一图片引用契约。
  */
 export function validateWorkspacePayload(state: any, schemaVersion: any): WorkspaceValidationResult {
-  if (schemaVersion !== 3) {
-    return { valid: false, message: `不支持的工作区 schema 版本: ${schemaVersion}，仅支持版本 3` };
+  if (schemaVersion !== 3 && schemaVersion !== 4) {
+    return { valid: false, message: `不支持的工作区 schema 版本: ${schemaVersion}，仅支持版本 3、4` };
   }
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
     return { valid: false, message: '工作区 state 必须为有效 JSON 对象，不能为字符串、数组或空值' };
   }
-  // Lead 决策：state.version 存在时必须严格 === 3；缺失视为旧版快照兼容放行（存储不补齐、不改写客户端状态）
+  // Preserve legacy version-3 snapshots; version-4 extensions are validated below.
   if (state.version !== undefined) {
-    if (typeof state.version !== 'number' || !Number.isFinite(state.version) || state.version !== 3) {
-      return { valid: false, message: `state.version 必须为数字 3（实际: ${JSON.stringify(state.version)}）` };
+    if (typeof state.version !== 'number' || !Number.isFinite(state.version) || (state.version !== 3 && state.version !== 4)) {
+      return { valid: false, message: `state.version 必须为数字 3 或 4（实际: ${JSON.stringify(state.version)}）` };
     }
   }
+
+  if ((state.version !== undefined && state.version !== schemaVersion) || (schemaVersion === 4 && state.version !== 4)) return { valid: false, message: '工作区内容版本与同步协议不一致，请更新客户端。' };
+  const extensionError = validateStudyExtensions(state);
+  if (extensionError) return { valid: false, message: extensionError };
 
   // 防御未知大对象挂载与内存爆炸 DoS (Memory Exhaustion)
   for (const key of Object.keys(state)) {
@@ -587,7 +592,7 @@ export interface SyncPushInput {
 
 export interface SyncPushResult {
   ok: boolean;
-  status: 200 | 400 | 409 | 413 | 500;
+  status: 200 | 400 | 409 | 413 | 426 | 500;
   code?: string;
   message?: string;
   revision?: number;
@@ -706,6 +711,10 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
     const serverContentHash = existing ? getStateContentHash(existing.state_json) : null;
     const serverState = existing ? parseStateJson(existing.state_json) : null;
 
+    if (existing && existing.schema_version >= 4 && input.schemaVersion < existing.schema_version) {
+      return { downgrade: true as const };
+    }
+
     // Check expected content hash if provided
     if (input.expectedContentHash !== undefined && input.expectedContentHash !== null) {
       if (serverContentHash !== input.expectedContentHash) {
@@ -774,6 +783,7 @@ export function syncUserWorkspace(input: SyncPushInput): SyncPushResult {
   });
 
   const txResult = executeTransaction();
+  if ('downgrade' in txResult) return { ok: false, status: 426, code: 'CLIENT_UPDATE_REQUIRED', message: '云端已有新版待办与计时数据，请更新客户端后继续同步；本机数据已保留。' };
   if (txResult.conflict) {
     return {
       ok: false,
@@ -901,7 +911,8 @@ export function mergeDefaultSeedIntoState(existing: AppState): AppState {
     plans: Array.isArray(existing.plans) ? existing.plans : [],
     records: Array.isArray(existing.records) ? existing.records : [],
     wrong: Array.isArray(existing.wrong) ? existing.wrong : [],
-    version: 3,
+    ...(existing.todos !== undefined ? { todos: existing.todos } : {}),
+    version: existing.version === 4 ? 4 : 3,
   };
 }
 
@@ -950,7 +961,7 @@ export function applyWorkspaceInitChoice(input: InitChoiceInput): InitChoiceResu
         ? mergeDefaultSeedIntoState(existingState)
         : createSeedState(input.username, input.nickname);
 
-      const validation = validateWorkspacePayload(nextState, 3);
+      const validation = validateWorkspacePayload(nextState, nextState.version || 3);
       if (!validation.valid) {
         return {
           ok: false,
@@ -988,16 +999,16 @@ export function applyWorkspaceInitChoice(input: InitChoiceInput): InitChoiceResu
 
     db.prepare(`
       INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, seed_version, init_choice, updated_at)
-      VALUES (?, ?, ?, ?, 3, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         revision = excluded.revision,
         generation_id = excluded.generation_id,
         state_json = excluded.state_json,
-        schema_version = 3,
+        schema_version = excluded.schema_version,
         seed_version = 1,
         init_choice = excluded.init_choice,
         updated_at = excluded.updated_at
-    `).run(input.userId, nextRevision, currentGen, nextJson, input.choice, nowIso);
+    `).run(input.userId, nextRevision, currentGen, nextJson, nextState.version, input.choice, nowIso);
 
     pruneWorkspaceHistory(input.userId, new Date(nowIso), db);
 
@@ -1112,7 +1123,7 @@ export function getUserBackupExport(userId: string) {
 
   const backupObj = {
     app: '考公工作台·土豆新版',
-    version: 3,
+    version: exportedState.version,
     exportedAt: new Date().toISOString(),
     userId,
     revision: current.revision,
@@ -1189,14 +1200,14 @@ export function restoreUserFromHistory(userId: string, historyId: string) {
 
     db.prepare(`
       INSERT INTO workspaces (user_id, revision, generation_id, state_json, schema_version, updated_at)
-      VALUES (?, ?, ?, ?, 3, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         revision = excluded.revision,
         generation_id = excluded.generation_id,
         state_json = excluded.state_json,
         schema_version = excluded.schema_version,
         updated_at = excluded.updated_at
-    `).run(userId, nextRevision, currentGen, historyRow.state_json, nowIso);
+    `).run(userId, nextRevision, currentGen, historyRow.state_json, parseStateJson(historyRow.state_json)?.version || 3, nowIso);
 
     // R18: bounded retention for the new history write (only >7-day rows are pruned)
     pruneWorkspaceHistory(userId, new Date(nowIso), db);

@@ -586,7 +586,7 @@ export async function commitMutationTransaction(
       const recoveryRecord: SnapshotRecord = {
         key: recKey,
         state: structuredClone(currentSnap.state),
-        version: 3,
+        version: currentSnap.state.version,
         revision: currentSnap.revision ?? 0,
         migratedFromV2: true,
         updatedAt: new Date().toISOString(),
@@ -595,7 +595,7 @@ export async function commitMutationTransaction(
       const historyRecord: SnapshotRecord = {
         key: historyKey,
         state: structuredClone(currentSnap.state),
-        version: 3,
+        version: currentSnap.state.version,
         revision: currentSnap.revision ?? 0,
         migratedFromV2: true,
         updatedAt: new Date().toISOString(),
@@ -644,7 +644,7 @@ export async function commitMutationTransaction(
           const recoveryRecord: SnapshotRecord = {
             key: recKey,
             state: structuredClone(current.state),
-            version: 3,
+            version: current.state.version,
             revision: current.revision ?? 0,
             migratedFromV2: true,
             updatedAt: new Date().toISOString(),
@@ -653,7 +653,7 @@ export async function commitMutationTransaction(
           const historyRecord: SnapshotRecord = {
             key: historyKey,
             state: structuredClone(current.state),
-            version: 3,
+            version: current.state.version,
             revision: current.revision ?? 0,
             migratedFromV2: true,
             updatedAt: new Date().toISOString(),
@@ -766,7 +766,7 @@ export async function loadLatestState(userId?: string | null): Promise<LoadState
         const initialSnapshot: SnapshotRecord = {
           key: 'latest',
           state: validated.migratedState,
-          version: 3,
+          version: validated.migratedState.version,
           revision: 1,
           migratedFromV2: true,
           updatedAt: new Date().toISOString(),
@@ -908,7 +908,7 @@ export async function commitMutation<T>(
         const newSnapshot: SnapshotRecord = {
           key: targetKey,
           state: mutationResult.nextState,
-          version: 3,
+          version: mutationResult.nextState.version,
           revision: nextLocalVersion,
           confirmedRevision: baseline.confirmedRevision,
           generationId: baseline.generationId,
@@ -1105,7 +1105,7 @@ export async function claimOutboxTask(
       requestId: item.requestId,
       expectedRevision: item.expectedRevision,
       expectedContentHash: item.expectedContentHash,
-      schemaVersion: 3,
+      schemaVersion: item.state.version,
       generationId: item.generationId,
       state: item.state,
       reason: item.reason || 'sync',
@@ -1142,7 +1142,7 @@ export async function claimOutboxTask(
     requestId: currentItem.requestId,
     expectedRevision: currentItem.expectedRevision,
     expectedContentHash: currentItem.expectedContentHash,
-    schemaVersion: 3,
+    schemaVersion: currentItem.state.version,
     generationId: currentItem.generationId,
     state: currentItem.state,
     reason: currentItem.reason || 'sync',
@@ -2440,7 +2440,7 @@ export async function installConfirmedServerState(
         memoryStore.snapshots.set(getRecoveryKey(userId), {
           key: getRecoveryKey(userId),
           state: structuredClone(current.state),
-          version: 3,
+          version: current.state.version,
           revision: current.revision ?? 0,
           migratedFromV2: true,
           updatedAt: new Date().toISOString(),
@@ -2454,7 +2454,7 @@ export async function installConfirmedServerState(
       memoryStore.snapshots.set(getSnapshotKey(userId), {
         key: getSnapshotKey(userId),
         state: serverState,
-        version: 3,
+        version: serverState.version,
         revision: Math.max((current?.revision ?? 0) + 1, 1),
         confirmedRevision: meta.revision,
         generationId: meta.generationId,
@@ -2508,7 +2508,7 @@ export async function installConfirmedServerState(
             snapStore.put({
               key: getRecoveryKey(userId),
               state: current.state,
-              version: 3,
+              version: current.state.version,
               revision: current.revision ?? 0,
               migratedFromV2: true,
               updatedAt: new Date().toISOString(),
@@ -2522,7 +2522,7 @@ export async function installConfirmedServerState(
           snapStore.put({
             key: snapKey,
             state: serverState,
-            version: 3,
+            version: serverState.version,
             revision: Math.max((current?.revision ?? 0) + 1, options.localMutationVersion ?? 1),
             confirmedRevision: meta.revision,
             generationId: meta.generationId,
@@ -2595,7 +2595,7 @@ export async function atomicResolveConflict(
         const recoveryPoint: SnapshotRecord = {
           key: getRecoveryKey(userId),
           state: structuredClone(current.state),
-          version: 3,
+          version: current.state.version,
           revision: curRev,
           migratedFromV2: current.migratedFromV2,
           updatedAt: new Date().toISOString(),
@@ -2660,7 +2660,7 @@ export async function atomicResolveConflict(
           const recoverySnap: SnapshotRecord = {
             key: getRecoveryKey(userId),
             state: curSnap.state,
-            version: 3,
+            version: curSnap.state.version,
             revision: curRev,
             migratedFromV2: curSnap.migratedFromV2,
             updatedAt: new Date().toISOString(),
@@ -2670,7 +2670,7 @@ export async function atomicResolveConflict(
           const historySnap: SnapshotRecord = {
             key: `recovery_${userId}_${Date.now()}`,
             state: curSnap.state,
-            version: 3,
+            version: curSnap.state.version,
             revision: curRev,
             migratedFromV2: curSnap.migratedFromV2,
             updatedAt: new Date().toISOString(),
@@ -2863,7 +2863,7 @@ export async function saveRecoverySnapshot(
   const record: SnapshotRecord = {
     key: getRecoveryKey(targetUserId),
     state: structuredClone(state),
-    version: 3,
+    version: state.version,
     revision,
     migratedFromV2: true,
     updatedAt: new Date().toISOString(),
@@ -2871,7 +2871,7 @@ export async function saveRecoverySnapshot(
   const historyRecord: SnapshotRecord = {
     key: `recovery_${targetUserId}_${Date.now()}`,
     state: structuredClone(state),
-    version: 3,
+    version: state.version,
     revision,
     migratedFromV2: true,
     updatedAt: new Date().toISOString(),
@@ -3235,7 +3235,7 @@ export async function saveNamedRecoverySnapshot(
   const record: SnapshotRecord = {
     key,
     state: structuredClone(state),
-    version: 3,
+    version: state.version,
     revision,
     migratedFromV2: true,
     updatedAt: new Date().toISOString(),
@@ -3396,7 +3396,7 @@ export async function commitGuestMigrationTransaction(
       memoryStore.snapshots.set(accountRecoveryKey, {
         key: accountRecoveryKey,
         state: structuredClone(existingSnapshot?.state ?? accountState),
-        version: 3,
+        version: (existingSnapshot?.state ?? accountState).version,
         revision: expectedRevision,
         migratedFromV2: true,
         updatedAt: nowIso,
@@ -3406,7 +3406,7 @@ export async function commitGuestMigrationTransaction(
       memoryStore.snapshots.set(guestRecoveryKey, {
         key: guestRecoveryKey,
         state: structuredClone(guestState),
-        version: 3,
+        version: guestState.version,
         revision: 0,
         migratedFromV2: true,
         updatedAt: nowIso,
@@ -3436,7 +3436,7 @@ export async function commitGuestMigrationTransaction(
       const newSnapshot: SnapshotRecord = {
         key: targetKey,
         state: structuredClone(mergedState),
-        version: 3,
+        version: mergedState.version,
         revision: nextLocalVersion,
         confirmedRevision: baseline.confirmedRevision,
         generationId: baseline.generationId,
@@ -3514,7 +3514,7 @@ export async function commitGuestMigrationTransaction(
           snapStore.put({
             key: accountRecoveryKey,
             state: currentSnapshot?.state ?? accountState,
-            version: 3,
+            version: (currentSnapshot?.state ?? accountState).version,
             revision: expectedRevision,
             migratedFromV2: true,
             updatedAt: nowIso,
@@ -3524,7 +3524,7 @@ export async function commitGuestMigrationTransaction(
           snapStore.put({
             key: guestRecoveryKey,
             state: guestState,
-            version: 3,
+            version: guestState.version,
             revision: 0,
             migratedFromV2: true,
             updatedAt: nowIso,
@@ -3554,7 +3554,7 @@ export async function commitGuestMigrationTransaction(
           snapStore.put({
             key: targetKey,
             state: mergedState,
-            version: 3,
+            version: mergedState.version,
             revision: nextLocalVersion,
             confirmedRevision: baseline.confirmedRevision,
             generationId: baseline.generationId,

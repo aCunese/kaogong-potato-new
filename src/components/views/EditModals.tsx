@@ -38,33 +38,40 @@ export const AddPlanModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onToast: (msg: string) => void;
-}> = ({ isOpen, onClose, onToast }) => {
+  onOpenCustomAdd?: () => void;
+}> = ({ isOpen, onClose, onToast, onOpenCustomAdd }) => {
   const { state, addPlan } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [selectedLibId, setSelectedLibId] = useState<string>(state.library[0]?.id || '');
-  const [minutes, setMinutes] = useState<number>(30);
+  const [minutes, setMinutes] = useState<string>(String(state.library[0]?.defaultMinutes ?? 30));
+
+  const [lessons, setLessons] = useState('1');
+  const selectedItem = state.library.find(l => l.id === selectedLibId);
+  const validMinutes = /^\d+$/.test(minutes) && Number.isSafeInteger(Number(minutes)) && Number(minutes) > 0;
+  const validLessons = selectedItem?.type !== 'course' || (/^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0);
 
   useEffect(() => {
     if (!state.library.some(item => item.id === selectedLibId)) {
       setSelectedLibId(state.library[0]?.id || '');
-      setMinutes(state.library[0]?.defaultMinutes || 30);
+      setMinutes(String(state.library[0]?.defaultMinutes ?? 30));
     }
   }, [state.library, selectedLibId]);
 
   const handleSelect = (id: string) => {
     setSelectedLibId(id);
     const item = state.library.find(l => l.id === id);
-    if (item) setMinutes(item.defaultMinutes);
+    if (item) setMinutes(String(item.defaultMinutes));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedLibId) { setErrorMsg('请先添加题本、网课或自定义事项'); return; }
-    void save(() => addPlan(selectedLibId, minutes), '已成功添加到今日日程！');
+    if (!validMinutes || !validLessons) { setErrorMsg('请填写大于0的整数分钟和有效节数，空白或0不能加入。'); return; }
+    void save(() => addPlan(selectedLibId, Number(minutes), selectedItem?.type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="从事项库挑选加入今天">
+    <Modal isOpen={isOpen} onClose={onClose} title="添加今日日程">
       <form onSubmit={handleSubmit} className="space-y-4">
         <FormError message={errorMsg} />
         <div>
@@ -88,12 +95,21 @@ export const AddPlanModal: React.FC<{
             type="number"
             min="1"
             value={minutes}
-            onChange={e => setMinutes(parseInt(e.target.value) || 1)}
+            onChange={e => setMinutes(e.target.value)}
+            aria-label="今日计划用时"
+            required
             className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
           />
         </div>
 
-        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !selectedLibId}>
+        {selectedItem?.type === 'course' && <div>
+          <label className="block text-xs text-ink-muted mb-1">本次计划节数</label>
+          <input aria-label="本次计划节数" type="number" min="1" step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-line bg-cream/70 text-sm" />
+          <p className="text-xs text-ink-muted mt-1">结束时确认实际完成节数，计时到点不会自动增加进度。</p>
+        </div>}
+        {(!validMinutes || !validLessons) && <p className="text-xs text-alarm">时长和节数须大于0，填写后才能加入。</p>}
+        {onOpenCustomAdd && <button type="button" className="text-xs text-sage" onClick={() => { onClose(); onOpenCustomAdd(); }}>添加自定义学习事项</button>}
+        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !selectedLibId || !validMinutes || !validLessons}>
           确认加入今日日程
         </Button>
       </form>
@@ -416,12 +432,12 @@ export const CustomAddModal: React.FC<{
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<Subject>('申论');
-  const [defaultMinutes, setDefaultMinutes] = useState(30);
+  const [defaultMinutes, setDefaultMinutes] = useState('30');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { setErrorMsg('请填写事项名称'); return; }
-    void save(() => addCustomItem(name.trim(), subject, defaultMinutes), '已添加自定义学习事项！');
+    void save(() => addCustomItem(name.trim(), subject, Number(defaultMinutes)), '已添加自定义学习事项！');
   };
 
   return (
@@ -456,14 +472,15 @@ export const CustomAddModal: React.FC<{
             type="number"
             min="1"
             value={defaultMinutes}
-            onChange={e => setDefaultMinutes(parseInt(e.target.value) || 1)}
+            onChange={e => setDefaultMinutes(e.target.value)}
+            required
             className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
           />
         </div>
 
         <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
-            添加到事项库
+          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !defaultMinutes.trim() || !Number.isSafeInteger(Number(defaultMinutes)) || Number(defaultMinutes) <= 0}>
+            保存学习事项
           </Button>
         </div>
       </form>

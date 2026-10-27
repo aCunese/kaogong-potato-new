@@ -19,6 +19,21 @@ export interface Countdown {
 
 export type PlanType = 'book' | 'course' | 'custom';
 
+export type TimerMode = 'countup' | 'countdown' | 'pomodoro';
+export interface TimerConfig {
+  timerMode: TimerMode;
+  focusMinutes: number;
+  restMinutes: number;
+}
+export interface TodoItem {
+  id: string;
+  text: string;
+  date: string;
+  done: boolean;
+  createdAt: number;
+  completedAt: number;
+}
+
 export interface Plan {
   id: string;
   date: string;
@@ -33,6 +48,14 @@ export interface Plan {
   done: boolean;
   timerStart: number; // timestamp in ms, 0 if paused/not running
   recordId?: string;
+  plannedLessons?: number;
+  timerMode?: TimerMode;
+  focusMinutes?: number;
+  restMinutes?: number;
+  timerPhase?: 'focus' | 'rest';
+  phaseAccumulatedMs?: number;
+  restStart?: number;
+  archived?: boolean;
 }
 
 export interface Book {
@@ -76,6 +99,8 @@ export interface StudyRecord {
   questions: number;
   errors: number;
   lessons?: number; // for course completion
+  /** False when a migrated record was not added to its matched source counters. */
+  sourceApplied?: boolean;
 }
 
 export interface WrongRecord {
@@ -103,7 +128,8 @@ export interface AppState {
   plans: Plan[];
   records: StudyRecord[];
   wrong: WrongRecord[];
-  version: 3;
+  todos?: TodoItem[];
+  version: 3 | 4;
 }
 
 export type MutationResult<T> =
@@ -127,7 +153,7 @@ export interface MediaRecord {
 export interface SnapshotRecord {
   key: string;
   state: AppState;
-  version: 3;
+  version: 3 | 4;
   /**
    * Local mutation version. Monotonic counter of local writes to this partition.
    * NEVER send this value as the cloud `expectedRevision`.
@@ -213,7 +239,7 @@ export interface WorkspacePushPayload {
   requestId: string;
   expectedRevision: number;
   expectedContentHash?: string;
-  schemaVersion: 3;
+  schemaVersion: 3 | 4;
   generationId: string;
   state: AppState;
   reason: string;

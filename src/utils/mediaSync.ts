@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from './networkRequest';
 import { AppState, MediaRecord, OperationScope, OperationContext } from '../types';
 import {
   applyMediaRefMappings,
@@ -177,11 +178,11 @@ async function uploadOneMedia(csrfToken: string, ref: string, userId?: string): 
     if (userId) {
       headers['x-workspace-user'] = userId;
     }
-    response = await fetch('/api/media/upload', {
+    response = await fetchWithDeadline('/api/media/upload', {
       method: 'POST',
       headers,
       body: form,
-    });
+    }, 60000);
   } catch (err) {
     return {
       ok: false,

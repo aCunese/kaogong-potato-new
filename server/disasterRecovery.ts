@@ -236,7 +236,7 @@ export function validateRestoreDatabase(
     } catch (err: any) {
       throw new Error(`INVALID_WORKSPACE_STATE_JSON: 用户 ${ws.user_id} 工作区 state_json 不是合法 JSON (${phase}): ${err.message}`);
     }
-    const validation = validateWorkspacePayload(parsedState, 3);
+    const validation = validateWorkspacePayload(parsedState, parsedState?.version || 3);
     if (!validation.valid) {
       throw new Error(`INVALID_WORKSPACE_PAYLOAD: 用户 ${ws.user_id} 工作区 state 结构校验失败 (${phase}): ${validation.message}`);
     }
@@ -264,7 +264,7 @@ export function validateRestoreDatabase(
     } catch (err: any) {
       throw new Error(`INVALID_HISTORY_STATE_JSON: 历史记录 ${hist.id} (user_id: ${hist.user_id}) state_json 不是合法 JSON (${phase}): ${err.message}`);
     }
-    const validation = validateWorkspacePayload(parsedState, 3);
+    const validation = validateWorkspacePayload(parsedState, parsedState?.version || 3);
     if (!validation.valid) {
       throw new Error(`INVALID_HISTORY_PAYLOAD: 历史记录 ${hist.id} (user_id: ${hist.user_id}) state 结构校验失败 (${phase}): ${validation.message}`);
     }

@@ -10,7 +10,10 @@ import {
   Profile,
   CompletionInput,
   MediaRecord,
+  TodoItem,
+  TimerConfig,
 } from '../types';
+import { learningElapsedMs, phaseElapsedMs, planDayEnd } from './studyTimers';
 import { buildLibraryFromSources } from '../constants/initialData';
 
 export type MutatorReturn<T> =
@@ -30,6 +33,9 @@ export function applyStartTimer(
   if (!plan) {
     return { error: { code: 'NOT_FOUND', message: '计划未找到' } };
   }
+  if (plan.archived || (draft.version === 4 && now >= planDayEnd(plan))) {
+    return { error: { code: 'PLAN_ARCHIVED', message: '昨天的日程已归档，请在今天新建日程；历史用时可补登记。' } };
+  }
   if (plan.done) {
     return { error: { code: 'PLAN_ALREADY_DONE', message: '已完成的计划无法开始计时' } };
   }
@@ -37,7 +43,15 @@ export function applyStartTimer(
     // Idempotent: already running, do not modify timestamp
     return { nextState: draft, value: undefined };
   }
-  plan.timerStart = now;
+  if (plan.timerPhase === 'rest') {
+    if ((plan.restStart ?? 0) > 0) return { nextState: draft, value: undefined };
+    if (phaseElapsedMs(plan, now) >= (plan.restMinutes ?? 5) * 60000) {
+      return { error: { code: 'REST_FINISHED', message: '休息已结束，请开始下一轮专注。' } };
+    }
+    plan.restStart = now;
+  } else {
+    plan.timerStart = now;
+  }
   return { nextState: draft, value: undefined };
 }
 
@@ -55,20 +69,14 @@ export function applyPauseTimer(
   if (!plan) {
     return { error: { code: 'NOT_FOUND', message: '计划未找到' } };
   }
-  if (plan.timerStart === 0) {
-    // Idempotent: already paused
-    return { nextState: draft, value: undefined };
-  }
-
-  const elapsed = Math.max(0, now - plan.timerStart);
-  const prevAccumulated = typeof plan.accumulatedMs === 'number'
-    ? plan.accumulatedMs
-    : (plan.actualMinutes || 0) * 60000;
-  const newAccumulated = prevAccumulated + elapsed;
-
-  plan.accumulatedMs = newAccumulated;
-  plan.actualMinutes = Math.floor(newAccumulated / 60000);
+  if (!plan.timerStart && !plan.restStart) return { nextState: draft, value: undefined };
+  const elapsed = learningElapsedMs(plan, now);
+  const phase = phaseElapsedMs(plan, now);
+  plan.accumulatedMs = elapsed;
+  plan.actualMinutes = Math.floor(elapsed / 60000);
+  if (plan.timerMode) plan.phaseAccumulatedMs = phase;
   plan.timerStart = 0;
+  if (plan.restStart !== undefined) plan.restStart = 0;
 
   return { nextState: draft, value: undefined };
 }
@@ -145,6 +153,7 @@ export function applyCompletePlan(
   const recordId = `rec-${now}-${Math.random().toString(36).slice(2, 6)}`;
   plan.done = true;
   plan.timerStart = 0;
+  if (plan.restStart !== undefined) plan.restStart = 0;
   plan.actualMinutes = input.minutes;
   plan.accumulatedMs = input.minutes * 60000;
   plan.recordId = recordId;
@@ -173,14 +182,25 @@ export function applyAddPlan(
   draft: AppState,
   libraryId: string,
   date: string,
-  plannedMinutes?: number
+  plannedMinutes?: number,
+  plannedLessons?: number
 ): MutatorReturn<Plan> {
   const item = draft.library.find(l => l.id === libraryId);
   if (!item) {
     return { error: { code: 'LIBRARY_ITEM_NOT_FOUND', message: '事项库未找到该项目' } };
   }
 
-  const mins = plannedMinutes && plannedMinutes > 0 ? plannedMinutes : item.defaultMinutes;
+  const mins = plannedMinutes === undefined ? item.defaultMinutes : plannedMinutes;
+  if (!Number.isSafeInteger(mins) || mins <= 0) {
+    return { error: { code: 'INVALID_MINUTES', message: '请填写大于0的整数分钟，空白或0不能加入日程。' } };
+  }
+  const lessons = plannedLessons ?? 1;
+  if (item.type === 'course') {
+    const course = draft.courses.find(c => c.id === item.sourceId);
+    if (!course || !Number.isSafeInteger(lessons) || lessons <= 0 || lessons > course.totalLessons - course.completedLessons) {
+      return { error: { code: 'INVALID_LESSONS', message: '计划节数必须为正整数，且不能超过剩余未学节数。' } };
+    }
+  }
   const newPlan: Plan = {
     id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     date,
@@ -196,6 +216,10 @@ export function applyAddPlan(
     timerStart: 0,
   };
 
+  if (item.type === 'course') {
+    newPlan.plannedLessons = lessons;
+    draft.version = 4;
+  }
   draft.plans.push(newPlan);
   return { nextState: draft, value: newPlan };
 }
@@ -215,6 +239,32 @@ export function applyQuickAddPlan(
  * Deletes a plan by id.
  */
 export function applyDeletePlan(draft: AppState, planId: string): MutatorReturn<void> {
+  const plan = draft.plans.find(p => p.id === planId);
+  if (!plan) return { nextState: draft, value: undefined };
+  const records = draft.records.filter(r => r.planId === planId || r.id === plan.recordId);
+  const books = structuredClone(draft.books);
+  const courses = structuredClone(draft.courses);
+  for (const record of records) {
+    if (record.sourceApplied === false) continue;
+    const source = record.type === 'book' ? books.find(b => b.id === record.sourceId)
+      : record.type === 'course' ? courses.find(c => c.id === record.sourceId) : undefined;
+    if (!source) continue;
+    source.minutes -= record.minutes;
+    if (record.type === 'book' && 'done' in source) {
+      source.done -= record.questions;
+      source.errors -= record.errors;
+      if (source.done < 0 || source.errors < 0 || source.errors > source.done) {
+        return { error: { code: 'COUNTER_INCONSISTENT', message: '题本累计数据曾被手动调整，与本次登记不一致；请先校正题本数据再撤销。' } };
+      }
+    } else if (record.type === 'course' && 'completedLessons' in source) {
+      source.completedLessons -= record.lessons ?? 0;
+      if (source.completedLessons < 0) return { error: { code: 'COUNTER_INCONSISTENT', message: '课程累计节数与登记不一致，请先校正课程数据。' } };
+    }
+    if (source.minutes < 0) return { error: { code: 'COUNTER_INCONSISTENT', message: '累计用时与登记不一致，请先校正数据再撤销。' } };
+  }
+  draft.books = books;
+  draft.courses = courses;
+  draft.records = draft.records.filter(r => !records.includes(r));
   draft.plans = draft.plans.filter(p => p.id !== planId);
   return { nextState: draft, value: undefined };
 }
@@ -300,6 +350,7 @@ export function applyAddCustomItem(
   subject: Subject,
   defaultMinutes: number
 ): MutatorReturn<LibraryItem> {
+  if (!Number.isSafeInteger(defaultMinutes) || defaultMinutes <= 0) return { error: { code: 'INVALID_MINUTES', message: '默认时长必须为大于0的整数分钟。' } };
   const id = `lib-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newItem: LibraryItem = {
     id,
@@ -321,8 +372,9 @@ export function applyUpdateLibraryMinutes(
   id: string,
   defaultMinutes: number
 ): MutatorReturn<void> {
+  if (!Number.isSafeInteger(defaultMinutes) || defaultMinutes <= 0) return { error: { code: 'INVALID_MINUTES', message: '默认时长必须为大于0的整数分钟。' } };
   draft.library = draft.library.map(l =>
-    l.id === id ? { ...l, defaultMinutes: Math.max(1, defaultMinutes) } : l
+    l.id === id ? { ...l, defaultMinutes } : l
   );
   return { nextState: draft, value: undefined };
 }
@@ -403,5 +455,60 @@ export function applyUpdateCountdown(
     return { error: { code: 'NOT_FOUND', message: `未找到 ID 为 ${id} 的倒计时` } };
   }
   draft.countdowns = draft.countdowns.map(cd => (cd.id === id ? { ...cd, date } : cd));
+  return { nextState: draft, value: undefined };
+}
+
+
+export function applyAddTodo(draft: AppState, text: string, date: string, now = Date.now()): MutatorReturn<TodoItem> {
+  if (!text.trim() || text.trim().length > 200) return { error: { code: 'INVALID_TODO', message: '待办内容需为1至200个字符。' } };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: { code: 'INVALID_DATE', message: '请选择有效日期。' } };
+  if ((draft.todos?.length ?? 0) >= 5000) return { error: { code: 'TODO_LIMIT', message: '待办数量已达5000条，请整理后再添加。' } };
+  const todo: TodoItem = { id: `todo-${now}-${Math.random().toString(36).slice(2, 9)}`, text: text.trim(), date, done: false, createdAt: now, completedAt: 0 };
+  draft.todos = [...(draft.todos ?? []), todo]; draft.version = 4;
+  return { nextState: draft, value: todo };
+}
+export function applyToggleTodo(draft: AppState, id: string, now = Date.now()): MutatorReturn<void> {
+  const todo = draft.todos?.find(t => t.id === id);
+  if (!todo) return { error: { code: 'NOT_FOUND', message: '待办未找到。' } };
+  todo.done = !todo.done; todo.completedAt = todo.done ? now : 0;
+  return { nextState: draft, value: undefined };
+}
+export function applyDeleteTodo(draft: AppState, id: string): MutatorReturn<void> {
+  draft.todos = (draft.todos ?? []).filter(t => t.id !== id); draft.version = 4;
+  return { nextState: draft, value: undefined };
+}
+export function applyConfigureTimer(draft: AppState, id: string, config: TimerConfig): MutatorReturn<void> {
+  const plan = draft.plans.find(p => p.id === id);
+  if (!plan || plan.done || plan.timerStart > 0 || (plan.restStart ?? 0) > 0) return { error: { code: 'TIMER_BUSY', message: '请先暂停计时再设置模式。' } };
+  if (!['countup', 'countdown', 'pomodoro'].includes(config.timerMode) || !Number.isSafeInteger(config.focusMinutes) || config.focusMinutes <= 0 || !Number.isSafeInteger(config.restMinutes) || config.restMinutes <= 0) return { error: { code: 'INVALID_TIMER', message: '专注与休息时长必须为大于0的整数分钟。' } };
+  Object.assign(plan, config, { timerPhase: 'focus', phaseAccumulatedMs: 0, restStart: 0 }); draft.version = 4;
+  return { nextState: draft, value: undefined };
+}
+export function applySwitchTimerPhase(draft: AppState, id: string, phase: 'focus' | 'rest', now = Date.now()): MutatorReturn<void> {
+  const plan = draft.plans.find(p => p.id === id);
+  if (!plan || plan.done || plan.archived || plan.timerMode !== 'pomodoro' || now >= planDayEnd(plan)) return { error: { code: 'INVALID_TIMER_PHASE', message: '该日程无法切换番茄阶段。' } };
+  if (plan.timerPhase === phase) return { nextState: draft, value: undefined };
+  applyPauseTimer(draft, id, now);
+  plan.timerPhase = phase; plan.phaseAccumulatedMs = 0;
+  if (phase === 'rest') plan.restStart = now; else plan.timerStart = now;
+  return { nextState: draft, value: undefined };
+}
+export function applyArchiveOldPlans(draft: AppState, today: string): MutatorReturn<void> {
+  for (const plan of draft.plans) {
+    if (plan.date >= today || plan.archived) continue;
+    applyPauseTimer(draft, plan.id, planDayEnd(plan));
+    plan.archived = true; draft.version = 4;
+  }
+  return { nextState: draft, value: undefined };
+}
+
+
+/** Must run against the current transaction draft, never a captured list of expired IDs. */
+export function applyMaintainTimers(draft: AppState, today: string, now = Date.now()): MutatorReturn<void> {
+  applyArchiveOldPlans(draft, today);
+  for (const plan of draft.plans) {
+    if (!plan.done && plan.timerPhase === 'rest' && (plan.restStart ?? 0) > 0 &&
+      phaseElapsedMs(plan, now) >= (plan.restMinutes ?? 5) * 60000) applyPauseTimer(draft, plan.id, now);
+  }
   return { nextState: draft, value: undefined };
 }

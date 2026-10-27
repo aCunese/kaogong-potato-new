@@ -368,7 +368,7 @@ export function restoreUserWorkspace(
     };
   }
 
-  const payloadValidation = validateWorkspacePayload(state, 3);
+  const payloadValidation = validateWorkspacePayload(state, state.version);
   if (!payloadValidation.valid) {
     cleanupNewFiles();
     return {
@@ -417,7 +417,7 @@ export function restoreUserWorkspace(
           state_json = excluded.state_json,
           schema_version = excluded.schema_version,
           updated_at = excluded.updated_at
-      `).run(userId, nextRev, currentGen, stateJson, 3, nowIso);
+      `).run(userId, nextRev, currentGen, stateJson, state.version, nowIso);
 
       // 4) 历史版本窗口淘汰
       pruneWorkspaceHistory(userId, new Date(nowIso), db);

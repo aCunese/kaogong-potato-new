@@ -1,3 +1,4 @@
+import { fetchWithDeadline } from './networkRequest';
 import { AppState, OutboxRecord, SnapshotRecord, SyncConflictRecord, LockScope, OperationScope, OperationContext, WorkspacePushPayload, PreparedOutboxCompaction } from '../types';
 import {
   getUnresolvedLocalChanges,
@@ -66,7 +67,7 @@ export interface ServerSnapshot {
 /** Fetch the raw cloud workspace snapshot (single source of truth for CAS checks). */
 export async function fetchServerSnapshot(userId?: string, signal?: AbortSignal): Promise<ServerSnapshot> {
   try {
-    const res = await fetch('/api/workspace', {
+    const res = await fetchWithDeadline('/api/workspace', {
       cache: 'no-store',
       headers: userId ? { 'x-workspace-user': userId } : undefined,
       signal,
@@ -588,7 +589,7 @@ async function pushPath(
       expectedRevision: claimed.expectedRevision,
       expectedContentHash: claimed.expectedContentHash,
       requestId: claimed.requestId,
-      schemaVersion: 3,
+      schemaVersion: claimed.state.version,
       generationId: claimed.generationId,
       state: claimed.state,
       reason: claimed.reason || 'sync',
@@ -597,7 +598,7 @@ async function pushPath(
 
     let response: Response;
     try {
-      response = await fetch('/api/workspace', {
+      response = await fetchWithDeadline('/api/workspace', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -683,7 +684,7 @@ async function pushPath(
       continue;
     }
 
-    if (response.status === 409) {
+    if (response.status === 409 || response.status === 426) {
       const body = await response.json().catch(() => ({}));
       if (body.code === 'SESSION_ACCOUNT_MISMATCH') {
         await releaseOutboxTask(claimed.id, {}, claimed.attemptFence);
@@ -1125,6 +1126,8 @@ export async function forceUploadLocal(
       }
     }
 
+    // A reviewed overwrite may deliberately restore old content, but never downgrade its wire format.
+    if (server.state?.version === 4) local.state.version = 4;
     const localVersion = expectedLocalRevision ?? snapshot?.revision ?? local.revision;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     const confirmedRevision = reviewed?.serverRevision ?? server.revision;
@@ -1134,7 +1137,7 @@ export async function forceUploadLocal(
     const forcedSnapshot: SnapshotRecord = {
       key: snapshot?.key ?? `snapshot_${userId}`,
       state: local.state,
-      version: 3,
+      version: local.state.version,
       revision: localVersion,
       confirmedRevision,
       generationId,
@@ -1311,7 +1314,7 @@ export async function forcePullRemote(
     let sendCsrf = effectiveCsrf;
     if (!sendCsrf && typeof fetch !== 'undefined') {
       try {
-        const meRes = await fetch('/api/auth/me', { method: 'GET' });
+        const meRes = await fetchWithDeadline('/api/auth/me', { method: 'GET' });
         if (meRes.ok) {
           const meData = await meRes.json().catch(() => ({}));
           if (meData?.csrfToken) {
@@ -1327,7 +1330,7 @@ export async function forcePullRemote(
 
     let barrierResponse: Response;
     try {
-      barrierResponse = await fetch('/api/workspace', {
+      barrierResponse = await fetchWithDeadline('/api/workspace', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1341,7 +1344,7 @@ export async function forcePullRemote(
           generationId: effectiveGenerationId,
           requestId: barrierRequestId,
           reason: 'keep_remote_barrier',
-          schemaVersion: 3,
+          schemaVersion: effectiveServerState?.version || 3,
         }),
         signal: effectiveOptions?.signal || effectiveOptions?.context?.abortSignal || effectiveOptions?.scope?.signal,
       });

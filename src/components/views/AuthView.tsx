@@ -83,7 +83,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         const cleanNick = nickname.trim() || cleanUser;
         const res = await register(cleanUser, password, cleanNick, inviteCode.trim());
         if (!res.ok) {
-          setErrorMsg(res.message || '注册失败，请检查邀请码或用户名');
+          setErrorMsg(res.code === 'INVALID_INVITE_CODE' ? '邀请码无效或已被使用。每位朋友需要一个全新邀请码，请联系管理员确认它由当前服务器生成。' : res.message || '注册失败，请检查邀请码或用户名');
           return;
         }
         onToast('注册成功，已初始化默认学习资料库！');
@@ -114,31 +114,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
           <p className="text-xs text-ink-muted mt-1">你的专属备考陪伴与学情统计空间</p>
         </div>
 
-        {/* 模式切换器 */}
-        <div className="flex bg-cream/70 p-1 rounded-2xl border border-line mb-5">
-          <button
-            type="button"
-            onClick={() => switchMode('login')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              mode === 'login'
-                ? 'bg-paper text-ink-main shadow-sm'
-                : 'text-ink-muted hover:text-ink-main'
-            }`}
-          >
-            登录账号
-          </button>
-          <button
-            type="button"
-            onClick={() => switchMode('register')}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-              mode === 'register'
-                ? 'bg-paper text-ink-main shadow-sm'
-                : 'text-ink-muted hover:text-ink-main'
-            }`}
-          >
-            注册新学员
-          </button>
-        </div>
 
         {sessionNotice && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 flex items-start gap-2">
@@ -220,7 +195,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <div>
               <label className="block text-xs font-bold text-ink-main mb-1">
                 注册邀请码
-                <span className="text-[10px] text-ink-muted font-normal ml-1.5">(专属通道凭证)</span>
+                <span className="text-[10px] text-ink-muted font-normal ml-1.5">(每位朋友需使用全新邀请码)</span>
               </label>
               <input
                 type="text"
@@ -256,10 +231,15 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </div>
         </form>
 
+        <div className="mt-4 text-center text-xs text-ink-muted">
+          {mode === 'login' ? '没有账号？' : '已有账号？'}
+          <button type="button" disabled={isSubmitting} onClick={() => switchMode(mode === 'login' ? 'register' : 'login')} className="ml-1 text-sage font-bold py-2">{mode === 'login' ? '注册新学员' : '返回登录'}</button>
+        </div>
+
         {/* 底部特性提示 */}
         <div className="mt-6 pt-4 border-t border-line/60 text-center text-[11px] text-ink-muted flex items-center justify-center gap-1.5">
           <CheckCircle2 size={13} className="text-sage" />
-          <span>学情记录本地可靠暂存 · 联网自动实时云端同步</span>
+          <span>学情记录本地保存 · 联网后自动上传</span>
         </div>
       </div>
     </div>

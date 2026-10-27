@@ -1,3 +1,4 @@
+import { validateStudyExtensions, planExtensions } from './studyExtensions';
 import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, Subject, PlanType } from '../types';
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
 
@@ -33,12 +34,12 @@ function isNonNegativeNumber(val: any): boolean {
 
 /**
  * Strict versioned validation and migration for backup data.
- * Supports v1, v2, v3 backups and normalizes to v3.
+ * Supports v1–v4 backups; legacy data normalizes to v3 and v4 extensions are preserved.
  *
  * Rules:
  * - Rejects non-string and payload > 50MB
  * - Rejects non-JSON and invalid root objects
- * - Rejects unknown versions (version > 3)
+ * - Rejects unknown versions (version > 4)
  * - Rejects missing core arrays: books, courses, countdowns, plans, records, wrong
  * - Rejects null / non-object elements in any core array
  * - Validates field types, non-negative numbers, subjects against SUBJECTS, and date formats
@@ -72,11 +73,14 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   for (const candidate of [raw, target]) {
     if (Object.prototype.hasOwnProperty.call(candidate, 'version')) {
       const version = candidate.version;
-      if (!Number.isInteger(version) || version < 1 || version > 3) {
-        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v3` };
+      if (!Number.isInteger(version) || version < 1 || version > 4) {
+        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v4` };
       }
     }
   }
+
+  const extensionError = validateStudyExtensions(target);
+  if (extensionError) return { valid: false, error: extensionError };
 
   // CRITICAL: Reject missing core arrays!
   if (!Array.isArray(target.books)) {
@@ -277,6 +281,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       accumulatedMs,
       done: Boolean(p.done),
       timerStart,
+      ...planExtensions(p),
       recordId: typeof p.recordId === 'string' && p.recordId.trim() ? p.recordId.trim() : undefined,
     });
   }
@@ -322,6 +327,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       questions: Math.round(r.questions),
       errors: Math.round(r.errors),
       lessons,
+      ...(r.sourceApplied !== undefined ? { sourceApplied: r.sourceApplied } : {}),
     });
   }
 
@@ -448,7 +454,8 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     plans,
     records,
     wrong,
-    version: 3,
+    ...(target.todos !== undefined ? { todos: structuredClone(target.todos) } : {}),
+    version: target.version === 4 ? 4 : 3,
   };
 
   return {

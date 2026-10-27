@@ -89,6 +89,9 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
   const courseIdMap = new Map<string, string>();
   const libraryIdMap = new Map<string, string>(); // guest library id -> account library id
 
+  const copiedGuestBooks = new Set<string>();
+  const copiedGuestCourses = new Set<string>();
+
   // 1. Books — match by stable id, then name+subject; otherwise copy with remapped id.
   for (const guestBook of guest.books ?? []) {
     const byName = accountBookNames.get(`${guestBook.name}::${guestBook.subject}`);
@@ -104,6 +107,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     }
     const newBook: Book = { ...guestBook, id: uniqueId('gb', accountBookIds) };
     merged.books.push(newBook);
+    copiedGuestBooks.add(guestBook.id);
     accountBookNames.set(`${newBook.name}::${newBook.subject}`, newBook.id);
     bookIdMap.set(guestBook.id, newBook.id);
     preview.booksToAdd += 1;
@@ -124,6 +128,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     }
     const newCourse: Course = { ...guestCourse, id: uniqueId('gc', accountCourseIds) };
     merged.courses.push(newCourse);
+    copiedGuestCourses.add(guestCourse.id);
     accountCourseNames.set(`${newCourse.name}::${newCourse.subject}`, newCourse.id);
     courseIdMap.set(guestCourse.id, newCourse.id);
     preview.coursesToAdd += 1;
@@ -208,6 +213,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
       sourceId: mappedSourceId,
       // A timer that was running in the old guest session must not keep running.
       timerStart: 0,
+      ...(guestPlan.restStart !== undefined ? { restStart: 0 } : {}),
       done: Boolean(guestPlan.done),
     };
     merged.plans.push(plan);
@@ -236,6 +242,9 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
       id: newRecordId,
       planId: planIdMap.get(guestRecord.planId) || guestRecord.planId,
       sourceId: mappedSourceId,
+      ...((guestRecord.type === 'book' && !copiedGuestBooks.has(guestRecord.sourceId)) ||
+        (guestRecord.type === 'course' && !copiedGuestCourses.has(guestRecord.sourceId))
+        ? { sourceApplied: false } : {}),
     };
     merged.records.push(record);
     recordIds.add(record.id);
@@ -334,7 +343,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     preview.notes.push(`${preview.photosToMigrate} 张旧错题照片将在联网后自动上传云端`);
   }
 
-  merged.version = 3;
+  merged.version = account.version === 4 || guest.version === 4 || merged.records.some(r => r.sourceApplied !== undefined) ? 4 : 3;
   return { mergedState: merged, preview };
 }
 

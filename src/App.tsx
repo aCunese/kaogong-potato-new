@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { getTimerReminder } from './utils/studyTimers';
 import { useApp } from './context/AppContext';
 import { TodayView } from './components/views/TodayView';
 import { LearningView } from './components/views/LearningView';
@@ -219,6 +220,29 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   // Toast
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  const [timerNotice, setTimerNotice] = useState<{ id: string; key: string; message: string } | null>(null);
+  const remindedTimers = useRef(new Set<string>());
+  useEffect(() => { remindedTimers.current.clear(); setTimerNotice(null); }, [currentUser?.id]);
+  useEffect(() => {
+    if (preview || !currentUser) return;
+    const check = () => {
+      setTimerNotice(prev => {
+        if (!prev) return null;
+        const live = state.plans.find(p => p.id === prev.id);
+        return live && getTimerReminder(live)?.key === prev.key ? prev : null;
+      });
+      for (const plan of state.plans) {
+        const notice = getTimerReminder(plan);
+        if (!notice || remindedTimers.current.has(notice.key)) continue;
+        remindedTimers.current.add(notice.key);
+        setTimerNotice({ id: plan.id, key: notice.key, message: notice.message });
+      }
+    };
+    check();
+    const interval = setInterval(check, 1000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id, preview, state.plans]);
+
   // Responsive device frame width (defaults to native full mobile viewport)
   const [screenSize, setScreenSize] = useState<ScreenSize>('full');
 
@@ -420,7 +444,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             open: true,
             title: '移除这项日程？',
             message: `将「${targetPlan.name}」从今日计划中移除。`,
-            impactText: '已经登记的学习记录和题本累计进度会安全保留。',
+            impactText: '将撤销本次学习登记，并扣回对应的用时、题量、错题数或网课节数。错题照片保留。',
             danger: true,
             onConfirm: () => confirmMutation(() => deletePlan(targetPlan.id), '已从今日日程中移除'),
           });
@@ -846,7 +870,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                   open: true,
                   title: '移除这项日程？',
                   message: `确定从今日计划中移除「${plan.name}」吗？`,
-                  impactText: '已经登记的学习记录和题本累计进度会安全保留。',
+                  impactText: '将撤销本次学习登记，并扣回对应的用时、题量、错题数或网课节数。错题照片保留。',
                   danger: true,
                   onConfirm: () => confirmMutation(() => deletePlan(plan.id), '已从今日日程中移除'),
                 });
@@ -978,6 +1002,10 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           })}
         </nav>
 
+        {timerNotice && !focusPlan && <div role="status" aria-live="polite" className="fixed bottom-24 left-4 right-4 mx-auto max-w-sm z-40 bg-paper border border-sage rounded-xl p-3 shadow-lg text-xs">
+          <p>{timerNotice.message}</p><div className="flex justify-end gap-4 mt-2"><button aria-label="关闭到点提醒" onClick={() => setTimerNotice(null)}>关闭</button><button className="text-sage font-bold" onClick={() => { const plan = state.plans.find(p => p.id === timerNotice.id); if (plan) { setFocusVariantOverride('normal'); setFocusPlan(plan); } setTimerNotice(null); }}>查看计时</button></div>
+        </div>}
+
         {/* 轻量 Toast 提示条 */}
         {toastMsg && (
           <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#343C2F] text-white text-xs px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 animate-bounce-short pointer-events-none">
@@ -988,6 +1016,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
 
         {/* 各类功能弹窗挂载 */}
         <AddPlanModal
+          onOpenCustomAdd={() => setCustomAddOpen(true)}
           isOpen={addPlanOpen}
           onClose={() => setAddPlanOpen(false)}
           onToast={showToast}

@@ -56,7 +56,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     setErrorMsg('');
     setQuestions(0);
     setErrors(0);
-    setLessons(1);
+    setLessons(livePlan.plannedLessons ?? 1);
     setActualMinutes(0);
     setIsSuccess(false);
     setCompletedRecord(null);
@@ -78,7 +78,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       return;
     }
 
-    if (livePlan.timerStart > 0) {
+    if ((livePlan.timerStart > 0 || (livePlan.restStart ?? 0) > 0)) {
       pauseTimer(livePlan.id).then(result => {
         if (!cancelled && !result.ok) setErrorMsg(result.message);
       });
@@ -87,7 +87,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   }, [isOpen, plan?.id, initialSuccess, prepareAttempt]);
 
   useEffect(() => {
-    if (!isOpen || !livePlan || livePlan.done || initialSuccess || livePlan.timerStart > 0 || preparedPlanId === livePlan.id) return;
+    if (!isOpen || !livePlan || livePlan.done || initialSuccess || (livePlan.timerStart > 0 || (livePlan.restStart ?? 0) > 0) || preparedPlanId === livePlan.id) return;
     setActualMinutes(getCompletionMinutes(livePlan));
     setPreparedPlanId(livePlan.id);
   }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
@@ -103,7 +103,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting || preparedPlanId !== plan.id || livePlan?.timerStart || livePlan?.done) return;
+    if (isSubmitting || preparedPlanId !== plan.id || livePlan?.timerStart || livePlan?.restStart || livePlan?.done) return;
     setErrorMsg('');
     if (!Number.isSafeInteger(actualMinutes) || actualMinutes <= 0) {
       setErrorMsg('学习用时必须为大于0的整数分钟');

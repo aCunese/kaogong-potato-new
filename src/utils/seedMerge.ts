@@ -86,6 +86,6 @@ export function mergeSeedIntoState(state: AppState): AppState {
     }
   }
 
-  next.version = 3;
+  next.version = state.version;
   return next;
 }

@@ -5,6 +5,7 @@ import { Avatar } from '../common/Avatar';
 import { Card, Button, Tag } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
 import { Plan, MutationResult } from '../../types';
+import { isPlanRunning } from '../../utils/studyTimers';
 import { getPlanElapsedMs } from '../../utils/workflowPresentation';
 
 interface TodayViewProps {
@@ -30,6 +31,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
   const [, setTick] = useState(0);
+  const [historyDate, setHistoryDate] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
     setErrorMsg('');
@@ -39,16 +41,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   // Keep live timer tick
   useEffect(() => {
-    const hasRunning = state.plans.some(p => p.timerStart > 0 && !p.done);
+    const hasRunning = state.plans.some(isPlanRunning);
     if (!hasRunning) return;
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [state.plans]);
 
-  // Filter plans for today, PLUS any unfinished cross-day plans
-  const relevantPlans = state.plans.filter(
-    p => p.date === activeDate || (!p.done && p.date < activeDate && (p.timerStart > 0 || (p.accumulatedMs && p.accumulatedMs > 0)))
-  );
+  const relevantPlans = state.plans.filter(p => p.date === activeDate);
+  const historyDates = [...new Set(state.plans.filter(p => p.date < activeDate).map(p => p.date))].sort().reverse();
 
   // Determine display list based on forcedMode
   let displayedPlans = relevantPlans;
@@ -171,7 +171,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </h2>
         <Button variant="primary" size="sm" onClick={onOpenAddPlan}>
           <Plus size={14} />
-          从事项库挑选
+          添加日程
         </Button>
       </div>
 
@@ -183,7 +183,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
           <div className="text-base font-bold text-ink-main mb-1">今天还没有日程</div>
           <p className="text-xs text-ink-muted max-w-[240px] mx-auto mb-4 leading-relaxed">
-            从题本、网课或自定义事项库中挑选一项加入今天吧
+            从题本、网课或自定义学习事项中挑选一项加入今天吧
           </p>
           <Button variant="primary" size="md" onClick={onOpenAddPlan}>
             <Plus size={16} />
@@ -193,7 +193,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
       ) : (
         <div className="space-y-3.5">
           {displayedPlans.map(plan => {
-            const isRunning = plan.timerStart > 0;
+            const isRunning = isPlanRunning(plan);
             return (
               <Card
                 key={plan.id}
@@ -247,7 +247,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
                 {/* 次行：计划与累计指标 */}
                 <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
-                  <span>计划 {plan.plannedMinutes} 分钟</span>
+                  <span>计划 {plan.plannedMinutes} 分钟{plan.type === 'course' && plan.plannedLessons ? ` · ${plan.plannedLessons}节` : ''}</span>
                   <span>·</span>
                   <span>已累计 {Math.floor(getPlanElapsedMs(plan) / 60000)} 分钟</span>
                 </div>
@@ -260,10 +260,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   >
                     <div className="flex items-center gap-2 text-xs font-bold text-sage-dark">
                       <span className="w-2.5 h-2.5 rounded-full bg-sage animate-ping" />
-                      <span>正在专注进行中</span>
+                      <span>{plan.timerPhase === 'rest' ? '正在休息 · 不计学习时长' : '正在专注进行中'}</span>
                     </div>
                     <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
-                      {formatTimer(plan.timerStart, plan.accumulatedMs ?? plan.actualMinutes * 60000)}
+                      {formatTimer(0, getPlanElapsedMs(plan))}
                     </div>
                   </div>
                 )}
@@ -286,7 +286,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                         variant="secondary"
                         size="md"
                         fullWidth
-                        onClick={() => runTimerAction(() => startTimer(plan.id))}
+                        onClick={() => onOpenFocus(plan)}
                       >
                         <Play size={16} className="text-sage" />
                         开始计时
@@ -322,6 +322,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
           })}
         </div>
       )}
+      <section className="pt-3 border-t border-line space-y-3">
+        <label className="text-sm font-bold text-ink-main" htmlFor="history-date">历史日程</label>
+        <select id="history-date" aria-label="查看历史日程" value={historyDate} onChange={e => setHistoryDate(e.target.value)} className="w-full p-2.5 bg-paper border border-line rounded-xl text-sm"><option value="">选择日期查看或补登记</option>{historyDates.map(date => <option key={date} value={date}>{date}</option>)}</select>
+        {historyDate && state.plans.filter(p => p.date === historyDate).map(p => <Card key={p.id} className="p-3 space-y-2">
+          <p className="text-sm font-bold">{p.name}</p><p className="text-xs text-ink-muted">{p.date} · {Math.floor(getPlanElapsedMs(p) / 60000)}分钟 · {p.done ? '已登记' : '待补登记'}</p>
+          <div className="flex justify-between"><button className="text-xs text-sage" onClick={() => onOpenComplete(p)}>{p.done ? '查看登记总结' : '补登记'}</button><button className="text-xs text-alarm" onClick={() => onOpenDeleteConfirm ? onOpenDeleteConfirm(p) : void runTimerAction(() => deletePlan(p.id))}>删除并撤销登记</button></div>
+        </Card>)}
+      </section>
     </div>
   );
 };

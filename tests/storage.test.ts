@@ -203,9 +203,9 @@ describe('Milestone 1: Strict Backup Validator (validateAndMigrateBackup)', () =
     expect(publicService!.date).toBe('2027-04-18');
   });
 
-  it('rejects version > 3 (future versions)', () => {
+  it('rejects version > 4 (future versions)', () => {
     const futureVersionJson = JSON.stringify({
-      version: 4,
+      version: 5,
       books: [],
       courses: [],
       countdowns: [],
@@ -215,7 +215,7 @@ describe('Milestone 1: Strict Backup Validator (validateAndMigrateBackup)', () =
     });
     const result = validateAndMigrateBackup(futureVersionJson);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('不支持的备份版本 (v4)');
+    expect(result.error).toContain('不支持的备份版本 (v5)');
   });
 
   it('rejects payload exceeding 50MB', () => {

@@ -1,3 +1,4 @@
+import { TodoView } from './TodoView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
@@ -42,7 +43,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
   const subTabOptions = [
     { label: '题本进度', value: 'books' },
     { label: '网课进度', value: 'courses' },
-    { label: '事项库', value: 'library' },
+    { label: '待办', value: 'library' },
   ];
 
   return (
@@ -53,7 +54,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-ink-main">备考学习库</h1>
           <p className="text-xs text-ink-muted mt-1">
-            题本、网课与事项库联动维护，数据随时调整
+            管理题本与网课进度，记录每天的待办
           </p>
         </div>
         <PotatoSprite
@@ -235,77 +236,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
         </div>
       )}
 
-      {/* 3. 事项库 */}
-      {subTab === 'library' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-ink-muted font-medium">
-              全部事项 ({state.library.length})
-            </span>
-            <Button variant="primary" size="sm" onClick={onOpenCustomAdd}>
-              <Plus size={14} />
-              添加自定义事项
-            </Button>
-          </div>
-
-          <div className="space-y-2.5">
-            {state.library.map(item => (
-              <Card key={item.id} className="p-3 bg-paper border-line flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Tag variant={item.type === 'book' ? 'potato' : item.type === 'course' ? 'course' : 'gray'}>
-                      {item.type === 'book' ? '题本' : item.type === 'course' ? '网课' : '自定义'}
-                    </Tag>
-                    <Tag variant="gray">{item.subject}</Tag>
-                  </div>
-                  <h4 className="text-sm font-bold text-ink-main truncate">
-                    {item.name}
-                  </h4>
-                  <div className="text-xs text-ink-muted mt-1 flex items-center gap-2">
-                    <span>默认时长:</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.defaultMinutes}
-                      onChange={e => updateMinutes(item.id, parseInt(e.target.value) || 1)}
-                      className="w-14 px-1.5 py-0.5 bg-cream/70 border border-line rounded text-xs text-center font-mono"
-                    />
-                    <span>分钟</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    variant="light"
-                    size="sm"
-                    disabled={Boolean(pendingAddId)}
-                    onClick={async () => {
-                      if (pendingAddId) return;
-                      setPendingAddId(item.id);
-                      setErrorMsg('');
-                      const result = await quickAddPlan(item.id);
-                      setPendingAddId('');
-                      if (!result.ok) { setErrorMsg(result.message); return; }
-                      onToast(`已将“${item.name}”加入今日日程`);
-                    }}
-                  >
-                    加入今天
-                  </Button>
-                  {item.type === 'custom' && (
-                    <button
-                      onClick={() => onOpenDeleteConfirm('custom', item.id, item.name)}
-                      className="p-2 text-ink-muted hover:text-alarm rounded-lg"
-                      title="删除自定义事项"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
+      {subTab === 'library' && <TodoView />}
     </div>
   );
 };

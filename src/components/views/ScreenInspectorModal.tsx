@@ -15,7 +15,7 @@ export interface ScreenDef {
 export const ALL_50_SCREENS: ScreenDef[] = [
   // 1-8 Core
   { id: 'today', nodeId: '8:26', name: '今日计划', category: 'core', desc: '首页三倒计时、今日计划、学习分钟概览、打招呼土豆', hasRefScreenshot: true, refScreenshotFile: '01-today.png' },
-  { id: 'library', nodeId: '12:42', name: '事项库', category: 'core', desc: '事项库列表、题本与网课自动同步、默认时长设定、加入今天', hasRefScreenshot: true, refScreenshotFile: '02-library.png' },
+  { id: 'library', nodeId: '12:42', name: '待办', category: 'core', desc: '独立待办、按日期保留、勾选完成与删除', hasRefScreenshot: true, refScreenshotFile: '02-library.png' },
   { id: 'books', nodeId: '12:271', name: '题本进度', category: 'core', desc: '题本列表、做题进度条、正确率、平均题速、修改与删除', hasRefScreenshot: true, refScreenshotFile: '03-books.png' },
   { id: 'courses', nodeId: '12:564', name: '网课进度', category: 'core', desc: '课程列表、已听课时、累计时长、课程外链唤起', hasRefScreenshot: true, refScreenshotFile: '04-courses.png' },
   { id: 'wrong', nodeId: '12:833', name: '错题复盘', category: 'core', desc: '按题本分组错题照片、大图查看、相册上传导入、原因笔记', hasRefScreenshot: true, refScreenshotFile: '05-wrong.png' },

@@ -7,15 +7,21 @@ import { filterAnalysisRecords } from '../../utils/workflowPresentation';
 import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
 
 const SUBJECT_COLORS: Record<Subject, string> = {
-  '资料分析': '#61794F',
-  '判断推理': '#E6B957',
-  '言语理解': '#7A9163',
-  '数量关系': '#C97D45',
-  '政治理论': '#8DA074',
-  '常识判断': '#607B8B',
-  '申论': '#B46A55',
-  '面试': '#937D96',
+  '资料分析': '#1F77B4',
+  '判断推理': '#FF7F0E',
+  '言语理解': '#2CA02C',
+  '数量关系': '#D62728',
+  '政治理论': '#9467BD',
+  '常识判断': '#8C564B',
+  '申论': '#C43C8F',
+  '面试': '#087F8C',
 };
+
+const TimeBreakdown: React.FC<{ records: StudyRecord[] }> = ({ records }) => <Card className="p-4 space-y-2">
+  <h3 className="text-sm font-bold">学习用时明细</h3>
+  {([['book', '刷题用时'], ['course', '网课用时'], ['custom', '其他学习用时']] as const).map(([type, label]) => <div className="flex justify-between text-xs text-ink-muted" key={type}><span>{label}</span><span className="font-mono text-ink-main">{records.filter(r => r.type === type).reduce((sum, r) => sum + r.minutes, 0)} 分钟</span></div>)}
+  <div className="flex justify-between border-t border-line pt-2 text-xs font-bold"><span>总学习用时</span><span>{records.reduce((sum, r) => sum + r.minutes, 0)} 分钟</span></div>
+</Card>;
 
 interface AnalysisViewProps {
   initialSubTab?: AnalysisSubTab;
@@ -131,6 +137,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
       {/* 1. 总体分析 */}
       {subTab === 'overall' && (
         <div className="space-y-4">
+          <TimeBreakdown records={overallRecords} />
           {/* 时间跨度切换 */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-ink-muted">统计范围</span>
@@ -326,6 +333,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
       {/* 2. 每月分析 */}
       {subTab === 'monthly' && (
         <div className="space-y-4">
+          <TimeBreakdown records={monthlyRecords} />
           {/* 月份选择卡片 */}
           <Card className="p-3 bg-paper border-line flex items-center justify-between">
             <div className="flex items-center gap-2">

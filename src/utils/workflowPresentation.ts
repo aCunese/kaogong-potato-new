@@ -1,8 +1,8 @@
 import { Plan, StudyRecord } from '../types';
+import { learningElapsedMs } from './studyTimers';
 
 export function getPlanElapsedMs(plan: Plan, now = Date.now()): number {
-  const accumulated = plan.accumulatedMs ?? plan.actualMinutes * 60000;
-  return accumulated + (plan.timerStart > 0 ? Math.max(0, now - plan.timerStart) : 0);
+  return learningElapsedMs(plan, now);
 }
 
 export function getCompletionMinutes(plan: Plan): number {

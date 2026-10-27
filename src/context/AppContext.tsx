@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
   AppState,
+  TodoItem,
+  TimerConfig,
   Book,
   Course,
   LibraryItem,
@@ -67,6 +69,12 @@ import { mergeSeedIntoState } from '../utils/seedMerge';
 import { buildGuestMigration, executeGuestMigration, GuestMigrationPreview } from '../utils/guestMigration';
 import {
   applyStartTimer,
+  applyAddTodo,
+  applyToggleTodo,
+  applyDeleteTodo,
+  applyConfigureTimer,
+  applySwitchTimerPhase,
+  applyMaintainTimers,
   applyPauseTimer,
   applyCompletePlan,
   applyAddPlan,
@@ -117,11 +125,17 @@ export interface AppContextType {
   updateCountdown: (id: string, date: string) => Promise<MutationResult<void>>;
 
   // Plans & Timers
-  addPlan: (libraryId: string, plannedMinutes?: number) => Promise<MutationResult<Plan>>;
+  addPlan: (libraryId: string, plannedMinutes?: number, plannedLessons?: number) => Promise<MutationResult<Plan>>;
   quickAddPlan: (libraryId: string) => Promise<MutationResult<Plan>>;
   startTimer: (planId: string) => Promise<MutationResult<void>>;
   pauseTimer: (planId: string) => Promise<MutationResult<void>>;
   deletePlan: (planId: string) => Promise<MutationResult<void>>;
+
+  addTodo: (text: string, date: string) => Promise<MutationResult<TodoItem>>;
+  toggleTodo: (id: string) => Promise<MutationResult<void>>;
+  deleteTodo: (id: string) => Promise<MutationResult<void>>;
+  configureTimer: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
+  switchTimerPhase: (id: string, phase: 'focus' | 'rest') => Promise<MutationResult<void>>;
 
   // Unified Atomic Completion
   completePlan: (input: CompletionInput) => Promise<MutationResult<{ recordId: string; record: StudyRecord }>>;
@@ -875,7 +889,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   }, []);
 
   const isAnyTimerRunning = useCallback((): boolean => {
-    return state.plans.some(p => !p.done && p.timerStart > 0);
+    return state.plans.some(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0));
   }, [state.plans]);
 
   const updateGuard = useCallback((): { ok: boolean; reason?: string } => {
@@ -1052,8 +1066,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
       let appliedNextState: AppState | null = null;
       const result = await commitMutation<T>(async draft => {
+        const previousFormat = draft.version;
         const res = await mutator(draft);
         if ('nextState' in res) {
+          if (previousFormat === 4) res.nextState.version = 4;
           appliedNextState = res.nextState;
         }
         return res;
@@ -1126,11 +1142,40 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   );
 
   const addPlan = useCallback(
-    async (libraryId: string, plannedMinutes?: number): Promise<MutationResult<Plan>> => {
-      return executeMutation(draft => applyAddPlan(draft, libraryId, activeDate, plannedMinutes), 'add_plan');
+    async (libraryId: string, plannedMinutes?: number, plannedLessons?: number): Promise<MutationResult<Plan>> => {
+      return executeMutation(draft => applyAddPlan(draft, libraryId, activeDate, plannedMinutes, plannedLessons), 'add_plan');
     },
     [activeDate, executeMutation]
   );
+
+  const addTodo = useCallback((text: string, date: string) => executeMutation(draft => applyAddTodo(draft, text, date), 'add_todo'), [executeMutation]);
+  const toggleTodo = useCallback((id: string) => executeMutation(draft => applyToggleTodo(draft, id), 'toggle_todo'), [executeMutation]);
+  const deleteTodo = useCallback((id: string) => executeMutation(draft => applyDeleteTodo(draft, id), 'delete_todo'), [executeMutation]);
+  const configureTimer = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applyConfigureTimer(draft, id, config), 'configure_timer'), [executeMutation]);
+  const switchTimerPhase = useCallback((id: string, phase: 'focus' | 'rest') => executeMutation(draft => applySwitchTimerPhase(draft, id, phase), 'timer_phase'), [executeMutation]);
+
+  // Reconcile absolute deadlines on boot, foreground, and while the page is open.
+  useEffect(() => {
+    if (preview || isLoading || !readyRef.current || authPhase !== 'authenticated') return;
+    let busy = false;
+    const maintain = async () => {
+      if (busy) return;
+      const today = getLocalDateString();
+      const archive = state.plans.some(p => p.date < today && !p.archived);
+      const expiredRests = state.plans.filter(p => (p.restStart ?? 0) > 0 &&
+        Date.now() >= (p.restStart ?? 0) + Math.max(0, (p.restMinutes ?? 5) * 60000 - (p.phaseAccumulatedMs ?? 0)));
+      if (!archive && !expiredRests.length) return;
+      busy = true;
+      try {
+        await executeMutation(draft => applyMaintainTimers(draft, getLocalDateString()), 'timer_maintenance');
+      } finally { busy = false; }
+    };
+    void maintain();
+    const interval = setInterval(() => { void maintain(); }, 1000);
+    const foreground = () => { if (document.visibilityState === 'visible') void maintain(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', foreground); };
+  }, [authPhase, executeMutation, isLoading, preview, state.plans]);
 
   const quickAddPlan = useCallback(
     async (libraryId: string): Promise<MutationResult<Plan>> => {
@@ -1514,7 +1559,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       }
       const backupObj = {
         app: '考公工作台·土豆新版',
-        version: 3,
+        version: portable.version,
         exportedAt: new Date().toISOString(),
         state: portable,
       };
@@ -2233,6 +2278,11 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         updateCountdown,
         addPlan,
         quickAddPlan,
+        addTodo,
+        toggleTodo,
+        deleteTodo,
+        configureTimer,
+        switchTimerPhase,
         startTimer,
         pauseTimer,
         deletePlan,
