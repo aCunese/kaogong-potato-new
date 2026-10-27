@@ -1,9 +1,9 @@
 {
-  "webVersion": "1.0.3",
-  "webBuild": "20261027.02",
+  "webVersion": "1.0.4",
+  "webBuild": "20261027.03",
   "schemaVersion": 3,
-  "apkVersion": "1.0.3",
-  "apkVersionCode": 4,
+  "apkVersion": "1.0.4",
+  "apkVersionCode": 5,
   "apkPackageName": "com.ruyne.kaogong",
   "apkSha256": "",
   "apkSizeBytes": 0,
@@ -11,5 +11,5 @@
   "apkReleased": false,
   "apkDownloadUrl": "/api/download/apk",
   "deployedAt": "2026-10-27T00:00:00Z",
-  "summary": "正式修复版：同步/代际/账号隔离、照片头像云同步、恢复点与登录初始化、更新与安全校验修复"
+  "summary": "联合上线冻结候选版：修复 A01-A09 全部缺陷，补齐回归套件与灾备原子验证"
 }

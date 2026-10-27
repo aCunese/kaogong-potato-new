@@ -1,12 +1,12 @@
 {
-  "runId": "run-20261026-184453-d41b26",
+  "runId": "run-20261027-041603-c9ab10",
   "mode": "isolated-auto",
-  "generatedAt": "2026-10-26T18:45:21.444Z",
+  "generatedAt": "2026-10-27T04:16:34.842Z",
   "realDataDir": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
   "realDataBefore": {
     "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
     "exists": true,
-    "capturedAt": "2026-10-26T18:44:53.763Z",
+    "capturedAt": "2026-10-27T04:16:03.662Z",
     "files": [
       {
         "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
@@ -41,7 +41,7 @@
       {
         "path": "backups/backup_20261026_153756/potato.db-shm",
         "size": 32768,
-        "mtimeMs": 1792996676686.6624,
+        "mtimeMs": 1793061565893.4963,
         "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
       },
       {
@@ -68,7 +68,7 @@
   "realDataAfter": {
     "root": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/data",
     "exists": true,
-    "capturedAt": "2026-10-26T18:45:21.443Z",
+    "capturedAt": "2026-10-27T04:16:34.841Z",
     "files": [
       {
         "path": "attachments/6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0.png",
@@ -103,7 +103,7 @@
       {
         "path": "backups/backup_20261026_153756/potato.db-shm",
         "size": 32768,
-        "mtimeMs": 1792996676686.6624,
+        "mtimeMs": 1793061565893.4963,
         "sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
       },
       {
@@ -136,16 +136,16 @@
   "realDataUnchanged": true,
   "isolatedEnv": {
     "repoRoot": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版",
-    "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261026-184453-d41b26-Z7iI8Z/data",
-    "tmpRoot": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261026-184453-d41b26-Z7iI8Z",
-    "serverUrl": "http://127.0.0.1:58022",
-    "serverPid": 14436,
+    "dataDir": "/private/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-041603-c9ab10-pgcRqc/data",
+    "tmpRoot": "/var/folders/d4/tr90_hnx1nq_ck28d4f2fdm40000gn/T/potato-isolated-run-20261027-041603-c9ab10-pgcRqc",
+    "serverUrl": "http://127.0.0.1:52953",
+    "serverPid": 14502,
     "webBuild": {
-      "version": "1.0.3",
-      "build": "20261027.02",
+      "version": "1.0.4",
+      "build": "20261027.03",
       "schemaVersion": 3,
       "source": "server-endpoint",
-      "servedAt": "2026-10-26T18:44:57.002Z"
+      "servedAt": "2026-10-27T04:16:08.153Z"
     },
     "build": {
       "strategy": "npm-run-build",
@@ -153,32 +153,42 @@
       "npmBuildExitCode": 0,
       "viteBuildExitCode": 0,
       "distIndexPath": "/Users/ruyne./Library/Mobile Documents/com~apple~CloudDocs/落地项目/考公工作台-土豆新版/dist/index.html",
-      "distIndexMtimeMs": 1793040296816.8145,
+      "distIndexMtimeMs": 1793074567958.7383,
       "hashedAssets": [
         "potato-poses-bvJKuRVa.png",
-        "index-BV445NgP.js",
-        "index-ByhKRi8F.css"
+        "index-ByhKRi8F.css",
+        "index-CrXocV0g.js"
       ]
     },
     "inviteCreated": true
   },
   "gitBefore": {
-    "head": "be281f93fd177be936e4a076b870fdb833510559",
-    "branch": "codex/prod-release-m1-m4",
-    "statusPorcelain": "",
-    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "untrackedFiles": [],
-    "worktreeSha256": "8479c520e037cb9ff9706826b4dba1d5cac4ea451f17d31b20b1884f40f9d005",
-    "capturedAt": "2026-10-26T18:44:53.761Z"
+    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
+    "branch": "codex/joint-release-hardening",
+    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
+    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "untrackedFiles": [
+      {
+        "path": "package-lock.json",
+        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+      }
+    ],
+    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
+    "capturedAt": "2026-10-27T04:16:03.659Z"
   },
   "gitAfter": {
-    "head": "be281f93fd177be936e4a076b870fdb833510559",
-    "branch": "codex/prod-release-m1-m4",
-    "statusPorcelain": "",
-    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "untrackedFiles": [],
-    "worktreeSha256": "8479c520e037cb9ff9706826b4dba1d5cac4ea451f17d31b20b1884f40f9d005",
-    "capturedAt": "2026-10-26T18:45:21.442Z"
+    "head": "386beca70fe6fca44363b92756cdbd78b9b65a63",
+    "branch": "codex/joint-release-hardening",
+    "statusPorcelain": " M Dockerfile\n M android/app/build.gradle\n M docs/implementation/HANDOVER.md\n M docs/implementation/STATUS.md\n M package.json\n M public/sw.js\n M public/version.json\n M release.json\n?? package-lock.json\n",
+    "trackedDiffSha256": "7ceea6d37faf134829e97463e9d2803e894ccda42fe7c4320860bb59f1a09f58",
+    "untrackedFiles": [
+      {
+        "path": "package-lock.json",
+        "sha256": "df8f7fa5d9513f450db397cdb6668679293c43ad994488beda3fc831b97fa616"
+      }
+    ],
+    "worktreeSha256": "d4022ad05e654c40293cc2a2027869e60e5c4ced44d1e89444d767627f716626",
+    "capturedAt": "2026-10-27T04:16:34.839Z"
   },
   "sourceChangedDuringRun": false
 }
