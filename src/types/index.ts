@@ -262,3 +262,8 @@ export interface OperationContext {
   abortSignal?: AbortSignal;
 }
 
+export interface ExecuteMutationOptions {
+  context?: OperationContext;
+  recoveryBeforeWrite?: boolean;
+}
+

@@ -539,13 +539,18 @@ async function putSnapshotToDB(snapshot: SnapshotRecord, expectedRevision: numbe
   return writeMutationToDB(snapshot, undefined, undefined, expectedRevision);
 }
 
-async function writeMutationToDB(
+export async function commitMutationTransaction(
   snapshot: SnapshotRecord,
   newMedia?: MediaRecord[],
   deletedMediaIds?: string[],
   expectedRevision: number = (snapshot.revision ?? 0) - 1,
   outboxItem?: OutboxRecord,
-  guard?: () => boolean
+  guard?: () => boolean,
+  options?: {
+    recoveryBeforeWrite?: boolean;
+    userId?: string | null;
+    context?: OperationContext;
+  }
 ): Promise<void> {
   checkStorageAvailable();
   if (guard && !guard()) {
@@ -554,14 +559,48 @@ async function writeMutationToDB(
     throw err;
   }
   const key = snapshot.key;
+  const targetUserId =
+    options?.userId !== undefined
+      ? options.userId
+      : options?.context?.scope?.userId !== undefined
+      ? options.context.scope.userId
+      : key.startsWith('snapshot_')
+      ? key.slice('snapshot_'.length) === 'guest'
+        ? null
+        : key.slice('snapshot_'.length)
+      : activeUserId;
+
   if (!hasNativeIdb()) {
-    if ((memoryStore.snapshots.get(key)?.revision ?? 0) !== expectedRevision) {
+    const currentSnap = memoryStore.snapshots.get(key);
+    if ((currentSnap?.revision ?? 0) !== expectedRevision) {
       throw new RevisionConflictError();
     }
     if (guard && !guard()) {
       const err = new Error('账号状态已变化，已取消写入');
       (err as any).code = 'AUTH_EPOCH_CHANGED';
       throw err;
+    }
+    if (options?.recoveryBeforeWrite && currentSnap?.state) {
+      const recKey = getRecoveryKey(targetUserId);
+      const recoveryRecord: SnapshotRecord = {
+        key: recKey,
+        state: structuredClone(currentSnap.state),
+        version: 3,
+        revision: currentSnap.revision ?? 0,
+        migratedFromV2: true,
+        updatedAt: new Date().toISOString(),
+      };
+      const historyKey = `recovery_${targetUserId ?? 'guest'}_${Date.now()}`;
+      const historyRecord: SnapshotRecord = {
+        key: historyKey,
+        state: structuredClone(currentSnap.state),
+        version: 3,
+        revision: currentSnap.revision ?? 0,
+        migratedFromV2: true,
+        updatedAt: new Date().toISOString(),
+      };
+      memoryStore.snapshots.set(recKey, recoveryRecord);
+      memoryStore.snapshots.set(historyKey, historyRecord);
     }
     const mediaCopies = newMedia?.map(m => structuredClone(m));
     memoryStore.snapshots.set(key, structuredClone(snapshot));
@@ -591,13 +630,36 @@ async function writeMutationToDB(
         tx.abort();
         return;
       }
+      const current = request.result as SnapshotRecord | undefined;
       // Compare and write under the same IndexedDB lock, shared by all tabs.
-      if ((request.result?.revision ?? 0) !== expectedRevision) {
+      if ((current?.revision ?? 0) !== expectedRevision) {
         failure = new RevisionConflictError();
         tx.abort();
         return;
       }
       try {
+        if (options?.recoveryBeforeWrite && current?.state) {
+          const recKey = getRecoveryKey(targetUserId);
+          const recoveryRecord: SnapshotRecord = {
+            key: recKey,
+            state: structuredClone(current.state),
+            version: 3,
+            revision: current.revision ?? 0,
+            migratedFromV2: true,
+            updatedAt: new Date().toISOString(),
+          };
+          const historyKey = `recovery_${targetUserId ?? 'guest'}_${Date.now()}`;
+          const historyRecord: SnapshotRecord = {
+            key: historyKey,
+            state: structuredClone(current.state),
+            version: 3,
+            revision: current.revision ?? 0,
+            migratedFromV2: true,
+            updatedAt: new Date().toISOString(),
+          };
+          snapshotsStore.put(recoveryRecord);
+          snapshotsStore.put(historyRecord);
+        }
         snapshotsStore.put(snapshot);
         if (storeNames.includes(MEDIA_STORE)) {
           const mediaStore = tx.objectStore(MEDIA_STORE);
@@ -615,6 +677,8 @@ async function writeMutationToDB(
     };
   });
 }
+
+const writeMutationToDB = commitMutationTransaction;
 
 // ----------------------------------------------------------------------
 // Public DB API
@@ -757,6 +821,7 @@ export interface CommitOptions {
   scope?: OperationScope;
   context?: OperationContext;
   signal?: AbortSignal;
+  recoveryBeforeWrite?: boolean;
   /**
    * Builds the outbox record for this mutation. The provided meta carries the
    * SEPARATED versions: localMutationVersion (local writes), confirmedRevision
@@ -858,7 +923,12 @@ export async function commitMutation<T>(
           mutationResult.deletedMediaIds,
           currentLocalVersion,
           outboxItem,
-          checkGuard
+          checkGuard,
+          {
+            recoveryBeforeWrite: options?.recoveryBeforeWrite,
+            userId: targetUserId,
+            context: options?.context,
+          }
         );
 
         return {

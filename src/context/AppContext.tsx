@@ -15,6 +15,7 @@ import {
   SyncState,
   OperationScope,
   OperationContext,
+  ExecuteMutationOptions,
 } from '../types';
 import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
 import { validateAndMigrateBackup, MAX_BACKUP_SIZE_BYTES } from '../utils/backupValidator';
@@ -975,7 +976,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const executeMutation = useCallback(
     async <T,>(
       mutator: (draft: AppState) => Promise<MutatorReturn<T>> | MutatorReturn<T>,
-      reason?: string
+      reason?: string,
+      options?: ExecuteMutationOptions
     ): Promise<MutationResult<T>> => {
       if (!readyRef.current) {
         return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，已阻止保存。请刷新页面重试。' };
@@ -996,15 +998,21 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         return task;
       }
 
-      const owner: User | null = currentUserRef.current;
-      const scope = createOperationScope(owner?.id ?? null);
-      const context: OperationContext = {
-        scope,
-        isCurrent: () => isOperationScopeValid(scope),
-        abortSignal: scope.signal,
-      };
+      const context: OperationContext =
+        options?.context ??
+        (() => {
+          const owner = currentUserRef.current;
+          const s = createOperationScope(owner?.id ?? null);
+          return {
+            scope: s,
+            isCurrent: () => isOperationScopeValid(s),
+            abortSignal: s.signal,
+          };
+        })();
+      const scope = context.scope;
+      const targetUserId = scope.userId;
 
-      if (!isOperationScopeValid(scope)) {
+      if (!context.isCurrent() || !isOperationScopeValid(scope)) {
         return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
       }
 
@@ -1016,49 +1024,51 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         }
         return res;
       }, {
-        userId: owner?.id ?? null,
+        userId: targetUserId,
         reason,
-        outboxBuilder: owner
+        recoveryBeforeWrite: options?.recoveryBeforeWrite,
+        outboxBuilder: targetUserId
           ? (nextState, meta) => ({
               id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-              userId: owner.id,
+              userId: targetUserId,
               requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
               state: nextState,
               expectedRevision: meta.confirmedRevision,
               generationId: meta.generationId,
               createdAt: new Date().toISOString(),
               status: 'pending',
+              reason: reason || 'mutation',
             })
           : undefined,
         scope,
         context,
-        guard: () => isOperationScopeValid(scope),
-        signal: scope.signal,
+        guard: () => context.isCurrent() && isOperationScopeValid(scope),
+        signal: scope.signal || context.abortSignal,
       });
 
-      if (!isOperationScopeValid(scope) || (!result.ok && result.code === 'AUTH_EPOCH_CHANGED')) {
+      if (!context.isCurrent() || !isOperationScopeValid(scope) || (!result.ok && result.code === 'AUTH_EPOCH_CHANGED')) {
         return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消写入' };
       }
 
       if (result.ok && appliedNextState) {
         const appliedRevision = result.revision ?? localRevisionRef.current + 1;
-        if (mountedRef.current && isOperationScopeValid(scope)) {
+        if (mountedRef.current && context.isCurrent() && isOperationScopeValid(scope)) {
           applyLocalState(appliedNextState, appliedRevision);
         }
-        if (owner && mountedRef.current && isOperationScopeValid(scope)) {
-          await refreshPendingCount(owner.id);
+        if (targetUserId && mountedRef.current && context.isCurrent() && isOperationScopeValid(scope)) {
+          await refreshPendingCount(targetUserId);
           if (typeof navigator !== 'undefined' && navigator.onLine) {
             triggerSyncRef.current().catch(() => {});
           }
         }
       } else if (!result.ok && (result.code === 'COMMIT_FAILED' || result.code === 'REVISION_CONFLICT')) {
-        if (mountedRef.current && isOperationScopeValid(scope)) {
+        if (mountedRef.current && context.isCurrent() && isOperationScopeValid(scope)) {
           setStorageError(result.message);
         }
         if (result.code === 'REVISION_CONFLICT') {
           try {
             const refreshed = await loadLatestState(currentUserRef.current?.id ?? null);
-            if (mountedRef.current && isOperationScopeValid(scope)) {
+            if (mountedRef.current && context.isCurrent() && isOperationScopeValid(scope)) {
               applyLocalState(refreshed.state, refreshed.revision);
             }
           } catch {
@@ -1496,12 +1506,27 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
   const importBackup = useCallback(
     async (jsonContent: string): Promise<MutationResult<{ summary: string }>> => {
+      const user = currentUserRef.current;
+      const scope = createOperationScope(user?.id ?? null);
+      const context: OperationContext = {
+        scope,
+        isCurrent: () => isOperationScopeValid(scope),
+        abortSignal: scope.signal,
+      };
+
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+      }
+
       const validated = validateAndMigrateBackup(jsonContent);
       if (!validated.valid || !validated.migratedState) {
         return { ok: false, code: 'INVALID_BACKUP', message: validated.error || '备份文件校验失败' };
       }
       const nextState = validated.migratedState;
-      const user = currentUserRef.current;
+
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+      }
 
       // A07: 校验备份中的旧云端媒体引用（离线无法证明的旧云端引用明确拒绝）
       const cloudRefs: string[] = [];
@@ -1522,7 +1547,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       if (cloudRefs.length > 0) {
         const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : false;
         for (const id of cloudRefs) {
+          if (!isOperationScopeValid(scope)) {
+            return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+          }
           const local = await getMedia(id);
+          if (!isOperationScopeValid(scope)) {
+            return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+          }
           if (!local) {
             if (!user || preview || !isOnline) {
               return {
@@ -1532,7 +1563,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
               };
             }
             try {
-              const probe = await fetch(`/api/media/${id}`, { credentials: 'same-origin' });
+              const probe = await fetch(`/api/media/${id}`, {
+                credentials: 'same-origin',
+                signal: context.abortSignal,
+              });
+              if (!isOperationScopeValid(scope)) {
+                return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+              }
               if (!probe.ok) {
                 return {
                   ok: false,
@@ -1541,6 +1578,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
                 };
               }
             } catch {
+              if (!isOperationScopeValid(scope)) {
+                return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
+              }
               return {
                 ok: false,
                 code: 'MEDIA_PROBE_FAILED',
@@ -1551,24 +1591,27 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         }
       }
 
-      if (user && !preview) {
-        const snapshot = await loadSnapshot(user.id);
-        try {
-          await saveRecoverySnapshot(user.id, snapshot?.state ?? state, snapshot?.revision ?? localRevisionRef.current);
-        } catch {
-          return { ok: false, code: 'RECOVERY_POINT_FAILED', message: '保存恢复点失败，已停止导入以保护现有数据' };
-        }
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消导入' };
       }
-      return executeMutation(async () => {
-        return {
-          nextState,
-          value: {
-            summary: `成功恢复备份，含 ${nextState.plans.length} 条日程与 ${nextState.records.length} 条做题记录`,
-          },
-        };
-      }, 'import_backup');
+
+      return executeMutation(
+        async () => {
+          return {
+            nextState,
+            value: {
+              summary: `成功恢复备份，含 ${nextState.plans.length} 条日程与 ${nextState.records.length} 条做题记录`,
+            },
+          };
+        },
+        'import_backup',
+        {
+          context,
+          recoveryBeforeWrite: Boolean(user && !preview),
+        }
+      );
     },
-    [executeMutation, preview, state]
+    [createOperationScope, executeMutation, isOperationScopeValid, preview]
   );
 
   const selfCheck = useCallback(() => {

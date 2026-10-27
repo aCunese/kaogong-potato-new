@@ -18,17 +18,35 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   onOpenResetConfirm,
   onToast,
 }) => {
-  const { state, exportBackup, importBackup } = useApp();
+  const { state, exportBackup, importBackup, currentUser } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingBackup, setPendingBackup] = useState<{ content: string; validation: BackupValidationResult } | null>(null);
+  const [pendingBackup, setPendingBackup] = useState<{
+    content: string;
+    validation: BackupValidationResult;
+    userId: string | null;
+  } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const openRef = useRef(isOpen);
   openRef.current = isOpen;
+
+  const currentUserId = currentUser?.id ?? null;
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
+
   useEffect(() => {
-    if (!isOpen) setPendingBackup(null);
+    if (!isOpen) {
+      setPendingBackup(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
     setError('');
   }, [isOpen]);
+
+  useEffect(() => {
+    setPendingBackup(null);
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [currentUserId]);
 
   const handleExport = async () => {
     if (exporting) return;
@@ -47,9 +65,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const chosenUserId = currentUserIdRef.current;
     const reader = new FileReader();
     reader.onload = () => {
-      if (!openRef.current) return;
+      if (!openRef.current || currentUserIdRef.current !== chosenUserId) return;
       const content = reader.result as string;
       const validation = validateAndMigrateBackup(content);
       if (!validation.valid || !validation.summary) {
@@ -57,21 +76,33 @@ export const BackupModal: React.FC<BackupModalProps> = ({
         setError(validation.error || '无法解析的备份文件');
         return;
       }
-      setPendingBackup({ content, validation });
+      if (currentUserIdRef.current !== chosenUserId) return;
+      setPendingBackup({ content, validation, userId: chosenUserId });
     };
-    reader.onerror = () => { if (openRef.current) setError('读取备份文件失败，请重新选择'); };
+    reader.onerror = () => {
+      if (openRef.current && currentUserIdRef.current === chosenUserId) {
+        setError('读取备份文件失败，请重新选择');
+      }
+    };
     reader.readAsText(file);
     e.target.value = '';
   };
 
   const handleConfirmImport = async () => {
-    if (!pendingBackup) return;
+    if (!pendingBackup || pendingBackup.userId !== currentUserIdRef.current) {
+      setPendingBackup(null);
+      setError('账号状态已变化，已取消待确认备份');
+      return;
+    }
     const res = await importBackup(pendingBackup.content);
     if (res.ok) {
       onToast('备份导入成功，已完整恢复数据！');
       setPendingBackup(null);
       onClose();
     } else {
+      if (res.code === 'AUTH_EPOCH_CHANGED') {
+        setPendingBackup(null);
+      }
       return res;
     }
   };
