@@ -1596,5 +1596,221 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
       try { fs.unlinkSync(invalidBackupPath); } catch {}
     }
   });
+
+  test('S05) Attachment disk persistence failure propagation, atomic compensation, and self-healing retry', async () => {
+    const db = getDb();
+    const attachmentsDir = getAttachmentsDir();
+    const user = await registerTestUser('user_s05');
+
+    // Helper to upload custom buffer
+    async function uploadBuffer(buf: Buffer, filename = 'test.png') {
+      const form = new FormData();
+      form.append('file', new Blob([buf], { type: 'image/png' }), filename);
+      const res = await fetch(`${baseUrl}/api/media/upload`, {
+        method: 'POST',
+        headers: { 'x-csrf-token': user.csrfToken, cookie: user.cookie },
+        body: form,
+      });
+      const json = await res.json().catch(() => null);
+      return { res, json };
+    }
+
+    const pngA = Buffer.concat([Buffer.from(TINY_PNG_BASE64, 'base64'), Buffer.from('_s05_alpha')]);
+    const shaA = crypto.createHash('sha256').update(pngA).digest('hex');
+    const filenameA = `${shaA}.png`;
+    const diskPathA = path.join(attachmentsDir, filenameA);
+
+    // Initial successful upload of pngA
+    const up1 = await uploadBuffer(pngA, 'alpha.png');
+    assert.equal(up1.res.status, 200);
+    assert.equal(up1.json.ok, true);
+    assert.equal(up1.json.deduplicated, false);
+    const mediaIdA = up1.json.media.id;
+    assert.ok(fs.existsSync(diskPathA));
+    assert.equal(fs.readFileSync(diskPathA).length, pngA.length);
+    const quotaAfterUp1 = getUserTotalMediaUsage(user.user.id);
+    assert.equal(quotaAfterUp1, pngA.length);
+
+    // Setup monkey patch for renameSync and writeFileSync
+    const origRenameSync = fs.renameSync;
+    const origWriteFileSync = fs.writeFileSync;
+    let failRename = false;
+    let failWrite = false;
+
+    fs.renameSync = function(...args: any[]) {
+      if (failRename) {
+        const err = new Error('INJECTED_DISK_RENAME_FAILURE');
+        (err as any).code = 'EACCES';
+        throw err;
+      }
+      return (origRenameSync as any).apply(this, args);
+    } as typeof fs.renameSync;
+
+    fs.writeFileSync = function(...args: any[]) {
+      if (failWrite) {
+        const err = new Error('INJECTED_DISK_WRITE_FAILURE');
+        (err as any).code = 'ENOSPC';
+        throw err;
+      }
+      return (origWriteFileSync as any).apply(this, args);
+    } as typeof fs.writeFileSync;
+
+    try {
+      // -------------------------------------------------------------
+      // Case 1: Old media with corrupted/missing file: inject write/rename failure
+      // -------------------------------------------------------------
+      // Corrupt the disk file for pngA (truncate or overwrite with garbage)
+      origWriteFileSync.call(fs, diskPathA, Buffer.from('corrupted_garbage_bytes'));
+      assert.ok(!fs.readFileSync(diskPathA).equals(pngA));
+
+      // Inject rename failure in ensureAttachmentFile
+      failRename = true;
+
+      // Deduplicated upload retry while disk repair fails
+      const dedupeFail = await uploadBuffer(pngA, 'alpha.png');
+      assert.equal(dedupeFail.res.status, 500, 'Must return HTTP 500 when persistence fails');
+      assert.equal(dedupeFail.json.ok, false);
+      assert.equal(dedupeFail.json.code, 'MEDIA_PERSISTENCE_FAILED');
+      assert.equal(dedupeFail.json.media, undefined, 'Must not return media record on failure');
+      assert.equal(dedupeFail.json.url, undefined, 'Must not return usable media URL');
+
+      // Check no temp files leaked in attachmentsDir
+      const tmpFilesAfterDedupeFail = fs.readdirSync(attachmentsDir).filter(f => f.startsWith('.tmp_'));
+      assert.equal(tmpFilesAfterDedupeFail.length, 0, 'Temp file must be cleaned up on failure');
+
+      // -------------------------------------------------------------
+      // Case 2: New upload with corrupted existing file or injected write failure
+      // -------------------------------------------------------------
+      const pngB = Buffer.concat([Buffer.from(TINY_PNG_BASE64, 'base64'), Buffer.from('_s05_bravo')]);
+      const shaB = crypto.createHash('sha256').update(pngB).digest('hex');
+      const filenameB = `${shaB}.png`;
+      const diskPathB = path.join(attachmentsDir, filenameB);
+
+      // Pre-create a corrupted disk file with matching filename
+      origWriteFileSync.call(fs, diskPathB, Buffer.from('corrupt_bravo_preexisting'));
+
+      // Inject write failure
+      failRename = false;
+      failWrite = true;
+
+      const mediaRecordsCountBefore = (db.prepare('SELECT COUNT(*) as c FROM media_records WHERE user_id = ?').get(user.user.id) as any).c;
+      const quotaBeforeB = getUserTotalMediaUsage(user.user.id);
+
+      const newUploadFail = await uploadBuffer(pngB, 'bravo.png');
+      assert.equal(newUploadFail.res.status, 500, 'Must return HTTP 500 on new upload persistence failure');
+      assert.equal(newUploadFail.json.ok, false);
+      assert.equal(newUploadFail.json.code, 'MEDIA_PERSISTENCE_FAILED');
+      assert.equal(newUploadFail.json.media, undefined);
+      assert.equal(newUploadFail.json.url, undefined);
+
+      // Verify DB records and quota were NOT incremented
+      const mediaRecordsCountAfter = (db.prepare('SELECT COUNT(*) as c FROM media_records WHERE user_id = ?').get(user.user.id) as any).c;
+      assert.equal(mediaRecordsCountAfter, mediaRecordsCountBefore, 'Must not add media_records row on failure');
+      const quotaAfterB = getUserTotalMediaUsage(user.user.id);
+      assert.equal(quotaAfterB, quotaBeforeB, 'Must not increment user quota on failure');
+
+      const tmpFilesAfterNewFail = fs.readdirSync(attachmentsDir).filter(f => f.startsWith('.tmp_'));
+      assert.equal(tmpFilesAfterNewFail.length, 0, 'Temp file must be cleaned up');
+
+      // -------------------------------------------------------------
+      // Case 3: Admin restore with embedded images where disk write fails
+      // -------------------------------------------------------------
+      // Target user Charlie
+      const userCharlie = await registerTestUser('user_s05_charlie');
+      const charlieWsPre = await getWorkspace(userCharlie.cookie);
+
+      // Build backup payload with embedded data URL image
+      const pngC = Buffer.concat([Buffer.from(TINY_PNG_BASE64, 'base64'), Buffer.from('_s05_charlie')]);
+      const shaC = crypto.createHash('sha256').update(pngC).digest('hex');
+      const dataUrlC = `data:image/png;base64,${pngC.toString('base64')}`;
+
+      const charlieState = JSON.parse(JSON.stringify(charlieWsPre.state));
+      charlieState.wrong = [{
+        id: 'wrong-c',
+        date: '2026-10-27',
+        bookId: charlieState.books[0]?.id || '',
+        note: 'wrong charlie',
+        image: dataUrlC,
+      }];
+      const backupJson = JSON.stringify({ version: 3, state: charlieState });
+
+      // Keep failWrite = true so disk write fails during restore
+      failWrite = true;
+      failRename = false;
+
+      // Existing media file in attachmentsDir (e.g. diskPathA) must NOT be deleted
+      assert.ok(fs.existsSync(diskPathA), 'Existing media file must be present before restore');
+
+      const restoreResult = restoreUserWorkspace(userCharlie.user.id, backupJson, 'test_restore_fail');
+      assert.equal(restoreResult.ok, false, 'Admin restore must fail when disk persistence fails');
+      assert.ok(restoreResult.message.includes('失败'), 'Error message should indicate failure');
+
+      // DB changes must NOT be committed
+      const charlieWsPost = db.prepare('SELECT revision, state_json FROM workspaces WHERE user_id = ?').get(userCharlie.user.id) as any;
+      assert.equal(charlieWsPost.revision, charlieWsPre.revision, 'Workspace revision must not advance');
+      const charlieMediaCount = (db.prepare('SELECT COUNT(*) as c FROM media_records WHERE user_id = ?').get(userCharlie.user.id) as any).c;
+      assert.equal(charlieMediaCount, 0, 'No media records should be committed for Charlie');
+
+      // Existing media files must still exist!
+      assert.ok(fs.existsSync(diskPathA), 'Existing media file must NOT be deleted by failed restore cleanup');
+
+      // Temp / new unreferenced files must be cleaned up
+      const filenameC = `${shaC}.png`;
+      const diskPathC = path.join(attachmentsDir, filenameC);
+      assert.ok(!fs.existsSync(diskPathC), 'Newly created file for failed restore must be cleaned up');
+
+      // -------------------------------------------------------------
+      // Case 4: Once disk failure is resolved, retrying upload of same image succeeds
+      // -------------------------------------------------------------
+      // Restore normal conditions
+      failRename = false;
+      failWrite = false;
+
+      // 4a. Retry uploading pngA (the corrupted existing record from Case 1)
+      const retryUpA = await uploadBuffer(pngA, 'alpha_retry.png');
+      assert.equal(retryUpA.res.status, 200, 'Retry must succeed once disk failure is resolved');
+      assert.equal(retryUpA.json.ok, true);
+      assert.equal(retryUpA.json.deduplicated, true, 'Retry of same image must be deduplicated');
+      assert.equal(retryUpA.json.media.id, mediaIdA, 'Retry must return original media record ID');
+
+      // Quota counted only once
+      const quotaAfterRetryA = getUserTotalMediaUsage(user.user.id);
+      assert.equal(quotaAfterRetryA, pngA.length, 'Quota must be counted only once');
+
+      // Disk file SHA256 matches genuine pngA
+      const repairedA = fs.readFileSync(diskPathA);
+      assert.ok(repairedA.equals(pngA), 'Disk file must have genuine SHA256');
+      assert.equal(crypto.createHash('sha256').update(repairedA).digest('hex'), shaA);
+
+      // 4b. Retry uploading pngB (the failed new upload from Case 2)
+      const retryUpB = await uploadBuffer(pngB, 'bravo_retry.png');
+      assert.equal(retryUpB.res.status, 200, 'Retry of new upload must succeed');
+      assert.equal(retryUpB.json.ok, true);
+      assert.equal(retryUpB.json.deduplicated, false);
+      const mediaIdB = retryUpB.json.media.id;
+      assert.ok(mediaIdB);
+
+      // Quota now reflects pngA + pngB
+      const quotaAfterRetryB = getUserTotalMediaUsage(user.user.id);
+      assert.equal(quotaAfterRetryB, pngA.length + pngB.length);
+
+      // Disk file SHA256 matches genuine pngB
+      const diskB = fs.readFileSync(diskPathB);
+      assert.ok(diskB.equals(pngB), 'Disk file for bravo must match genuine bytes');
+      assert.equal(crypto.createHash('sha256').update(diskB).digest('hex'), shaB);
+
+      // 4c. Deduplicated upload of pngB now returns mediaIdB
+      const dedupeUpB = await uploadBuffer(pngB, 'bravo_dedupe.png');
+      assert.equal(dedupeUpB.res.status, 200);
+      assert.equal(dedupeUpB.json.deduplicated, true);
+      assert.equal(dedupeUpB.json.media.id, mediaIdB);
+      assert.equal(getUserTotalMediaUsage(user.user.id), pngA.length + pngB.length);
+
+    } finally {
+      // Always restore original fs functions
+      fs.renameSync = origRenameSync;
+      fs.writeFileSync = origWriteFileSync;
+    }
+  });
 });
 

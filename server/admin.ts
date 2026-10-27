@@ -281,6 +281,15 @@ export function restoreUserWorkspace(
   let pendingNewBytes = 0;
   const currentUsage = getUserTotalMediaUsage(userId);
 
+  const cleanupNewFiles = () => {
+    for (const fn of newlyCreatedFiles) {
+      const cnt = db.prepare('SELECT COUNT(*) as c FROM media_records WHERE filename = ?').get(fn) as { c: number };
+      if (cnt.c === 0) {
+        try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
+      }
+    }
+  };
+
   for (const item of dataUrlsToProcess.values()) {
     // 检查目标账号既有同 SHA 图片（秒传去重）
     const dedupeRow = db.prepare(`
@@ -288,50 +297,29 @@ export function restoreUserWorkspace(
     `).get(userId, item.sha256) as { id: string; filename: string } | undefined;
 
     if (dedupeRow) {
-      ensureAttachmentFile(dedupeRow.filename, item.buffer, attachmentsDir, item.sha256);
+      try {
+        ensureAttachmentFile(dedupeRow.filename, item.buffer, attachmentsDir, item.sha256);
+      } catch (err: any) {
+        cleanupNewFiles();
+        return { ok: false, message: `恢复媒体附件失败: ${err.message || '落盘持久化失败'}` };
+      }
       dataUrlToMediaUrl.set(item.dataUrl, `/api/media/${dedupeRow.id}`);
       continue;
     }
 
     // 新图片配额前置校验
     if (currentUsage + pendingNewBytes + item.buffer.length > MAX_USER_QUOTA_BYTES) {
-      for (const fn of newlyCreatedFiles) {
-        try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
-      }
+      cleanupNewFiles();
       return { ok: false, message: '媒体存储配额已满，无法恢复包含图片的备份' };
     }
 
     const diskFilename = `${item.sha256}.${item.ext}`;
-    const diskPath = path.join(attachmentsDir, diskFilename);
-
-    let diskValid = false;
     try {
-      if (fs.existsSync(diskPath)) {
-        const stat = fs.statSync(diskPath);
-        if (stat.size === item.buffer.length) {
-          const fileSha = crypto.createHash('sha256').update(fs.readFileSync(diskPath)).digest('hex');
-          if (fileSha === item.sha256) {
-            diskValid = true;
-          }
-        }
-      }
-    } catch {
-      diskValid = false;
-    }
-
-    if (!diskValid) {
-      const tmpPath = path.join(attachmentsDir, `.tmp_restore_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`);
-      try {
-        fs.writeFileSync(tmpPath, item.buffer);
-        fs.renameSync(tmpPath, diskPath);
-        newlyCreatedFiles.push(diskFilename);
-      } catch (err: any) {
-        try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
-        for (const fn of newlyCreatedFiles) {
-          try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
-        }
-        return { ok: false, message: `写入图片附件失败: ${err.message || 'IO错误'}` };
-      }
+      ensureAttachmentFile(diskFilename, item.buffer, attachmentsDir, item.sha256);
+      newlyCreatedFiles.push(diskFilename);
+    } catch (err: any) {
+      cleanupNewFiles();
+      return { ok: false, message: `写入图片附件失败: ${err.message || '落盘持久化失败'}` };
     }
 
     const mediaId = `media_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
@@ -373,12 +361,7 @@ export function restoreUserWorkspace(
   const stateJson = JSON.stringify(state);
   const payloadBytes = Buffer.byteLength(stateJson, 'utf8');
   if (payloadBytes > MAX_WORKSPACE_PAYLOAD_BYTES) {
-    for (const fn of newlyCreatedFiles) {
-      const cnt = db.prepare('SELECT COUNT(*) as c FROM media_records WHERE filename = ?').get(fn) as { c: number };
-      if (cnt.c === 0) {
-        try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
-      }
-    }
+    cleanupNewFiles();
     return {
       ok: false,
       message: `工作区数据体积 (${payloadBytes} 字节) 超出服务端上限 (${MAX_WORKSPACE_PAYLOAD_BYTES} 字节)`,
@@ -387,12 +370,7 @@ export function restoreUserWorkspace(
 
   const payloadValidation = validateWorkspacePayload(state, 3);
   if (!payloadValidation.valid) {
-    for (const fn of newlyCreatedFiles) {
-      const cnt = db.prepare('SELECT COUNT(*) as c FROM media_records WHERE filename = ?').get(fn) as { c: number };
-      if (cnt.c === 0) {
-        try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
-      }
-    }
+    cleanupNewFiles();
     return {
       ok: false,
       message: `工作区数据校验未通过: ${payloadValidation.message || '非法数据'}`,
@@ -451,12 +429,7 @@ export function restoreUserWorkspace(
     return { ok: true, revision: nextRev, message: `用户工作区已成功恢复为版本 revision: ${nextRev}` };
   } catch (err: any) {
     // 失败补偿清理新建文件
-    for (const fn of newlyCreatedFiles) {
-      const cnt = db.prepare('SELECT COUNT(*) as c FROM media_records WHERE filename = ?').get(fn) as { c: number };
-      if (cnt.c === 0) {
-        try { fs.unlinkSync(path.join(attachmentsDir, fn)); } catch {}
-      }
-    }
+    cleanupNewFiles();
     if (err.message === 'QUOTA_EXCEEDED') {
       return { ok: false, message: '媒体存储配额已满，无法恢复包含图片的备份' };
     }

@@ -99,6 +99,14 @@ export interface SaveMediaResult {
   deduplicated?: boolean;
 }
 
+export class MediaPersistenceError extends Error {
+  code = 'MEDIA_PERSISTENCE_FAILED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'MediaPersistenceError';
+  }
+}
+
 export function ensureAttachmentFile(
   filename: string,
   buffer: Buffer,
@@ -106,6 +114,9 @@ export function ensureAttachmentFile(
   expectedSha256?: string
 ): void {
   const diskPath = path.join(attachmentsDir, filename);
+  const targetSha = expectedSha256 || crypto.createHash('sha256').update(buffer).digest('hex');
+  const targetSize = buffer.length;
+
   let needsRepair = false;
 
   try {
@@ -113,11 +124,10 @@ export function ensureAttachmentFile(
       needsRepair = true;
     } else {
       const stat = fs.statSync(diskPath);
-      if (stat.size !== buffer.length) {
+      if (stat.size !== targetSize) {
         needsRepair = true;
       } else {
         const fileBytes = fs.readFileSync(diskPath);
-        const targetSha = expectedSha256 || crypto.createHash('sha256').update(buffer).digest('hex');
         const fileSha = crypto.createHash('sha256').update(fileBytes).digest('hex');
         if (fileSha !== targetSha) {
           needsRepair = true;
@@ -133,9 +143,31 @@ export function ensureAttachmentFile(
   const tmpPath = path.join(attachmentsDir, `.tmp_repair_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`);
   try {
     fs.writeFileSync(tmpPath, buffer);
+    const tmpStat = fs.statSync(tmpPath);
+    if (tmpStat.size !== targetSize) {
+      throw new Error(`临时文件大小校验失败: expected ${targetSize}, got ${tmpStat.size}`);
+    }
+    const tmpSha = crypto.createHash('sha256').update(fs.readFileSync(tmpPath)).digest('hex');
+    if (tmpSha !== targetSha) {
+      throw new Error(`临时文件哈希校验失败: expected ${targetSha}, got ${tmpSha}`);
+    }
+
     fs.renameSync(tmpPath, diskPath);
-  } catch {
-    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+
+    const finalStat = fs.statSync(diskPath);
+    if (finalStat.size !== targetSize) {
+      throw new Error(`目标文件大小校验失败: expected ${targetSize}, got ${finalStat.size}`);
+    }
+    const finalSha = crypto.createHash('sha256').update(fs.readFileSync(diskPath)).digest('hex');
+    if (finalSha !== targetSha) {
+      throw new Error(`目标文件哈希校验失败: expected ${targetSha}, got ${finalSha}`);
+    }
+  } catch (err: any) {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    const persistenceErr = new MediaPersistenceError(`媒体文件持久化落盘失败: ${err?.message || 'IO错误'}`);
+    throw persistenceErr;
   }
 }
 
@@ -173,7 +205,16 @@ export function saveUserMedia(
   if (dedupeRow) {
     // 同图重试时若文件缺失或损坏，使用本次已验证字节修复；不能只检查文件是否存在
     // （检查文件是否存在、大小和 sha256，若损坏/不匹配则使用本次 buffer 修复）。
-    ensureAttachmentFile(dedupeRow.filename, buffer, attachmentsDir, sha256);
+    try {
+      ensureAttachmentFile(dedupeRow.filename, buffer, attachmentsDir, sha256);
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: 500,
+        code: 'MEDIA_PERSISTENCE_FAILED',
+        message: err.message || '媒体文件持久化失败',
+      };
+    }
     return { ok: true, media: withMediaUrl(dedupeRow), deduplicated: true };
   }
 
@@ -188,42 +229,17 @@ export function saveUserMedia(
     };
   }
 
-  // 3. Write new disk file: write to request-unique temp file, then atomically rename
+  // 3. 落盘持久化：使用统一的 ensureAttachmentFile 写入并校验
   const diskPath = path.join(attachmentsDir, diskFilename);
-  let tempFilePath: string | null = null;
-  let newlyWrittenDiskFile = false;
-
-  let diskFileValid = false;
   try {
-    if (fs.existsSync(diskPath)) {
-      const stat = fs.statSync(diskPath);
-      if (stat.size === buffer.length) {
-        const fileSha = crypto.createHash('sha256').update(fs.readFileSync(diskPath)).digest('hex');
-        if (fileSha === sha256) {
-          diskFileValid = true;
-        }
-      }
-    }
-  } catch {
-    diskFileValid = false;
-  }
-
-  if (!diskFileValid) {
-    const tmpPath = path.join(attachmentsDir, `.tmp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`);
-    try {
-      fs.writeFileSync(tmpPath, buffer);
-      tempFilePath = tmpPath;
-      fs.renameSync(tmpPath, diskPath);
-      tempFilePath = null;
-      newlyWrittenDiskFile = true;
-    } catch (writeErr) {
-      if (tempFilePath) {
-        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-      }
-      if (!fs.existsSync(diskPath)) {
-        throw writeErr;
-      }
-    }
+    ensureAttachmentFile(diskFilename, buffer, attachmentsDir, sha256);
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'MEDIA_PERSISTENCE_FAILED',
+      message: err.message || '媒体文件持久化失败',
+    };
   }
 
   const mediaId = `media_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
@@ -245,15 +261,10 @@ export function saveUserMedia(
 
     insertTx();
   } catch (err: any) {
-    if (tempFilePath) {
-      try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
-    }
-    // 失败清理只处理本次新建内容，不能删除去重命中的旧附件或其它用户引用的附件
-    if (newlyWrittenDiskFile) {
-      const refCount = db.prepare('SELECT COUNT(*) as count FROM media_records WHERE filename = ?').get(diskFilename) as { count: number };
-      if (refCount.count === 0) {
-        try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
-      }
+    // 失败补偿清理新建文件：仅当数据库中没有其他媒体记录引用该文件名时才清理磁盘文件
+    const refCount = db.prepare('SELECT COUNT(*) as count FROM media_records WHERE filename = ?').get(diskFilename) as { count: number };
+    if (refCount.count === 0) {
+      try { if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath); } catch {}
     }
 
     if (err.message === 'QUOTA_EXCEEDED') {
