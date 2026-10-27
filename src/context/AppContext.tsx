@@ -654,6 +654,21 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       }
       return;
     }
+    if (hydrate.status === 'conflict') {
+      const latest = await loadLatestState(user.id);
+      if (!isCurrent(user.id, epoch)) return;
+      readyRef.current = true;
+      applyLocalState(hydrate.localState ?? latest.state, hydrate.localRevision ?? latest.revision);
+      setAuthPhase('authenticated');
+      setAuthError(null);
+      setSessionExpired(false);
+      setSyncStatus('conflict');
+      setSyncMessage(hydrate.message || '检测到数据版本冲突待处理');
+      await refreshPendingCount(user.id);
+      await refreshConflictState(user.id);
+      setIsLoading(false);
+      return;
+    }
     if (hydrate.needsRelogin) {
       handleSessionExpired();
       setIsLoading(false);

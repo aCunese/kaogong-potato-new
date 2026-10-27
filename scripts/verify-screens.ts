@@ -345,6 +345,9 @@ async function writeLocalSnapshot(
   input: { state: any; revision: number; userId: string; username: string; nickname: string; generationId: string }
 ): Promise<void> {
   await page.evaluate(async payload => {
+    const str = JSON.stringify(payload.state);
+    const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open('kaogong_potato_v3');
       req.onerror = () => reject(req.error);
@@ -359,6 +362,8 @@ async function writeLocalSnapshot(
           revision: payload.revision,
           confirmedRevision: payload.revision,
           generationId: payload.generationId,
+          contentHash: hashHex,
+          confirmedContentHash: hashHex,
           migratedFromV2: true,
           updatedAt: new Date().toISOString(),
         };
@@ -367,6 +372,16 @@ async function writeLocalSnapshot(
         tx.objectStore('snapshots').put({ ...base, key: 'snapshot_latest' });
         for (const name of ['media', 'outbox', 'damaged_cache', 'sync_state']) {
           if (stores.includes(name)) tx.objectStore(name).clear();
+        }
+        if (stores.includes('sync_state')) {
+          tx.objectStore('sync_state').put({
+            key: `baseline_${payload.userId}`,
+            userId: payload.userId,
+            confirmedRevision: payload.revision,
+            generationId: payload.generationId,
+            contentHash: hashHex,
+            updatedAt: new Date().toISOString(),
+          });
         }
         tx.oncomplete = () => { db.close(); resolve(); };
         tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
