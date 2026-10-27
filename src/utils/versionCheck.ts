@@ -141,8 +141,11 @@ export interface ApplyWebUpdateOptions {
   targetBuild?: string;
 }
 
+export type WebUpdateStatus = 'failed' | 'download_ready' | 'controlled' | 'needs_reload';
+
 export interface ApplyWebUpdateResult {
   ok: boolean;
+  status?: WebUpdateStatus;
   message: string;
   controllerChanged?: boolean;
 }
@@ -1088,18 +1091,32 @@ export async function performUpdateCheck(): Promise<CheckUpdateResult> {
 // Web 热更新（R17：等待可观测的 Service Worker 状态变化，绝不清理本地数据）
 // ------------------------------------------------------------------------------
 
-function waitForControllerChange(timeoutMs: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-      resolve(false);
+interface ControllerChangeWaitResult {
+  changed: boolean;
+  blockedByGuard?: UpdateGuardResult;
+}
+
+function waitForControllerChange(
+  timeoutMs: number,
+  canActivate?: UpdateGuard,
+): Promise<ControllerChangeWaitResult> {
+  return new Promise<ControllerChangeWaitResult>((resolve) => {
+    if (
+      typeof navigator === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      typeof navigator.serviceWorker?.addEventListener !== 'function'
+    ) {
+      resolve({ changed: false });
       return;
     }
     let settled = false;
+    let timer: any = null;
+    let intervalTimer: any = null;
     let onChange: (() => void) | null = null;
-    const finish = (value: boolean): void => {
-      if (settled) return;
-      settled = true;
+
+    const cleanup = () => {
       if (timer) clearTimeout(timer);
+      if (intervalTimer) clearInterval(intervalTimer);
       if (onChange) {
         try {
           navigator.serviceWorker.removeEventListener('controllerchange', onChange);
@@ -1107,34 +1124,96 @@ function waitForControllerChange(timeoutMs: number): Promise<boolean> {
           // ignore
         }
       }
-      resolve(value);
     };
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    onChange = () => finish(true);
-    navigator.serviceWorker.addEventListener('controllerchange', onChange);
+
+    const finish = (result: ControllerChangeWaitResult): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    if (canActivate) {
+      const g = safeGuard(canActivate);
+      if (g && !g.ok) {
+        finish({ changed: false, blockedByGuard: g });
+        return;
+      }
+      intervalTimer = setInterval(() => {
+        const check = safeGuard(canActivate);
+        if (check && !check.ok) {
+          finish({ changed: false, blockedByGuard: check });
+        }
+      }, 200);
+    }
+
+    timer = setTimeout(() => finish({ changed: false }), timeoutMs);
+    onChange = () => {
+      if (canActivate) {
+        const check = safeGuard(canActivate);
+        if (check && !check.ok) {
+          finish({ changed: false, blockedByGuard: check });
+          return;
+        }
+      }
+      finish({ changed: true });
+    };
+
+    try {
+      navigator.serviceWorker.addEventListener('controllerchange', onChange);
+    } catch {
+      finish({ changed: false });
+    }
   });
 }
 
 async function waitForWaitingWorker(
   registration: ServiceWorkerRegistration,
   timeoutMs: number,
-): Promise<ServiceWorker | null> {
+  canActivate?: UpdateGuard,
+): Promise<{ worker: ServiceWorker | null; blockedByGuard?: UpdateGuardResult }> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (registration.waiting) return registration.waiting;
-    await delay(250);
+    if (canActivate) {
+      const g = safeGuard(canActivate);
+      if (g && !g.ok) {
+        return { worker: null, blockedByGuard: g };
+      }
+    }
+    if (registration.waiting) return { worker: registration.waiting };
+    if (!registration.installing && Date.now() - startedAt >= 400) {
+      break;
+    }
+    await delay(100);
   }
-  return registration.waiting ?? null;
+  if (canActivate) {
+    const g = safeGuard(canActivate);
+    if (g && !g.ok) {
+      return { worker: null, blockedByGuard: g };
+    }
+  }
+  return { worker: registration.waiting ?? null };
 }
 
 export const STORAGE_KEY_PENDING_RELOAD = 'kaogong_pending_reload_target';
 export const STORAGE_KEY_RELOAD_ATTEMPTS = 'kaogong_reload_attempts';
+export const MAX_RELOAD_ATTEMPTS = 1;
 
 interface WorkerReleaseInfo {
   type: string;
   cacheName?: string;
   version?: string;
   build?: string;
+}
+
+function isWorkerMatchingTarget(
+  release: WorkerReleaseInfo | null | undefined,
+  targetBuild: string,
+): boolean {
+  if (!release || !targetBuild) return false;
+  if (release.build && release.build === targetBuild) return true;
+  if (release.cacheName && release.cacheName.includes(targetBuild)) return true;
+  return false;
 }
 
 function queryWorkerReleaseInfo(worker: ServiceWorker, timeoutMs = 500): Promise<WorkerReleaseInfo | null> {
@@ -1210,23 +1289,40 @@ function clearPendingReloadState(): void {
   }
 }
 
+function tryRecordReload(targetBuild: string, currentAttempts: number): boolean {
+  if (currentAttempts >= MAX_RELOAD_ATTEMPTS) {
+    return false;
+  }
+  setStoredPendingReloadTarget(targetBuild);
+  setStoredReloadAttempts(currentAttempts + 1);
+  return true;
+}
+
 /**
  * 应用 Web 热更新：
  *   1. App 层保护检查（计时器/写事务/待同步/冲突）；
- *   2. 检查当前 active worker 是否已经是目标更新或已接管，避免无休止等待未来 controllerchange；
- *   3. 如果存在 waiting worker，发送 SKIP_WAITING 并等待 controllerchange；
- *   4. 支持单次受保护刷新与 sessionStorage 目标校验，防止死循环。
+ *   2. 检查当前 active worker 是否精确匹配目标构建；
+ *   3. 若不匹配则触发 registration.update()，等待目标 worker 就绪、激活和接管；
+ *   4. controllerchange 发生后仍核对目标身份，杜绝盲目判成功；
+ *   5. 明确区分四种状态（检查失败、下载就绪、已接管、需要刷新）；
+ *   6. 所有刷新路径共用次数限制 (MAX_RELOAD_ATTEMPTS = 1)，刷新后核对页面 build 避免死循环。
  * 绝不清理 IndexedDB / 账号缓存 / 业务数据。
  */
 export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promise<ApplyWebUpdateResult> {
   const guard = safeGuard(options.canActivate);
   if (guard && !guard.ok) {
-    return { ok: false, message: guard.reason || '当前存在未完成的任务，已暂缓更新', controllerChanged: false };
+    return {
+      ok: false,
+      status: 'failed',
+      message: guard.reason || '当前存在未完成的任务，已暂缓更新',
+      controllerChanged: false,
+    };
   }
 
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return {
       ok: false,
+      status: 'failed',
       message: '当前运行环境不支持 Service Worker，无法热更新；请重新打开页面获取新版本',
       controllerChanged: false,
     };
@@ -1241,6 +1337,7 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
   if (!registration) {
     return {
       ok: false,
+      status: 'failed',
       message: '当前页面尚未注册 Service Worker，无法确认新版本资源；请刷新页面后重试',
       controllerChanged: false,
     };
@@ -1248,48 +1345,62 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
 
   const targetBuild = options.targetBuild || getCachedUpdateResult()?.remoteInfo?.build || CURRENT_WEB_BUILD;
 
-  // 检查是否有前次未完成的刷新意图
+  // 检查是否有前次未完成的刷新意图及次数限制 (MAX_RELOAD_ATTEMPTS = 1)
   const pendingTarget = getStoredPendingReloadTarget();
   const reloadAttempts = getStoredReloadAttempts();
   if (pendingTarget) {
     if (CURRENT_WEB_BUILD === pendingTarget) {
       clearPendingReloadState();
-    } else if (reloadAttempts >= 1) {
+    } else if (reloadAttempts >= MAX_RELOAD_ATTEMPTS) {
       clearPendingReloadState();
       return {
         ok: false,
+        status: 'failed',
         controllerChanged: false,
         message: `刷新后页面版本 (${CURRENT_WEB_BUILD}) 仍未更新至预期构建 (${pendingTarget})，请稍后重试或清理浏览器缓存`,
       };
     }
   }
 
-  // 1. 检查当前 active worker 是否已经是目标更新（或已经接管客户端）
+  // 1. 检查当前 active worker 是否已经是目标更新
+  // 注意：只有 active worker 精确匹配目标 build 时才判成功；移除“存在 active/controller 就算已激活”的误判
   const activeWorker = registration.active;
   let activeRelease: WorkerReleaseInfo | null = null;
   if (activeWorker) {
     activeRelease = await queryWorkerReleaseInfo(activeWorker, 500);
   }
 
-  const activeMatchesTarget =
-    activeRelease?.build === targetBuild ||
-    (activeRelease?.cacheName && activeRelease.cacheName.includes(targetBuild));
+  const activeMatchesTarget = isWorkerMatchingTarget(activeRelease, targetBuild);
 
-  // 如果 active worker 已经是目标更新，或者活跃且没有 waiting/installing 且页面已经被接管
-  if (
-    activeMatchesTarget ||
-    (activeWorker && !registration.waiting && !registration.installing && navigator.serviceWorker.controller)
-  ) {
-    setStoredPendingReloadTarget(targetBuild);
+  if (activeMatchesTarget) {
+    const finalGuard = safeGuard(options.canActivate);
+    if (finalGuard && !finalGuard.ok) {
+      return {
+        ok: false,
+        status: 'failed',
+        message: finalGuard.reason || '当前存在未完成的任务，已暂缓更新',
+        controllerChanged: false,
+      };
+    }
+    if (!tryRecordReload(targetBuild, reloadAttempts)) {
+      clearPendingReloadState();
+      return {
+        ok: false,
+        status: 'failed',
+        controllerChanged: false,
+        message: `刷新后页面版本 (${CURRENT_WEB_BUILD}) 仍未更新至预期构建 (${targetBuild})，请稍后重试或清理浏览器缓存`,
+      };
+    }
     return {
       ok: true,
+      status: 'needs_reload',
       controllerChanged: true,
       message: '新版本已激活，刷新页面即可完成更新',
     };
   }
 
-  // 挂载 controllerchange 监听器，准备接收新 worker 接管
-  const controllerChangedPromise = waitForControllerChange(10000);
+  // 挂载 controllerchange 监听器，并在等待期间周期性检查 options.canActivate 保护
+  const controllerChangedPromise = waitForControllerChange(10000, options.canActivate);
 
   // 2. 如果已有 waiting worker，直接触发 SKIP_WAITING
   let waiting = registration.waiting;
@@ -1301,16 +1412,36 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
     }
   }
 
-  // 3. 触发 registration.update() 拉取潜在的新版本
+  // 3. active 不匹配目标时，触发 registration.update() 拉取新版本
   try {
     await registration.update();
   } catch {
     // update 失败不直接判死
   }
 
+  // 检查 update 后保护状态
+  const guardAfterUpdate = safeGuard(options.canActivate);
+  if (guardAfterUpdate && !guardAfterUpdate.ok) {
+    return {
+      ok: false,
+      status: 'failed',
+      message: guardAfterUpdate.reason || '当前存在未完成的任务，已暂缓更新',
+      controllerChanged: false,
+    };
+  }
+
   // 4. 如果之前没有 waiting，再次检查是否有新进入 waiting 的 worker
   if (!waiting) {
-    waiting = registration.waiting || (await waitForWaitingWorker(registration, 3000));
+    const waitResult = await waitForWaitingWorker(registration, 3000, options.canActivate);
+    if (waitResult.blockedByGuard) {
+      return {
+        ok: false,
+        status: 'failed',
+        message: waitResult.blockedByGuard.reason || '当前存在未完成的任务，已暂缓更新',
+        controllerChanged: false,
+      };
+    }
+    waiting = waitResult.worker;
   }
 
   if (waiting) {
@@ -1320,48 +1451,127 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
       // ignore
     }
 
-    const controllerChanged = await controllerChangedPromise;
-    if (controllerChanged) {
-      setStoredPendingReloadTarget(targetBuild);
+    const controllerResult = await controllerChangedPromise;
+    if (controllerResult.blockedByGuard) {
+      return {
+        ok: false,
+        status: 'failed',
+        message: controllerResult.blockedByGuard.reason || '当前存在未完成的任务，已暂缓更新',
+        controllerChanged: false,
+      };
+    }
+
+    // controllerchange 发生后仍核对目标身份；旧版 worker 无法返回身份或身份不匹配时，也不能仅凭事件判成功
+    let targetVerified = false;
+    if (controllerResult.changed) {
+      let controllerRelease: WorkerReleaseInfo | null = null;
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+        controllerRelease = await queryWorkerReleaseInfo(navigator.serviceWorker.controller, 1000);
+      }
+      let refreshedActiveRelease: WorkerReleaseInfo | null = null;
+      if (registration.active) {
+        refreshedActiveRelease = await queryWorkerReleaseInfo(registration.active, 1000);
+      }
+      targetVerified =
+        isWorkerMatchingTarget(controllerRelease, targetBuild) ||
+        isWorkerMatchingTarget(refreshedActiveRelease, targetBuild);
+    }
+
+    if (targetVerified) {
+      const finalGuard = safeGuard(options.canActivate);
+      if (finalGuard && !finalGuard.ok) {
+        return {
+          ok: false,
+          status: 'failed',
+          message: finalGuard.reason || '当前存在未完成的任务，已暂缓更新',
+          controllerChanged: true,
+        };
+      }
+      if (!tryRecordReload(targetBuild, reloadAttempts)) {
+        clearPendingReloadState();
+        return {
+          ok: false,
+          status: 'failed',
+          controllerChanged: false,
+          message: `刷新后页面版本 (${CURRENT_WEB_BUILD}) 仍未更新至预期构建 (${targetBuild})，请稍后重试或清理浏览器缓存`,
+        };
+      }
       return {
         ok: true,
+        status: 'controlled',
         controllerChanged: true,
         message: '新版本资源已完成接管，刷新页面即可应用更新（本地数据与账号缓存不受影响）',
       };
     }
 
-    // 等待 controllerchange 超时：支持单次受保护刷新尝试
-    if (reloadAttempts === 0) {
-      setStoredPendingReloadTarget(targetBuild);
-      setStoredReloadAttempts(1);
+    // 等待 controllerchange 超时或未接管：核对 waiting worker 是否就是目标版本（下载就绪）
+    const waitingRelease = await queryWorkerReleaseInfo(waiting, 800);
+    const waitingMatchesTarget = isWorkerMatchingTarget(waitingRelease, targetBuild);
+
+    if (waitingMatchesTarget) {
+      const finalGuard = safeGuard(options.canActivate);
+      if (finalGuard && !finalGuard.ok) {
+        return {
+          ok: false,
+          status: 'failed',
+          message: finalGuard.reason || '当前存在未完成的任务，已暂缓更新',
+          controllerChanged: false,
+        };
+      }
+      if (tryRecordReload(targetBuild, reloadAttempts)) {
+        return {
+          ok: true,
+          status: 'download_ready',
+          controllerChanged: false,
+          message: '新版本资源已下载就绪，刷新页面完成更新',
+        };
+      }
+      clearPendingReloadState();
       return {
-        ok: true,
+        ok: false,
+        status: 'failed',
         controllerChanged: false,
-        message: '新版本资源已下载就绪，刷新页面完成更新',
+        message: '未能观测到新版本 Service Worker 接管页面（可能新版本尚未部署完成、网络中断或浏览器未允许更新）。本地数据与账号缓存未被清理，请稍后重试',
       };
     }
 
+    // waiting 既不匹配目标版本，controllerchange 也未确认目标版本
     clearPendingReloadState();
     return {
       ok: false,
+      status: 'failed',
       controllerChanged: false,
       message: '未能观测到新版本 Service Worker 接管页面（可能新版本尚未部署完成、网络中断或浏览器未允许更新）。本地数据与账号缓存未被清理，请稍后重试',
     };
   }
 
-  // 5. 如果没有 waiting worker，检查 active worker（可能由 legacy worker 或在 update() 中直接激活）
+  // 5. 如果没有 waiting worker，检查 active worker（可能直接在 update() 中激活）
   const refreshedActive = registration.active;
   if (refreshedActive) {
     const refreshedRelease = await queryWorkerReleaseInfo(refreshedActive, 500);
-    if (
-      refreshedRelease?.build === targetBuild ||
-      refreshedRelease?.cacheName?.includes(targetBuild) ||
-      (navigator.serviceWorker.controller && !registration.installing)
-    ) {
-      setStoredPendingReloadTarget(targetBuild);
+    if (isWorkerMatchingTarget(refreshedRelease, targetBuild)) {
+      const finalGuard = safeGuard(options.canActivate);
+      if (finalGuard && !finalGuard.ok) {
+        return {
+          ok: false,
+          status: 'failed',
+          message: finalGuard.reason || '当前存在未完成的任务，已暂缓更新',
+          controllerChanged: false,
+        };
+      }
+      if (!tryRecordReload(targetBuild, reloadAttempts)) {
+        clearPendingReloadState();
+        return {
+          ok: false,
+          status: 'failed',
+          controllerChanged: false,
+          message: `刷新后页面版本 (${CURRENT_WEB_BUILD}) 仍未更新至预期构建 (${targetBuild})，请稍后重试或清理浏览器缓存`,
+        };
+      }
       return {
         ok: true,
-        controllerChanged: true,
+        status: 'needs_reload',
+        controllerChanged: Boolean(navigator.serviceWorker.controller),
         message: '新版本已激活，刷新页面即可完成更新',
       };
     }
@@ -1369,6 +1579,7 @@ export async function applyWebUpdate(options: ApplyWebUpdateOptions = {}): Promi
 
   return {
     ok: false,
+    status: 'failed',
     controllerChanged: false,
     message: '未能检测到新版本 Service Worker 资源，请确认网络连接后重试',
   };
