@@ -29,8 +29,9 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   // Form states with dynamic per-task reset (Fixes A12)
   const [questions, setQuestions] = useState<number>(0);
   const [errors, setErrors] = useState<number>(0);
-  const [actualMinutes, setActualMinutes] = useState<number>(0);
-  const [lessons, setLessons] = useState<number>(1);
+  const actualMinutes = livePlan ? getCompletionMinutes(livePlan) : 0;
+  const [lessons, setLessons] = useState(String(plan?.plannedLessons ?? 1));
+  const validLessons = /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0;
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [preparedPlanId, setPreparedPlanId] = useState('');
   const [prepareAttempt, setPrepareAttempt] = useState(0);
@@ -56,8 +57,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     setErrorMsg('');
     setQuestions(0);
     setErrors(0);
-    setLessons(livePlan.plannedLessons ?? 1);
-    setActualMinutes(0);
+    setLessons(String(livePlan.plannedLessons ?? 1));
     setIsSuccess(false);
     setCompletedRecord(null);
 
@@ -88,7 +88,6 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !livePlan || livePlan.done || initialSuccess || (livePlan.timerStart > 0 || (livePlan.restStart ?? 0) > 0) || preparedPlanId === livePlan.id) return;
-    setActualMinutes(getCompletionMinutes(livePlan));
     setPreparedPlanId(livePlan.id);
   }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
 
@@ -130,7 +129,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         minutes: actualMinutes,
       });
     } else if (plan.type === 'course') {
-      if (lessons <= 0 || actualMinutes < 0) {
+      if (!validLessons || actualMinutes < 0) {
         setErrorMsg('课时数必须大于0，用时不能为负数');
         return;
       }
@@ -138,7 +137,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       res = await completePlan({
         type: 'course',
         planId: plan.id,
-        lessons,
+        lessons: Number(lessons),
         minutes: actualMinutes,
       });
     } else {
@@ -320,13 +319,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
                 <div>
                   <label className="block text-xs text-ink-muted font-medium mb-1">实际学习分钟</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={actualMinutes}
-                    onChange={e => setActualMinutes(parseInt(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-                  />
+                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
                 </div>
               </div>
             )}
@@ -339,20 +332,17 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                     type="number"
                     min="1"
                     value={lessons}
-                    onChange={e => setLessons(parseInt(e.target.value) || 1)}
+                    onChange={e => setLessons(e.target.value)}
+                    aria-label="本次完成课时"
+                    required
+                    step="1"
                     className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs text-ink-muted font-medium mb-1">实际学习分钟</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={actualMinutes}
-                    onChange={e => setActualMinutes(parseInt(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-                  />
+                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
                 </div>
               </div>
             )}
@@ -366,24 +356,19 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
                 <div>
                   <label className="block text-xs text-ink-muted font-medium mb-1">实际学习用时 (分钟)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={actualMinutes}
-                    onChange={e => setActualMinutes(parseInt(e.target.value) || 0)}
-                    className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-                  />
+                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
                 </div>
               </div>
             )}
 
+            <p className="text-xs text-ink-muted">用时来自本次计时，不能手动修改。{actualMinutes <= 0 ? '请先开始计时，学习后再完成登记。' : ''}</p>
             <div className="pt-2">
               {errorMsg && livePlan?.timerStart ? (
                 <Button variant="secondary" size="md" fullWidth onClick={() => setPrepareAttempt(value => value + 1)}>
                   重试暂停计时
                 </Button>
               ) : null}
-              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart)}>
+              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart) || actualMinutes <= 0 || (plan.type === 'course' && !validLessons)}>
                 <CheckCircle2 size={16} />
                 保存并完成
               </Button>

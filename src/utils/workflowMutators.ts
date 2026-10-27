@@ -312,6 +312,7 @@ export function applyAddCourse(
   draft: AppState,
   courseData: Omit<Course, 'id'>
 ): MutatorReturn<string> {
+  if (!Number.isSafeInteger(courseData.totalLessons) || courseData.totalLessons <= 0 || !Number.isSafeInteger(courseData.completedLessons) || courseData.completedLessons < 0 || courseData.completedLessons > courseData.totalLessons) return { error: { code: 'INVALID_LESSONS', message: '总课时必须大于0，已完成课时须为不超过总课时的非负整数。' } };
   const id = `course-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newCourse: Course = { ...courseData, id };
   draft.courses.push(newCourse);
@@ -327,6 +328,12 @@ export function applyEditCourse(
   id: string,
   updates: Partial<Course>
 ): MutatorReturn<void> {
+  const course = draft.courses.find(c => c.id === id);
+  if (!course) return { error: { code: 'NOT_FOUND', message: '课程未找到。' } };
+  if (updates.minutes !== undefined && updates.minutes !== course.minutes) return { error: { code: 'READ_ONLY_DURATION', message: '累计用时由计时自动记录，不能手动修改。' } };
+  const total = updates.totalLessons ?? course.totalLessons;
+  const completed = updates.completedLessons ?? course.completedLessons;
+  if (!Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(completed) || completed < 0 || completed > total) return { error: { code: 'INVALID_LESSONS', message: '总课时必须大于0，已完成课时须为不超过总课时的非负整数。' } };
   draft.courses = draft.courses.map(c => c.id === id ? { ...c, ...updates } : c);
   draft.library = buildLibraryFromSources(draft.books, draft.courses, draft.library);
   return { nextState: draft, value: undefined };

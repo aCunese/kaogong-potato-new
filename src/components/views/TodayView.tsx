@@ -2,16 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
-import { Card, Button, Tag } from '../common/UIComponents';
+import { Card, Button, Tag, Modal } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
-import { Plan, MutationResult } from '../../types';
+import { Plan, MutationResult, TimerMode } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
 import { getPlanElapsedMs } from '../../utils/workflowPresentation';
 
 interface TodayViewProps {
   forcedMode?: 'normal' | 'empty' | 'multi';
   onOpenAddPlan: () => void;
-  onOpenFocus: (plan: Plan) => void;
+  onOpenFocus: (plan: Plan, mode?: TimerMode) => void;
   onOpenComplete: (plan: Plan) => void;
   onOpenCountdownEdit: (index: number) => void;
   onOpenDeleteConfirm?: (plan: Plan) => void;
@@ -32,6 +32,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const { state, activeDate, startTimer, pauseTimer, deletePlan } = useApp();
   const [, setTick] = useState(0);
   const [historyDate, setHistoryDate] = useState('');
+  const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
     setErrorMsg('');
@@ -169,10 +170,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <span>今日日程</span>
           <span className="text-xs font-normal text-ink-muted">({displayedPlans.length})</span>
         </h2>
-        <Button variant="primary" size="sm" onClick={onOpenAddPlan}>
-          <Plus size={14} />
-          添加日程
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setPomodoroOpen(true)}><Clock size={14} />番茄钟</Button>
+          <Button variant="primary" size="sm" onClick={onOpenAddPlan}><Plus size={14} />添加日程</Button>
+        </div>
       </div>
 
       {/* 4. 计划列表 */}
@@ -330,6 +331,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <div className="flex justify-between"><button className="text-xs text-sage" onClick={() => onOpenComplete(p)}>{p.done ? '查看登记总结' : '补登记'}</button><button className="text-xs text-alarm" onClick={() => onOpenDeleteConfirm ? onOpenDeleteConfirm(p) : void runTimerAction(() => deletePlan(p.id))}>删除并撤销登记</button></div>
         </Card>)}
       </section>
+      <Modal isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} title="番茄钟 · 选择学习日程">
+        <p className="text-xs text-ink-muted mb-3">选择要专注的日程，专注用时会自动计入对应题本或网课。</p>
+        <div className="space-y-2">{relevantPlans.filter(p => !p.done).map(p => <button key={p.id} className="w-full rounded-xl border border-line bg-cream/50 p-3 text-left" onClick={() => { setPomodoroOpen(false); onOpenFocus(p, 'pomodoro'); }}><span className="block text-sm font-bold">{p.name}</span><span className="text-xs text-ink-muted">{p.type === 'course' ? '网课' : p.type === 'book' ? '刷题' : '自定义'} · {p.subject}</span></button>)}</div>
+        {!relevantPlans.some(p => !p.done) && <div className="text-center space-y-3"><p className="text-sm text-ink-muted">请先添加一项学习日程，再开始番茄钟。</p><Button onClick={() => { setPomodoroOpen(false); onOpenAddPlan(); }}>添加学习日程</Button></div>}
+      </Modal>
     </div>
   );
 };

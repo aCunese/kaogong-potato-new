@@ -39,3 +39,30 @@ it('asks for planned lessons when a course is selected for today', () => {
   const html = render(React.createElement(AddPlanModal, { isOpen: true, onClose: noop, onToast: noop }));
   expect(html).toContain('本次计划节数');
 });
+
+it('keeps accumulated course minutes read-only while allowing lesson edits', async () => {
+  const { CourseEditModal } = await import('../src/components/views/EditModals');
+  const course: any = { id: 'c', name: 'Course', subject: '资料分析', totalLessons: 10, completedLessons: 1, minutes: 540, url: '' };
+  const html = render(React.createElement(CourseEditModal, { isOpen: true, course, onClose: noop, onToast: noop }));
+  expect(html).toContain('<output'); expect(html).toContain('自动累计');
+  expect(html).toContain('aria-label="总课时"'); expect(html).toContain('aria-label="已完成课时"');
+});
+it('shows measured completion duration as output and only edits course lesson count', async () => {
+  const { CompletionModal } = await import('../src/components/views/CompletionModal');
+  const plan: any = { id: 'p', date: '2026-10-27', libraryId: 'lib-course-c', name: 'Course', type: 'course', sourceId: 'c', subject: '资料分析', plannedMinutes: 30, actualMinutes: 20, accumulatedMs: 1200000, timerStart: 0, done: false, plannedLessons: 2 };
+  const html = render(React.createElement(CompletionModal, { isOpen: true, plan, onClose: noop, onToast: noop }));
+  expect(html).toContain('<output'); expect(html).toContain('自动记录'); expect((html.match(/<input/g) ?? []).length).toBe(1);
+});
+it('makes pomodoro visible on the today page and all three modes visible in focus', async () => {
+  const { TodayView } = await import('../src/components/views/TodayView');
+  const { FocusModal } = await import('../src/components/views/FocusModal');
+  const html = render(React.createElement(TodayView, { onOpenAddPlan: noop, onOpenFocus: noop, onOpenComplete: noop, onOpenCountdownEdit: noop }));
+  expect(html).toContain('番茄钟');
+  const plan: any = { id: 'p', date: '2026-10-27', name: 'Course', type: 'course', plannedMinutes: 30, actualMinutes: 0, timerStart: 0, done: false };
+  const focus = render(React.createElement(FocusModal, { isOpen: true, plan, onClose: noop, onComplete: noop }));
+  expect(focus).toContain('aria-label="计时模式"'); expect(focus).toContain('aria-pressed=');
+});
+it('has a dedicated course analysis entry with course-only metrics and progress', () => {
+  const html = render(React.createElement(AnalysisView, { initialSubTab: 'courses' as any, onOpenMonthPicker: noop, onOpenLegendDetail: noop }));
+  expect(html).toContain('网课分析'); expect(html).toContain('本期听课用时'); expect(html).toContain('课程进度'); expect(html).toContain('Course');
+});

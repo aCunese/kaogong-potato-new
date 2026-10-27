@@ -1,3 +1,4 @@
+import { CourseAnalysisView } from './CourseAnalysisView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
@@ -129,10 +130,13 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
         options={[
           { label: '总体趋势', value: 'overall' },
           { label: '每月分析', value: 'monthly' },
+          { label: '网课分析', value: 'courses' },
         ]}
         value={subTab}
         onChange={val => setSubTab(val as AnalysisSubTab)}
       />
+
+      {subTab === 'courses' && <CourseAnalysisView />}
 
       {/* 1. 总体分析 */}
       {subTab === 'overall' && (

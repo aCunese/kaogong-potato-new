@@ -670,9 +670,17 @@ describe('S04: Import scope binding & atomic recovery regressions', () => {
           return Response.json({ ok: true });
         };
 
+        const waitFor = async (predicate: () => boolean) => {
+          const deadline = Date.now() + 3000;
+          while (!predicate()) {
+            if (Date.now() >= deadline) throw new Error('Expected import UI state did not settle');
+            await new Promise(r => setTimeout(r, 10));
+          }
+        };
+        const hasConfirmation = () => document.body.innerText.includes('确认导入') || document.body.innerText.includes('Alice Chosen Backup');
         w.backupModalOpen = true;
         w.mount();
-        await new Promise(r => setTimeout(r, 60));
+        await waitFor(() => w.api?.authPhase === 'authenticated' && w.api?.currentUser?.id === 'user_a');
 
         const backupJson = JSON.stringify({
           version: 3,
@@ -693,8 +701,8 @@ describe('S04: Import scope binding & atomic recovery regressions', () => {
         Object.defineProperty(inputEl, 'files', { value: dt.files, configurable: true });
         inputEl.dispatchEvent(new Event('change', { bubbles: true }));
 
-        // Wait for FileReader onload to set pendingBackup
-        await new Promise(r => setTimeout(r, 50));
+        // Wait for FileReader + React state, rather than assuming they finish within 50ms.
+        await waitFor(hasConfirmation);
 
         const confirmationBeforeSwitch = document.body.innerText.includes('确认导入') ||
           document.body.innerText.includes('Alice Chosen Backup');
@@ -702,7 +710,7 @@ describe('S04: Import scope binding & atomic recovery regressions', () => {
         // 2. User switches account to B
         await w.api.logout();
         await w.api.login('bob', 'pwd');
-        await new Promise(r => setTimeout(r, 60));
+        await waitFor(() => w.api?.currentUser?.id === 'user_bob' && !hasConfirmation());
 
         const confirmationAfterSwitch = document.body.innerText.includes('确认导入') ||
           document.body.innerText.includes('Alice Chosen Backup');

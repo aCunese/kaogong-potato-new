@@ -134,3 +134,22 @@ it('queued timer maintenance rechecks the current phase instead of pausing a new
   expect(latest.timerPhase).toBe('focus'); expect(latest.timerStart).toBe(next);
   _resetInMemoryStore();
 });
+
+it('rejects editing accumulated course duration and invalid total lessons without changing state', () => {
+  const s = fixture(); const before = structuredClone(s);
+  expect('error' in workflow.applyEditCourse(s, 'c', { minutes: 900 })).toBe(true); expect(s).toEqual(before);
+  expect('error' in workflow.applyEditCourse(s, 'c', { totalLessons: 0 })).toBe(true); expect(s).toEqual(before);
+  expect('nextState' in workflow.applyEditCourse(s, 'c', { completedLessons: 2 })).toBe(true); expect(s.courses[0].minutes).toBe(15);
+});
+it('aggregates dedicated course analysis from course records only and keeps deleted courses visible', async () => {
+  const { getCourseAnalysis } = await import('../src/utils/courseAnalysis');
+  const s = fixture();
+  s.records = [
+    { id: 'book', planId: '', date: '2026-10-27', type: 'book', sourceId: 'b', subject: '资料分析', minutes: 99, questions: 20, errors: 1 },
+    { id: 'c1', planId: '', date: '2026-10-27', type: 'course', sourceId: 'c', subject: '资料分析', minutes: 30, questions: 0, errors: 0, lessons: 2 },
+    { id: 'c2', planId: '', date: '2026-10-26', type: 'course', sourceId: 'deleted', subject: '申论', minutes: 20, questions: 0, errors: 0, lessons: 1 },
+  ];
+  const result = getCourseAnalysis(s.courses, s.records);
+  expect(result.minutes).toBe(50); expect(result.lessons).toBe(3); expect(result.sessions).toBe(2);
+  expect(result.courses.find(c => c.id === 'c')?.minutes).toBe(30); expect(result.courses.find(c => c.id === 'deleted')?.name).toBe('已删除课程');
+});

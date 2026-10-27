@@ -170,7 +170,7 @@ export const BookEditModal: React.FC<{
     }
 
     if (book) {
-      void save(() => editBook(book.id, { name: name.trim(), subject, total, pages, done, errors, minutes }), '题本数据已更新！');
+      void save(() => editBook(book.id, { name: name.trim(), subject, total, pages, done, errors }), '题本数据已更新！');
     } else {
       void save(() => addBook({ name: name.trim(), subject, total, pages, done, errors, minutes }), '题本已创建，并自动生成同名事项！');
     }
@@ -258,14 +258,15 @@ export const BookEditModal: React.FC<{
               type="number"
               min="0"
               value={minutes}
-              onChange={e => setMinutes(parseInt(e.target.value) || 0)}
+              readOnly
+              aria-label="题本累计用时（自动累计）"
               className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
             />
           </div>
         </div>
 
         <p className="text-[11px] text-ink-muted/80 leading-relaxed pt-1">
-          提示：直接修改累计题数与用时不会自动伪造每日学情记录，学情分析仅采纳实际完成登记。
+          累计用时由计时登记自动累计，不能手动修改；调整题数不会新增每日学习记录。
         </p>
 
         <div className="pt-2">
@@ -287,137 +288,46 @@ export const CourseEditModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, course, onClose, onToast }) => {
-  const { addCourse, editCourse } = useApp();
-
-  const [name, setName] = useState('');
-  const [subject, setSubject] = useState<Subject>('判断推理');
-  const [totalLessons, setTotalLessons] = useState(30);
-  const [completedLessons, setCompletedLessons] = useState(0);
-  const [minutes, setMinutes] = useState(0);
-  const [url, setUrl] = useState('');
+  const { state, addCourse, editCourse } = useApp();
+  const [name, setName] = useState(course?.name ?? '');
+  const [subject, setSubject] = useState<Subject>(course?.subject ?? '判断推理');
+  const [totalLessons, setTotalLessons] = useState(String(course?.totalLessons ?? 30));
+  const [completedLessons, setCompletedLessons] = useState(String(course?.completedLessons ?? 0));
+  const [url, setUrl] = useState(course?.url ?? '');
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
-
+  const liveCourse = state.courses.find(c => c.id === course?.id) ?? course;
+  const total = Number(totalLessons);
+  const completed = Number(completedLessons);
+  const valid = /^\d+$/.test(totalLessons) && Number.isSafeInteger(total) && total > 0 &&
+    /^\d+$/.test(completedLessons) && Number.isSafeInteger(completed) && completed >= 0 && completed <= total;
   useEffect(() => {
-    if (course) {
-      setName(course.name);
-      setSubject(course.subject);
-      setTotalLessons(course.totalLessons);
-      setCompletedLessons(course.completedLessons);
-      setMinutes(course.minutes);
-      setUrl(course.url);
-    } else {
-      setName('');
-      setSubject('判断推理');
-      setTotalLessons(30);
-      setCompletedLessons(0);
-      setMinutes(0);
-      setUrl('');
-    }
-    setErrorMsg('');
+    setName(course?.name ?? ''); setSubject(course?.subject ?? '判断推理');
+    setTotalLessons(String(course?.totalLessons ?? 30)); setCompletedLessons(String(course?.completedLessons ?? 0));
+    setUrl(course?.url ?? ''); setErrorMsg('');
   }, [course, isOpen]);
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setErrorMsg('请填写网课名称');
-      return;
-    }
-    if (completedLessons > totalLessons) {
-      setErrorMsg('已完成课时不能大于总课时');
-      return;
-    }
-
-    if (course) {
-      void save(() => editCourse(course.id, { name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课数据已更新！');
-    } else {
-      void save(() => addCourse({ name: name.trim(), subject, totalLessons, completedLessons, minutes, url: url.trim() }), '网课已添加，并自动生成同名事项！');
-    }
+    if (!name.trim()) { setErrorMsg('请填写网课名称'); return; }
+    if (!valid) { setErrorMsg('总课时必须大于0；已完成课时须为不超过总课时的非负整数，不能为空。'); return; }
+    const details = { name: name.trim(), subject, totalLessons: total, completedLessons: completed, url: url.trim() };
+    if (course) void save(() => editCourse(course.id, details), '网课数据已更新！');
+    else void save(() => addCourse({ ...details, minutes: 0 }), '网课已添加！');
   };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={course ? '修改网课信息' : '添加新网课'}>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        {errorMsg && (
-          <div className="p-2.5 bg-alarm-light text-alarm rounded-xl text-xs flex items-center gap-1.5 border border-red-200">
-            <AlertCircle size={14} className="shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">课程名称</label>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="例如：判断推理图形专项技巧精讲"
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">所属科目</label>
-          <select
-            value={subject}
-            onChange={e => setSubject(e.target.value as Subject)}
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          >
-            {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <div>
-            <label className="block text-xs text-ink-muted font-medium mb-1">总课时</label>
-            <input
-              type="number"
-              min="0"
-              value={totalLessons}
-              onChange={e => setTotalLessons(parseInt(e.target.value) || 0)}
-              className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-muted font-medium mb-1">已完成课时</label>
-            <input
-              type="number"
-              min="0"
-              value={completedLessons}
-              onChange={e => setCompletedLessons(parseInt(e.target.value) || 0)}
-              className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-muted font-medium mb-1">累计用时(分)</label>
-            <input
-              type="number"
-              min="0"
-              value={minutes}
-              onChange={e => setMinutes(parseInt(e.target.value) || 0)}
-              className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">课程链接 (选填，仅限http/https)</label>
-          <input
-            type="url"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            placeholder="https://..."
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-          />
-        </div>
-
-        <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
-            保存网课数据
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
+  return <Modal isOpen={isOpen} onClose={onClose} title={course ? '修改网课信息' : '添加新网课'}>
+    <form onSubmit={submit} className="space-y-4">
+      <FormError message={errorMsg} />
+      <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-name">课程名称</label><input id="course-name" value={name} onChange={e => setName(e.target.value)} placeholder="例如：判断推理图形专项技巧精讲" className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
+      <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-subject">所属科目</label><select id="course-subject" value={subject} onChange={e => setSubject(e.target.value as Subject)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">{SUBJECTS.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-total">总课时</label><input id="course-total" aria-label="总课时" type="number" min="1" step="1" required value={totalLessons} onChange={e => setTotalLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
+        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-completed">已完成课时</label><input id="course-completed" aria-label="已完成课时" type="number" min="0" step="1" required value={completedLessons} onChange={e => setCompletedLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
+      </div>
+      {!valid && <p className="text-xs text-alarm">请填写有效课时：总课时大于0，已完成课时不能超过总课时。</p>}
+      <div className="rounded-xl bg-sage-light/50 p-3 text-sm"><span className="text-xs text-ink-muted">累计用时 · 自动累计</span><output aria-label="累计用时（自动累计）" className="block font-bold font-mono mt-1">{liveCourse?.minutes ?? 0} 分钟</output><p className="text-xs text-ink-muted mt-1">由日程计时与完成登记自动记录，不能手动修改。</p></div>
+      <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-url">课程链接（选填，仅限http/https）</label><input id="course-url" type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..." className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
+      <Button type="submit" fullWidth disabled={isSaving || !valid || !name.trim()}>保存网课数据</Button>
+    </form>
+  </Modal>;
 };
 
 /* =========================================================================

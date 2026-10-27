@@ -46,7 +46,7 @@ import {
   AlertCircle,
   AlertTriangle,
 } from 'lucide-react';
-import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult } from './types';
+import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult, TimerMode } from './types';
 
 declare global {
   interface Window {
@@ -109,6 +109,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
 
   // Modals state
   const [addPlanOpen, setAddPlanOpen] = useState(false);
+  const [focusInitialMode, setFocusInitialMode] = useState<TimerMode | undefined>();
   const [focusPlan, setFocusPlan] = useState<Plan | null>(null);
   const [focusVariantOverride, setFocusVariantOverride] = useState<'normal' | 'paused' | 'course' | 'custom'>('normal');
   const [completePlan, setCompletePlan] = useState<Plan | null>(null);
@@ -856,7 +857,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             <TodayView
               forcedMode={todayForcedMode}
               onOpenAddPlan={() => setAddPlanOpen(true)}
-              onOpenFocus={plan => {
+              onOpenFocus={(plan, mode) => {
+                setFocusInitialMode(mode);
                 setFocusPlan(plan);
                 setFocusVariantOverride('normal');
               }}
@@ -1026,9 +1028,11 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           plan={focusPlan}
           isOpen={Boolean(focusPlan)}
           variantOverride={focusVariantOverride}
-          onClose={() => setFocusPlan(null)}
+          initialTimerMode={focusInitialMode}
+          onClose={() => { setFocusPlan(null); setFocusInitialMode(undefined); }}
           onComplete={plan => {
             setFocusPlan(null);
+            setFocusInitialMode(undefined);
             setCompletePlan(plan);
             setCompletionInitialSuccess(false);
           }}
