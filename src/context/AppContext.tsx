@@ -37,6 +37,7 @@ import {
   hasExplicitLogoutMarker,
   readLegacyGuestRaw,
   isGuestMigrationDone,
+  checkGuestMigrationCredential,
   markGuestMigrationDone,
   clearConflictRecord,
   installConfirmedServerState,
@@ -181,7 +182,7 @@ export interface AppContextType {
   restoreLatestRecovery: () => Promise<MutationResult<void>>;
   importSeedTemplate: () => Promise<MutationResult<void>>;
   guestMigration: GuestMigrationState | null;
-  refreshGuestMigration: () => void;
+  refreshGuestMigration: (targetState?: AppState) => Promise<void> | void;
   migrateLegacyGuestData: () => Promise<MutationResult<void>>;
   dismissGuestMigration: () => void;
 
@@ -1778,31 +1779,43 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   // ----------------------------------------------------------------------
   // Guest migration (R10)
   // ----------------------------------------------------------------------
-  const refreshGuestMigration = useCallback(() => {
+  // Legacy guest data (v2) -> account migration (R10 / Issue A01)
+  // React state is only used for migration preview. When executed:
+  // 1. Re-reads real snapshot under user lock.
+  // 2. Aborts with LOCAL_CHANGED if local revision changed since preview.
+  // 3. Atomically commits recovery points, snapshot, outbox and sync_state credential.
+  // ----------------------------------------------------------------------
+  const refreshGuestMigration = useCallback(async (targetState?: AppState) => {
     const user = currentUserRef.current;
     if (!user || preview) {
       setGuestMigration(null);
       return;
     }
-    if (isGuestMigrationDone(user.id)) {
-      setGuestMigration(null);
+    const alreadyDone = await checkGuestMigrationCredential(user.id);
+    if (alreadyDone) {
+      if (mountedRef.current) setGuestMigration(null);
       return;
     }
     const raw = readLegacyGuestRaw();
     if (!raw) {
-      setGuestMigration(null);
+      if (mountedRef.current) setGuestMigration(null);
       return;
     }
     const validated = validateAndMigrateBackup(raw);
     if (!validated.valid || !validated.migratedState) {
-      setGuestMigration(null);
+      if (mountedRef.current) setGuestMigration(null);
       return;
     }
     try {
-      const { preview: migrationPreview } = buildGuestMigration(state, validated.migratedState);
-      setGuestMigration({ available: true, preview: migrationPreview, guestState: validated.migratedState });
+      const stateToPreview = targetState ?? state;
+      const { preview: migrationPreview } = buildGuestMigration(stateToPreview, validated.migratedState);
+      if (mountedRef.current && currentUserRef.current?.id === user.id) {
+        setGuestMigration({ available: true, preview: migrationPreview, guestState: validated.migratedState });
+      }
     } catch {
-      setGuestMigration(null);
+      if (mountedRef.current) {
+        setGuestMigration(null);
+      }
     }
   }, [preview, state]);
 
@@ -1818,23 +1831,46 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     if (!guestState) return { ok: false, code: 'NO_GUEST_DATA', message: '未检测到可迁移的旧版本地数据' };
 
     const scope = createOperationScope(user.id);
+    const expectedRevision = localRevisionRef.current;
     const result = await executeGuestMigration({
       userId: user.id,
       scope,
       isScopeValid: isOperationScopeValid,
       accountState: state,
       guestState,
-      localRevision: localRevisionRef.current,
-      commitMergedState: async (mergedState) => {
-        return executeMutation(() => ({ nextState: mergedState, value: undefined }), 'guest_migration');
-      },
+      expectedRevision,
+      outboxBuilder: (nextState, meta) => ({
+        id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        userId: user.id,
+        requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        state: nextState,
+        expectedRevision: meta.confirmedRevision,
+        generationId: meta.generationId,
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+      }),
     });
 
-    if (!result.ok) return result;
-    setGuestMigration(null);
-    setSyncMessage('旧版本地数据已迁移到当前账号，正在同步到云端');
+    if (!result.ok) {
+      if (result.code === 'LOCAL_CHANGED') {
+        const latest = await loadLatestState(user.id);
+        if (mountedRef.current && currentUserRef.current?.id === user.id) {
+          applyLocalState(latest.state, latest.revision);
+          await refreshGuestMigration(latest.state);
+        }
+      }
+      return result;
+    }
+
+    const latest = await loadLatestState(user.id);
+    if (mountedRef.current && currentUserRef.current?.id === user.id) {
+      applyLocalState(latest.state, latest.revision);
+      setGuestMigration(null);
+      setSyncMessage('旧版本地数据已迁移到当前账号，正在同步到云端');
+      triggerSync();
+    }
     return { ok: true, value: undefined };
-  }, [createOperationScope, executeMutation, guestMigration, isOperationScopeValid, state]);
+  }, [applyLocalState, createOperationScope, guestMigration, isOperationScopeValid, refreshGuestMigration, state, triggerSync]);
 
   const dismissGuestMigration = useCallback(() => {
     setGuestMigration(null);

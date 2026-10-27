@@ -11,11 +11,15 @@ import {
   WrongRecord,
 } from '../types';
 import {
-  commitMutation,
+  checkGuestMigrationCredential,
+  commitGuestMigrationTransaction,
+  CommitGuestMigrationParams,
   loadSnapshot,
   markGuestMigrationDone,
   saveNamedRecoverySnapshot,
+  withUserLock,
 } from './db';
+import { BLANK_STATE } from '../constants/initialData';
 
 /**
  * One-time legacy guest (v2 localStorage) -> account migration (R10).
@@ -339,18 +343,24 @@ export interface ExecuteGuestMigrationOptions {
   scope?: OperationScope;
   isScopeValid?: (scope: OperationScope) => boolean;
   guard?: () => boolean;
-  accountState: AppState;
+  accountState?: AppState;
   guestState: AppState;
   localRevision?: number;
+  expectedRevision?: number;
   loadSnapshotFn?: (userId: string) => Promise<SnapshotRecord | null>;
   saveNamedRecoverySnapshotFn?: (userId: string, state: AppState, revision: number, tag: string) => Promise<void>;
   commitMergedState?: (mergedState: AppState) => Promise<MutationResult<void>>;
+  commitMigrationFn?: (params: CommitGuestMigrationParams) => Promise<MutationResult<void>>;
   markDoneFn?: (userId: string) => void;
+  outboxBuilder?: (nextState: AppState, meta: any) => any;
 }
 
 /**
- * Execute guest data migration to account with strict OperationScope and epoch validation.
- * Aborts cleanly without marking completion or mutating state if user switched or logged out.
+ * Execute guest data migration to account with strict OperationScope, account lock and epoch validation (Issue A01).
+ * 1. Acquires user account lock to coordinate across tabs/sync.
+ * 2. Re-reads real account snapshot from DB; aborts with LOCAL_CHANGED if local revision changed since preview.
+ * 3. Base merge result and ID remapping on the real account snapshot.
+ * 4. Commits via dedicated atomic migration transaction (snapshots, outbox, sync_state).
  */
 export async function executeGuestMigration(options: ExecuteGuestMigrationOptions): Promise<MutationResult<void>> {
   const {
@@ -360,11 +370,14 @@ export async function executeGuestMigration(options: ExecuteGuestMigrationOption
     guard,
     accountState,
     guestState,
-    localRevision = 0,
+    localRevision,
+    expectedRevision = localRevision,
     loadSnapshotFn = loadSnapshot,
     saveNamedRecoverySnapshotFn = saveNamedRecoverySnapshot,
     commitMergedState,
+    commitMigrationFn = commitGuestMigrationTransaction,
     markDoneFn = markGuestMigrationDone,
+    outboxBuilder,
   } = options;
 
   const checkGuard = (): boolean => {
@@ -380,64 +393,103 @@ export async function executeGuestMigration(options: ExecuteGuestMigrationOption
     return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
   }
 
-  // 2. Persist recovery points for both account and guest data
-  try {
+  // 2. Acquire account lock to ensure exclusive migration execution across tabs
+  return await withUserLock(userId, async () => {
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+    }
+
+    if (await checkGuestMigrationCredential(userId)) {
+      return { ok: true, value: undefined };
+    }
+
+    // 3. Re-read real account snapshot from DB under the lock
     const accountSnapshot = await loadSnapshotFn(userId);
     if (!checkGuard()) {
       return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
     }
 
-    await saveNamedRecoverySnapshotFn(
+    const currentLocalVersion = accountSnapshot?.revision ?? 0;
+    const targetExpectedRevision = expectedRevision !== undefined ? expectedRevision : currentLocalVersion;
+
+    // Check if another page has written data since preview was built
+    if (expectedRevision !== undefined && currentLocalVersion !== expectedRevision) {
+      return {
+        ok: false,
+        code: 'LOCAL_CHANGED',
+        message: '本地数据已被其他页面修改，请重新确认迁移预览',
+      };
+    }
+
+    // 4. Generate merge result and ID mapping based on REAL snapshot from DB
+    const realAccountState = accountSnapshot ? accountSnapshot.state : (accountState ?? structuredClone(BLANK_STATE));
+    const { mergedState } = buildGuestMigration(realAccountState, guestState);
+
+    // 5. If custom commitMergedState is provided (e.g. test suites mocking commit/snapshots):
+    if (commitMergedState) {
+      try {
+        await saveNamedRecoverySnapshotFn(
+          userId,
+          accountSnapshot?.state ?? realAccountState,
+          accountSnapshot?.revision ?? targetExpectedRevision,
+          'pre_guest_migration'
+        );
+        if (!checkGuard()) {
+          return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+        }
+
+        await saveNamedRecoverySnapshotFn(userId, guestState, 0, 'guest_pre_migration');
+        if (!checkGuard()) {
+          return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          code: 'RECOVERY_POINT_FAILED',
+          message: err instanceof Error ? err.message : '保存双方恢复点失败，已停止迁移',
+        };
+      }
+
+      if (!checkGuard()) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+      }
+
+      const result = await commitMergedState(mergedState);
+      if (!result.ok) {
+        return result;
+      }
+
+      if (!checkGuard()) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+      }
+
+      markDoneFn(userId);
+      return { ok: true, value: undefined };
+    }
+
+    // 6. Dedicated atomic migration commit transaction (production standard path)
+    if (!checkGuard()) {
+      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
+    }
+
+    const commitResult = await commitMigrationFn({
       userId,
-      accountSnapshot?.state ?? accountState,
-      accountSnapshot?.revision ?? localRevision,
-      'pre_guest_migration'
-    );
+      expectedRevision: currentLocalVersion,
+      mergedState,
+      guestState,
+      accountState: realAccountState,
+      outboxBuilder,
+    });
+
+    if (!commitResult.ok) {
+      return commitResult;
+    }
+
     if (!checkGuard()) {
       return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
     }
 
-    await saveNamedRecoverySnapshotFn(userId, guestState, 0, 'guest_pre_migration');
-    if (!checkGuard()) {
-      return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      code: 'RECOVERY_POINT_FAILED',
-      message: err instanceof Error ? err.message : '保存双方恢复点失败，已停止迁移',
-    };
-  }
-
-  // 3. Merge state
-  const { mergedState } = buildGuestMigration(accountState, guestState);
-
-  // 4. Verify scope before writing merged state
-  if (!checkGuard()) {
-    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
-  }
-
-  // 5. Commit merged state
-  let result: MutationResult<void>;
-  if (commitMergedState) {
-    result = await commitMergedState(mergedState);
-  } else {
-    result = await commitMutation(
-      () => ({ nextState: mergedState, value: undefined }),
-      { userId, reason: 'guest_migration' }
-    );
-  }
-
-  if (!result.ok) {
-    return result;
-  }
-
-  // 6. Verify scope after commit before marking completion
-  if (!checkGuard()) {
-    return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止迁移' };
-  }
-
-  markDoneFn(userId);
-  return { ok: true, value: undefined };
+    return { ok: true, value: undefined };
+  });
 }
 

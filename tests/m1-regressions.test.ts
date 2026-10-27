@@ -17,7 +17,12 @@ import { pullLatestFromServer, forcePullRemote, forceUploadLocal } from '../src/
 import { BLANK_STATE } from '../src/constants/initialData';
 import { SnapshotRecord, OutboxRecord, OperationScope, AppState } from '../src/types';
 import { buildGuestMigration, executeGuestMigration } from '../src/utils/guestMigration';
-import { isGuestMigrationDone } from '../src/utils/db';
+import {
+  isGuestMigrationDone,
+  checkGuestMigrationCredential,
+  commitGuestMigrationTransaction,
+  GUEST_MIGRATION_NAMESPACE,
+} from '../src/utils/db';
 
 describe('M1: Formal Seed Factory & Lifecycle Invariants', () => {
   test('generates exact 14 books, 7 courses, 22 library items with 0 learning progress', () => {
@@ -388,6 +393,113 @@ describe('M1: Offline Identity, Atomic Conflict Resolution & Sync Direction', ()
       expect(committedState).not.toBeNull();
       expect(committedState!.books.some(b => b.name === '成功迁移题本')).toBe(true);
       expect(isGuestMigrationDone('user-c')).toBe(true);
+    });
+
+    test('A01: executeGuestMigration returns LOCAL_CHANGED and preserves data when concurrent edit occurred', async () => {
+      _resetInMemoryStore();
+      const userId = 'user-race';
+      // Step 1: User has initial state in DB at revision 1
+      const initial = structuredClone(BLANK_STATE);
+      initial.profile.name = 'INITIAL_USER';
+      await commitMutation((s) => ({ nextState: initial, value: undefined }), { userId });
+
+      const guest = structuredClone(BLANK_STATE);
+      guest.books = [{ id: 'gb-race', name: '游客题本', subject: '资料分析', total: 10, pages: 10, done: 0, errors: 0, minutes: 0 }];
+
+      // Step 2: Tab 1 prepares migration preview when DB was at revision 1
+      const expectedRevision = 1;
+
+      // Step 3: Tab 2 commits a mutation in DB (revision advances to 2)
+      await commitMutation((s) => {
+        s.books.push({ id: 'tab2-book', name: 'TAB2新增题本', subject: '资料分析', total: 20, pages: 20, done: 0, errors: 0, minutes: 0 });
+        return { nextState: s, value: undefined };
+      }, { userId });
+
+      // Verify DB is now at revision 2 with TAB2 book
+      const beforeMigration = await loadLatestState(userId);
+      expect(beforeMigration.revision).toBe(2);
+      expect(beforeMigration.state.books.some(b => b.name === 'TAB2新增题本')).toBe(true);
+
+      // Step 4: Tab 1 attempts migration with expectedRevision 1 (stale preview)
+      const scope: OperationScope = { userId, epoch: 1, operationId: 'op-race' };
+      const result = await executeGuestMigration({
+        userId,
+        scope,
+        isScopeValid: () => true,
+        accountState: initial, // stale React state
+        guestState: guest,
+        expectedRevision,
+      });
+
+      // Expected: Aborts with LOCAL_CHANGED
+      expect(result.ok).toBe(false);
+      expect(result.code).toBe('LOCAL_CHANGED');
+
+      // Crucial: TAB2 data is completely preserved in DB!
+      const afterAttempt = await loadLatestState(userId);
+      expect(afterAttempt.revision).toBe(2);
+      expect(afterAttempt.state.books.some(b => b.name === 'TAB2新增题本')).toBe(true);
+      expect(afterAttempt.state.books.some(b => b.name === '游客题本')).toBe(false);
+      expect(isGuestMigrationDone(userId)).toBe(false);
+
+      // Step 5: After refreshing with latest DB revision (2), user re-confirms and migration succeeds
+      const result2 = await executeGuestMigration({
+        userId,
+        scope,
+        isScopeValid: () => true,
+        accountState: afterAttempt.state,
+        guestState: guest,
+        expectedRevision: 2,
+      });
+
+      expect(result2.ok).toBe(true);
+      const afterSuccess = await loadLatestState(userId);
+      expect(afterSuccess.revision).toBe(3);
+      // Both books exist!
+      expect(afterSuccess.state.books.some(b => b.name === 'TAB2新增题本')).toBe(true);
+      expect(afterSuccess.state.books.some(b => b.name === '游客题本')).toBe(true);
+      expect(isGuestMigrationDone(userId)).toBe(true);
+      expect(await checkGuestMigrationCredential(userId)).toBe(true);
+    });
+
+    test('A01: commitGuestMigrationTransaction records recovery snapshots, outbox, and sync_state credential', async () => {
+      _resetInMemoryStore();
+      const userId = 'user-atomic';
+      const initial = structuredClone(BLANK_STATE);
+      await commitMutation((s) => ({ nextState: initial, value: undefined }), { userId });
+
+      const guest = structuredClone(BLANK_STATE);
+      guest.books = [{ id: 'gb-atomic', name: '原子迁移题本', subject: '判断推理', total: 10, pages: 5, done: 0, errors: 0, minutes: 0 }];
+
+      const scope: OperationScope = { userId, epoch: 1, operationId: 'op-atomic' };
+      const result = await executeGuestMigration({
+        userId,
+        scope,
+        isScopeValid: () => true,
+        accountState: initial,
+        guestState: guest,
+        expectedRevision: 1,
+      });
+
+      expect(result.ok).toBe(true);
+      // Verify sync_state credential
+      expect(await checkGuestMigrationCredential(userId)).toBe(true);
+
+      // Verify pending outbox was created
+      const pending = await getPendingOutbox(userId);
+      expect(pending.length).toBe(1);
+      expect(pending[0].state.books.some(b => b.name === '原子迁移题本')).toBe(true);
+
+      // Attempt duplicate migration: must reject
+      const resultDup = await commitGuestMigrationTransaction({
+        userId,
+        expectedRevision: 2,
+        mergedState: initial,
+        guestState: guest,
+        accountState: initial,
+      });
+      expect(resultDup.ok).toBe(false);
+      expect(resultDup.code).toBe('ALREADY_MIGRATED');
     });
   });
 });

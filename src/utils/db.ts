@@ -2516,23 +2516,363 @@ export function readLegacyGuestRaw(): string | null {
   }
 }
 
-/** One-time guest-migration marker (kept per account; does not delete legacy data). */
+/** One-time guest-migration credential namespace in sync_state (R10 / Issue A01). */
+export const GUEST_MIGRATION_NAMESPACE = 'guest_migration:';
 const GUEST_MIGRATED_PREFIX = 'kaogong_guest_migrated_';
+
+export interface GuestMigrationRecord {
+  userId: string;
+  targetUserId: string;
+  completedAt: string;
+  localRevision: number;
+}
 
 export function isGuestMigrationDone(userId: string): boolean {
   try {
-    if (typeof localStorage === 'undefined') return memoryStore.meta.has(`${GUEST_MIGRATED_PREFIX}${userId}`);
-    return Boolean(localStorage.getItem(`${GUEST_MIGRATED_PREFIX}${userId}`));
+    const credKey = `${GUEST_MIGRATION_NAMESPACE}${userId}`;
+    const legacyKey = `${GUEST_MIGRATED_PREFIX}${userId}`;
+    if (memoryStore.syncState.has(credKey)) return true;
+    if (memoryStore.meta.has(legacyKey)) return true;
+    if (typeof localStorage !== 'undefined' && Boolean(localStorage.getItem(legacyKey))) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-export function markGuestMigrationDone(userId: string): void {
+export async function checkGuestMigrationCredential(userId: string): Promise<boolean> {
+  if (isGuestMigrationDone(userId)) return true;
+  if (!hasNativeIdb()) return false;
   try {
+    const db = await initDatabase();
+    return new Promise<boolean>((resolve) => {
+      const credKey = `${GUEST_MIGRATION_NAMESPACE}${userId}`;
+      const tx = db.transaction(SYNC_STATE_STORE, 'readonly');
+      const store = tx.objectStore(SYNC_STATE_STORE);
+      const req = store.get(credKey);
+      req.onsuccess = () => {
+        const found = Boolean(req.result);
+        if (found) {
+          markGuestMigrationDone(userId, req.result.localRevision ?? 0);
+        }
+        resolve(found);
+      };
+      req.onerror = () => resolve(false);
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function markGuestMigrationDone(userId: string, revision = 0): void {
+  try {
+    const credKey = `${GUEST_MIGRATION_NAMESPACE}${userId}`;
+    const legacyKey = `${GUEST_MIGRATED_PREFIX}${userId}`;
+    const nowIso = new Date().toISOString();
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(`${GUEST_MIGRATED_PREFIX}${userId}`, new Date().toISOString());
+      localStorage.setItem(legacyKey, nowIso);
     }
-    memoryStore.meta.set(`${GUEST_MIGRATED_PREFIX}${userId}`, new Date().toISOString());
+    memoryStore.meta.set(legacyKey, nowIso);
+    memoryStore.syncState.set(credKey, {
+      userId: credKey,
+      targetUserId: userId,
+      completedAt: nowIso,
+      localRevision: revision,
+    } as any);
   } catch {}
+}
+
+export interface CommitGuestMigrationParams {
+  userId: string;
+  expectedRevision: number;
+  mergedState: AppState;
+  guestState: AppState;
+  accountState: AppState;
+  outboxBuilder?: (nextState: AppState, meta: {
+    localMutationVersion: number;
+    confirmedRevision: number;
+    generationId: string;
+    contentHash: string;
+  }) => OutboxRecord;
+}
+
+/**
+ * Dedicated atomic guest-migration commit transaction (Issue A01).
+ * In a single IndexedDB transaction:
+ * 1. Checks expectedRevision against current snapshot revision (aborts with LOCAL_CHANGED if mismatch).
+ * 2. Checks migration credential in sync_state (aborts with ALREADY_MIGRATED if duplicate).
+ * 3. Atomically writes pre-migration account & guest recovery points into snapshots.
+ * 4. Atomically writes merged snapshot into snapshots.
+ * 5. Atomically writes outbox record into outbox.
+ * 6. Atomically writes migration completion credential into sync_state under guest_migration:<userId>.
+ */
+export async function commitGuestMigrationTransaction(
+  params: CommitGuestMigrationParams
+): Promise<MutationResult<void>> {
+  return enqueue(async () => {
+    checkStorageAvailable();
+    const { userId, expectedRevision, mergedState, guestState, accountState } = params;
+    const targetKey = getSnapshotKey(userId);
+    const credKey = `${GUEST_MIGRATION_NAMESPACE}${userId}`;
+    const legacyKey = `${GUEST_MIGRATED_PREFIX}${userId}`;
+    const nowIso = new Date().toISOString();
+    const accountRecoveryKey = `recovery_${userId}_pre_guest_migration_${Date.now()}`;
+    const guestRecoveryKey = `recovery_${userId}_guest_pre_migration_${Date.now()}`;
+
+    // 1. In-memory mode (Bun test / SSR)
+    if (!hasNativeIdb()) {
+      if (memoryStore.syncState.has(credKey) || memoryStore.meta.has(legacyKey)) {
+        return { ok: false, code: 'ALREADY_MIGRATED', message: '游客数据已迁移' };
+      }
+      const existingSnapshot = memoryStore.snapshots.get(targetKey);
+      const currentRevision = existingSnapshot?.revision ?? 0;
+      if (currentRevision !== expectedRevision) {
+        return {
+          ok: false,
+          code: 'LOCAL_CHANGED',
+          message: '本地数据已被其他页面修改，请重新确认迁移预览',
+        };
+      }
+
+      const baseline = existingSnapshot
+        ? snapshotMeta(existingSnapshot, getActiveGenerationIdFor(userId))
+        : { localMutationVersion: 0, confirmedRevision: 0, generationId: getActiveGenerationIdFor(userId), confirmedContentHash: '' };
+
+      const nextLocalVersion = expectedRevision + 1;
+      const contentHash = await hashState(mergedState);
+
+      // Save account recovery snapshot
+      memoryStore.snapshots.set(accountRecoveryKey, {
+        key: accountRecoveryKey,
+        state: structuredClone(existingSnapshot?.state ?? accountState),
+        version: 3,
+        revision: expectedRevision,
+        migratedFromV2: true,
+        updatedAt: nowIso,
+      });
+
+      // Save guest recovery snapshot
+      memoryStore.snapshots.set(guestRecoveryKey, {
+        key: guestRecoveryKey,
+        state: structuredClone(guestState),
+        version: 3,
+        revision: 0,
+        migratedFromV2: true,
+        updatedAt: nowIso,
+      });
+
+      // Save outbox record
+      const outboxItem: OutboxRecord = params.outboxBuilder
+        ? params.outboxBuilder(mergedState, {
+            localMutationVersion: nextLocalVersion,
+            confirmedRevision: baseline.confirmedRevision,
+            generationId: baseline.generationId,
+            contentHash,
+          })
+        : {
+            id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            userId,
+            requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            state: mergedState,
+            expectedRevision: baseline.confirmedRevision,
+            generationId: baseline.generationId,
+            createdAt: nowIso,
+            status: 'pending',
+          };
+      memoryStore.outbox.set(outboxItem.id, structuredClone(outboxItem));
+
+      // Save merged snapshot
+      const newSnapshot: SnapshotRecord = {
+        key: targetKey,
+        state: structuredClone(mergedState),
+        version: 3,
+        revision: nextLocalVersion,
+        confirmedRevision: baseline.confirmedRevision,
+        generationId: baseline.generationId,
+        confirmedContentHash: baseline.confirmedContentHash,
+        contentHash,
+        migratedFromV2: true,
+        updatedAt: nowIso,
+      };
+      memoryStore.snapshots.set(targetKey, newSnapshot);
+
+      // Save migration credential into sync_state
+      memoryStore.syncState.set(credKey, {
+        userId: credKey,
+        targetUserId: userId,
+        completedAt: nowIso,
+        localRevision: nextLocalVersion,
+      } as any);
+
+      markGuestMigrationDone(userId, nextLocalVersion);
+      return { ok: true, revision: nextLocalVersion, value: undefined };
+    }
+
+    // 2. Native IndexedDB mode: dedicated atomic transaction
+    const db = await initDatabase();
+    const contentHash = await hashState(mergedState);
+
+    return new Promise<MutationResult<void>>((resolve) => {
+      let settled = false;
+      const finish = (result: MutationResult<void>) => {
+        if (!settled) {
+          settled = true;
+          resolve(result);
+        }
+      };
+
+      const tx = db.transaction([SNAPSHOTS_STORE, OUTBOX_STORE, SYNC_STATE_STORE], 'readwrite');
+      const snapStore = tx.objectStore(SNAPSHOTS_STORE);
+      const outStore = tx.objectStore(OUTBOX_STORE);
+      const syncStore = tx.objectStore(SYNC_STATE_STORE);
+
+      let abortCode: string | null = null;
+      let abortMessage: string | null = null;
+      let credChecked = false;
+      let snapChecked = false;
+      let hasCred = false;
+      let currentSnapshot: SnapshotRecord | undefined = undefined;
+
+      const tryCommit = () => {
+        if (!credChecked || !snapChecked) return;
+        if (abortCode) return;
+
+        if (hasCred) {
+          abortCode = 'ALREADY_MIGRATED';
+          abortMessage = '游客数据已迁移';
+          tx.abort();
+          return;
+        }
+
+        const currentRevision = currentSnapshot?.revision ?? 0;
+        if (currentRevision !== expectedRevision) {
+          abortCode = 'LOCAL_CHANGED';
+          abortMessage = '本地数据已被其他页面修改，请重新确认迁移预览';
+          tx.abort();
+          return;
+        }
+
+        const baseline = currentSnapshot
+          ? snapshotMeta(currentSnapshot, getActiveGenerationIdFor(userId))
+          : { localMutationVersion: 0, confirmedRevision: 0, generationId: getActiveGenerationIdFor(userId), confirmedContentHash: '' };
+
+        const nextLocalVersion = expectedRevision + 1;
+
+        try {
+          // 1. Account recovery point
+          snapStore.put({
+            key: accountRecoveryKey,
+            state: currentSnapshot?.state ?? accountState,
+            version: 3,
+            revision: expectedRevision,
+            migratedFromV2: true,
+            updatedAt: nowIso,
+          });
+
+          // 2. Guest recovery point
+          snapStore.put({
+            key: guestRecoveryKey,
+            state: guestState,
+            version: 3,
+            revision: 0,
+            migratedFromV2: true,
+            updatedAt: nowIso,
+          });
+
+          // 3. Outbox task
+          const outboxItem: OutboxRecord = params.outboxBuilder
+            ? params.outboxBuilder(mergedState, {
+                localMutationVersion: nextLocalVersion,
+                confirmedRevision: baseline.confirmedRevision,
+                generationId: baseline.generationId,
+                contentHash,
+              })
+            : {
+                id: `outbox_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                userId,
+                requestId: `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                state: mergedState,
+                expectedRevision: baseline.confirmedRevision,
+                generationId: baseline.generationId,
+                createdAt: nowIso,
+                status: 'pending',
+              };
+          outStore.put(outboxItem);
+
+          // 4. Merged snapshot
+          snapStore.put({
+            key: targetKey,
+            state: mergedState,
+            version: 3,
+            revision: nextLocalVersion,
+            confirmedRevision: baseline.confirmedRevision,
+            generationId: baseline.generationId,
+            confirmedContentHash: baseline.confirmedContentHash,
+            contentHash,
+            migratedFromV2: true,
+            updatedAt: nowIso,
+          });
+
+          // 5. Migration completion credential in sync_state
+          syncStore.put({
+            userId: credKey,
+            targetUserId: userId,
+            completedAt: nowIso,
+            localRevision: nextLocalVersion,
+          });
+        } catch (err) {
+          abortCode = 'COMMIT_FAILED';
+          abortMessage = err instanceof Error ? err.message : String(err);
+          tx.abort();
+        }
+      };
+
+      const credReq = syncStore.get(credKey);
+      credReq.onsuccess = () => {
+        hasCred = Boolean(credReq.result);
+        credChecked = true;
+        tryCommit();
+      };
+      credReq.onerror = () => {
+        abortCode = 'COMMIT_FAILED';
+        abortMessage = '读取迁移凭据失败';
+        tx.abort();
+      };
+
+      const snapReq = snapStore.get(targetKey);
+      snapReq.onsuccess = () => {
+        currentSnapshot = snapReq.result as SnapshotRecord | undefined;
+        snapChecked = true;
+        tryCommit();
+      };
+      snapReq.onerror = () => {
+        abortCode = 'COMMIT_FAILED';
+        abortMessage = '读取账号快照失败';
+        tx.abort();
+      };
+
+      tx.oncomplete = () => {
+        markGuestMigrationDone(userId, expectedRevision + 1);
+        finish({ ok: true, revision: expectedRevision + 1, value: undefined });
+      };
+
+      tx.onabort = () => {
+        if (abortCode) {
+          finish({ ok: false, code: abortCode, message: abortMessage || '迁移已终止' });
+        } else {
+          finish({ ok: false, code: 'COMMIT_FAILED', message: '迁移事务已中止' });
+        }
+      };
+
+      tx.onerror = () => {
+        if (abortCode) {
+          finish({ ok: false, code: abortCode, message: abortMessage || '迁移已终止' });
+        } else {
+          finish({ ok: false, code: 'COMMIT_FAILED', message: tx.error?.message || '专用迁移提交事务失败' });
+        }
+      };
+    });
+  });
 }
