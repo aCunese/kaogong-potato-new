@@ -725,21 +725,25 @@ app.delete('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Respo
 // ----------------------------------------------------------------------
 
 app.get('/api/backups/export', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-  const backup = getUserBackupExport(req.user!.id);
-  if (!backup) {
-    res.status(404).json({ ok: false, code: 'EMPTY_WORKSPACE', message: '暂无可导出的工作台数据' });
-    return;
+  try {
+    const backup = getUserBackupExport(req.user!.id);
+    if (!backup) {
+      res.status(404).json({ ok: false, code: 'EMPTY_WORKSPACE', message: '暂无可导出的工作台数据' });
+      return;
+    }
+    const timestamp = Date.now();
+    const safeAscii = `kaogong_backup_${req.user!.id}_${timestamp}.json`;
+    const utf8Filename = `考公备考备份_${req.user!.username}_${timestamp}.json`;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    // RFC 5987 compliant Content-Disposition handling Unicode/Chinese usernames safely (Defect J)
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`
+    );
+    res.json(backup);
+  } catch (err: any) {
+    res.status(400).json({ ok: false, code: 'BACKUP_EXPORT_FAILED', message: err.message || '备份导出失败' });
   }
-  const timestamp = Date.now();
-  const safeAscii = `kaogong_backup_${req.user!.id}_${timestamp}.json`;
-  const utf8Filename = `考公备考备份_${req.user!.username}_${timestamp}.json`;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  // RFC 5987 compliant Content-Disposition handling Unicode/Chinese usernames safely (Defect J)
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(utf8Filename)}`
-  );
-  res.json(backup);
 });
 
 app.get('/api/backups/history', requireAuth, (req: AuthenticatedRequest, res: Response) => {

@@ -7,6 +7,8 @@ import {
   extractMediaIdsFromStateJson,
   parseMediaRef,
   MEDIA_ID_RE,
+  MAX_FILE_SIZE_BYTES,
+  detectImageMime,
 } from './media';
 export { parseMediaRef, MEDIA_ID_RE };
 import {
@@ -483,14 +485,23 @@ export function validateMediaRefsOwnership(
     const chunk = unique.slice(i, i + CHUNK);
     const placeholders = chunk.map(() => '?').join(',');
     const rows = db.prepare(
-      `SELECT id, filename FROM media_records WHERE user_id = ? AND id IN (${placeholders})`
-    ).all(userId, ...chunk) as Array<{ id: string; filename: string }>;
+      `SELECT id, filename, byte_size, sha256 FROM media_records WHERE user_id = ? AND id IN (${placeholders})`
+    ).all(userId, ...chunk) as Array<{ id: string; filename: string; byte_size: number; sha256: string }>;
     for (const row of rows) {
       if (row.filename) {
         const diskPath = path.join(attachmentsDir, row.filename);
-        if (fs.existsSync(diskPath)) {
-          found.add(row.id);
-        }
+        try {
+          if (fs.existsSync(diskPath)) {
+            const stat = fs.statSync(diskPath);
+            if (stat.size === row.byte_size && stat.size <= MAX_FILE_SIZE_BYTES) {
+              const fileBytes = fs.readFileSync(diskPath);
+              const fileSha = crypto.createHash('sha256').update(fileBytes).digest('hex');
+              if (fileSha === row.sha256) {
+                found.add(row.id);
+              }
+            }
+          }
+        } catch {}
       }
     }
   }
@@ -1030,17 +1041,92 @@ export function getUserBackupExport(userId: string) {
   const current = getUserWorkspace(userId);
   if (!current || !current.state) return null;
 
-  // A09: 统一使用精确媒体引用解析函数
-  extractMediaIdsFromState(current.state);
+  const exportedState = JSON.parse(JSON.stringify(current.state)) as AppState;
+  const db = getDb();
+  const attachmentsDir = getAttachmentsDir();
 
-  return {
+  const resolveImageToDataUrl = (image: unknown, field: string): string => {
+    if (typeof image !== 'string' || !image) return '';
+    if (POSE_RE.test(image)) return image;
+    if (image.startsWith('/branding/')) return image;
+    if (image.startsWith('data:image/')) {
+      const comma = image.indexOf(',');
+      if (comma !== -1) {
+        const b64 = image.slice(comma + 1);
+        const approxBytes = Math.ceil((b64.length * 3) / 4);
+        if (approxBytes > MAX_FILE_SIZE_BYTES) {
+          throw new Error(`${field} 图片大小超过 10MB 限制`);
+        }
+      }
+      return image;
+    }
+    const mediaId = parseMediaRef(image);
+    if (!mediaId) {
+      if (image.startsWith('https://')) return image;
+      throw new Error(`${field} 包含不受支持的图片引用形式: ${image.slice(0, 30)}`);
+    }
+
+    const row = db.prepare(`
+      SELECT filename, mime_type, byte_size, sha256 FROM media_records WHERE id = ? AND user_id = ?
+    `).get(mediaId, userId) as { filename: string; mime_type: string; byte_size: number; sha256: string } | undefined;
+
+    if (!row) {
+      throw new Error(`备份引用的媒体附件不存在或不属于当前账号: ${mediaId}`);
+    }
+
+    const diskPath = path.join(attachmentsDir, row.filename);
+    if (!fs.existsSync(diskPath)) {
+      throw new Error(`备份引用的媒体文件缺失: ${mediaId}`);
+    }
+
+    const stat = fs.statSync(diskPath);
+    if (stat.size !== row.byte_size || stat.size > MAX_FILE_SIZE_BYTES) {
+      throw new Error(`备份引用的媒体文件大小不匹配或超过 10MB 限制: ${mediaId}`);
+    }
+
+    const fileBuf = fs.readFileSync(diskPath);
+    const fileSha = crypto.createHash('sha256').update(fileBuf).digest('hex');
+    if (fileSha !== row.sha256) {
+      throw new Error(`备份引用的媒体文件已损坏 (SHA不匹配): ${mediaId}`);
+    }
+
+    const mime = row.mime_type || detectImageMime(fileBuf) || 'image/png';
+    return `data:${mime};base64,${fileBuf.toString('base64')}`;
+  };
+
+  if (exportedState.profile?.avatar) {
+    exportedState.profile.avatar = resolveImageToDataUrl(exportedState.profile.avatar, 'profile.avatar');
+  }
+
+  if (Array.isArray(exportedState.wrong)) {
+    for (let i = 0; i < exportedState.wrong.length; i++) {
+      const w = exportedState.wrong[i];
+      if (w.image) {
+        w.image = resolveImageToDataUrl(w.image, `wrong[${i}].image`);
+      }
+      if (Array.isArray(w.images)) {
+        w.images = w.images.map((img, j) => resolveImageToDataUrl(img, `wrong[${i}].images[${j}]`));
+      }
+    }
+  }
+
+  const backupObj = {
+    app: '考公工作台·土豆新版',
     version: 3,
     exportedAt: new Date().toISOString(),
     userId,
     revision: current.revision,
     generationId: current.generationId,
-    state: current.state,
+    state: exportedState,
   };
+
+  const jsonString = JSON.stringify(backupObj);
+  const totalBytes = Buffer.byteLength(jsonString, 'utf8');
+  if (totalBytes > 50 * 1024 * 1024) {
+    throw new Error(`导出备份体积 (${totalBytes} 字节) 超出 50MB 限制，已停止导出`);
+  }
+
+  return backupObj;
 }
 
 export function restoreUserFromHistory(userId: string, historyId: string) {

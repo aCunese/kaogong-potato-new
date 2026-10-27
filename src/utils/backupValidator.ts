@@ -2,6 +2,7 @@ import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Prof
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
 
 export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const VALID_SUBJECT_SET = new Set<string>(SUBJECTS);
 const VALID_PLAN_TYPES = new Set<string>(['book', 'course', 'custom']);
 
@@ -325,18 +326,30 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   }
 
   function isValidBackupImageRef(ref: unknown): boolean {
-  if (typeof ref !== 'string') return false;
-  if (ref === '') return true;
-  if (/^pose-[0-7]$/.test(ref)) return true;
-  if (ref.startsWith('/branding/')) return true;
-  if (ref.startsWith('/api/media/')) return true;
-  if (ref.startsWith('media:') || ref.startsWith('media_')) return true;
-  if (/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(ref)) return true;
-  if (/^https?:\/\//i.test(ref)) return true;
-  return false;
-}
+    if (typeof ref !== 'string') return false;
+    if (ref === '') return true;
+    if (/^pose-[0-7]$/.test(ref)) return true;
+    if (ref.startsWith('/branding/')) return true;
+    if (ref.startsWith('/api/media/')) return true;
+    if (ref.startsWith('media:') || ref.startsWith('media_')) return true;
+    if (/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(ref)) return true;
+    if (/^https?:\/\//i.test(ref)) return true;
+    return false;
+  }
 
-// Validate & sanitize wrong records
+  function checkDataUrlSize(ref: string, fieldName: string): { ok: boolean; error?: string } {
+    if (!ref.startsWith('data:image/')) return { ok: true };
+    const comma = ref.indexOf(',');
+    if (comma === -1) return { ok: false, error: `${fieldName} 图片格式非法` };
+    const b64Len = ref.length - comma - 1;
+    const approxBytes = Math.ceil((b64Len * 3) / 4);
+    if (approxBytes > MAX_ATTACHMENT_SIZE_BYTES) {
+      return { ok: false, error: `${fieldName} 图片大小超出 10MB 限制` };
+    }
+    return { ok: true };
+  }
+
+  // Validate & sanitize wrong records
   const wrong: WrongRecord[] = [];
   for (let i = 0; i < target.wrong.length; i++) {
     const w = target.wrong[i];
@@ -344,8 +357,14 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       return { valid: false, error: `错题记录中第 ${i + 1} 项的日期格式无效: ${w.date}` };
     }
 
-    if (w.image && !isValidBackupImageRef(w.image)) {
-      return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的本地图片引用，请重新导出完整备份` };
+    if (w.image) {
+      if (!isValidBackupImageRef(w.image)) {
+        return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的本地图片引用，请重新导出完整备份` };
+      }
+      const sizeCheck = checkDataUrlSize(w.image, `错题记录第 ${i + 1} 项`);
+      if (!sizeCheck.ok) {
+        return { valid: false, error: sizeCheck.error };
+      }
     }
     if (w.storagePath && !w.image) {
       return { valid: false, error: `错题记录中第 ${i + 1} 项缺少图片附件内容` };
@@ -363,6 +382,12 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
         if (typeof item !== 'string' || (item !== '' && !isValidBackupImageRef(item))) {
           return { valid: false, error: `错题记录中第 ${i + 1} 项含不可恢复的多图图片引用，请重新导出完整备份` };
         }
+        if (item) {
+          const sizeCheck = checkDataUrlSize(item, `错题记录第 ${i + 1} 项多图第 ${j + 1} 张`);
+          if (!sizeCheck.ok) {
+            return { valid: false, error: sizeCheck.error };
+          }
+        }
         images.push(item);
       }
     }
@@ -379,6 +404,17 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
 
   // Sanitize profile
   const rawProfile = target.profile && typeof target.profile === 'object' ? target.profile : {};
+  if (rawProfile.avatar !== undefined && rawProfile.avatar !== null && rawProfile.avatar !== '') {
+    if (!isValidBackupImageRef(rawProfile.avatar)) {
+      return { valid: false, error: '头像含不可恢复的图片引用，请重新导出完整备份' };
+    }
+    if (typeof rawProfile.avatar === 'string') {
+      const sizeCheck = checkDataUrlSize(rawProfile.avatar, '头像');
+      if (!sizeCheck.ok) {
+        return { valid: false, error: sizeCheck.error };
+      }
+    }
+  }
   const profile: Profile = {
     name: typeof rawProfile.name === 'string' && rawProfile.name.trim() ? rawProfile.name.trim() : BLANK_PROFILE.name,
     username: typeof rawProfile.username === 'string' ? rawProfile.username.trim() : BLANK_PROFILE.username,

@@ -2,6 +2,8 @@ import test, { describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'node:http';
@@ -1504,6 +1506,95 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
     // 6. Verify disk file has been repaired with genuine PNG bytes
     const repairedBytes = fs.readFileSync(diskPath);
     assert.ok(repairedBytes.equals(Buffer.from(TINY_PNG_BASE64, 'base64')), 'Corrupted disk file must be repaired with verified bytes on retry');
+  });
+
+  test('A06 & A07) Admin restore media verification, transaction atomicity, embedded photo registration, and export-restore roundtrip closed loop', async () => {
+    const db = getDb();
+
+    // 1. Target account existence verification: non-existent target user rejected
+    const nonExistentResult = restoreUserWorkspace('non_existent_target_user', JSON.stringify({ version: 3, state: BLANK_STATE }));
+    assert.equal(nonExistentResult.ok, false);
+    assert.ok(nonExistentResult.message?.includes('目标用户不存在'));
+
+    // 2. Register User Alpha and User Beta
+    const userAlpha = await registerTestUser('user_alpha_a06');
+    const userBeta = await registerTestUser('user_beta_a06');
+
+    // 3. User Alpha uploads a real photo and syncs workspace
+    const uploadAlpha = await uploadTinyPng(userAlpha.cookie, userAlpha.csrfToken);
+    assert.equal(uploadAlpha.res.status, 200);
+    const mediaAlphaUrl = uploadAlpha.json.media.url; // /api/media/...
+
+    const alphaWs = await getWorkspace(userAlpha.cookie);
+    const alphaState = JSON.parse(JSON.stringify(alphaWs.state));
+    alphaState.wrong = [{ id: 'w-alpha', date: '2026-10-27', bookId: alphaState.books[0]?.id || '', note: 'wrong alpha', image: mediaAlphaUrl }];
+    const alphaSync = await postWorkspace({
+      cookie: userAlpha.cookie,
+      csrfToken: userAlpha.csrfToken,
+      expectedRevision: alphaWs.revision,
+      requestId: 'alpha-1',
+      state: alphaState,
+    });
+    assert.equal(alphaSync.res.status, 200);
+
+    // 4. Cross-account restore attack: Attempting to restore User Beta using User Alpha's server media reference
+    // Even if backup JSON contains userId: userAlpha.id, target must be userBeta.id and Alpha's media must be rejected!
+    const betaWsPre = await getWorkspace(userBeta.cookie);
+    const crossAccountBackup = JSON.stringify({
+      version: 3,
+      userId: userAlpha.user.id, // Trying to spoof source user
+      state: alphaState,
+    });
+    const crossRestoreResult = restoreUserWorkspace(userBeta.user.id, crossAccountBackup, 'cross_restore');
+    assert.equal(crossRestoreResult.ok, false);
+    assert.ok(crossRestoreResult.message?.includes('已缺失或损坏'));
+
+    // Verify User Beta workspace remains at original revision and completely unmodified
+    const betaWorkspacePre = db.prepare('SELECT revision, state_json FROM workspaces WHERE user_id = ?').get(userBeta.user.id) as any;
+    assert.equal(betaWorkspacePre.revision, betaWsPre.revision);
+
+    // 5. User Alpha exports backup via GET /api/backups/export
+    // Under A07: media references must be transformed into genuine data:image/... bytes!
+    const exportRes = await fetch(`${baseUrl}/api/backups/export`, {
+      headers: { cookie: userAlpha.cookie },
+    });
+    assert.equal(exportRes.status, 200);
+    const exportedData = await exportRes.json();
+    assert.equal(exportedData.version, 3);
+    assert.ok(exportedData.state.wrong[0].image.startsWith('data:image/png;base64,'));
+    assert.equal(exportedData.state.wrong[0].image, `data:image/png;base64,${TINY_PNG_BASE64}`);
+
+    // 6. Portable restore into User Beta using Alpha's exported backup (forming closed-loop A07)
+    // Under A06: embedded data URLs must be registered as new media attachments for User Beta
+    // and replaced with stable references before checking workspace byte cap!
+    const betaRestoreResult = restoreUserWorkspace(userBeta.user.id, JSON.stringify(exportedData), 'portable_restore');
+    assert.equal(betaRestoreResult.ok, true);
+    assert.equal(betaRestoreResult.revision, betaWsPre.revision + 1);
+
+    // Verify Beta's stored workspace does NOT contain inline giant data URL, but a stable /api/media/ reference
+    const betaWorkspacePost = db.prepare('SELECT revision, state_json FROM workspaces WHERE user_id = ?').get(userBeta.user.id) as any;
+    assert.equal(betaWorkspacePost.revision, betaWsPre.revision + 1);
+    const parsedBetaState = JSON.parse(betaWorkspacePost.state_json);
+    assert.ok(parsedBetaState.wrong[0].image.startsWith('/api/media/'));
+    const betaMediaId = parsedBetaState.wrong[0].image.replace('/api/media/', '');
+
+    // Verify Beta's media record was created and isolated to User Beta
+    const betaMediaRecord = db.prepare('SELECT id, user_id, filename, sha256 FROM media_records WHERE id = ? AND user_id = ?').get(betaMediaId, userBeta.user.id) as any;
+    assert.ok(betaMediaRecord, 'Media record must be created and owned by User Beta');
+    assert.equal(betaMediaRecord.sha256, crypto.createHash('sha256').update(Buffer.from(TINY_PNG_BASE64, 'base64')).digest('hex'));
+
+    // 7. Test CLI exit code behavior: restore-user with invalid media reference must exit with code 1
+    const invalidBackupPath = path.join(os.tmpdir(), `invalid_backup_${Date.now()}.json`);
+    fs.writeFileSync(invalidBackupPath, JSON.stringify({ version: 3, state: { ...BLANK_STATE, profile: { ...BLANK_STATE.profile, avatar: '/api/media/unavailable-avatar' } } }));
+    try {
+      const cliResult = spawnSync(process.execPath, ['--import', 'tsx', 'server/cli.ts', 'restore-user', userBeta.user.id, invalidBackupPath], {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+      });
+      assert.notEqual(cliResult.status, 0, 'CLI restore-user must exit with non-zero status on validation failure');
+    } finally {
+      try { fs.unlinkSync(invalidBackupPath); } catch {}
+    }
   });
 });
 

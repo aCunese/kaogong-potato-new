@@ -99,7 +99,7 @@ export interface SaveMediaResult {
   deduplicated?: boolean;
 }
 
-function ensureAttachmentFile(
+export function ensureAttachmentFile(
   filename: string,
   buffer: Buffer,
   attachmentsDir: string,

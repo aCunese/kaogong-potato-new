@@ -17,12 +17,14 @@ import {
   OperationContext,
 } from '../types';
 import { INITIAL_STATE, BLANK_STATE, DEMO_STATE, getLocalDateString } from '../constants/initialData';
-import { validateAndMigrateBackup } from '../utils/backupValidator';
+import { validateAndMigrateBackup, MAX_BACKUP_SIZE_BYTES } from '../utils/backupValidator';
 import {
   loadLatestState,
   commitMutation,
   resetDatabase,
   createPortableBackupState,
+  parseServerMediaRef,
+  getMedia,
   setActiveUserPartition,
   saveLastActiveUser,
   getLastActiveUser,
@@ -1443,16 +1445,38 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
   const exportBackup = useCallback(async (): Promise<MutationResult<void>> => {
     if (!readyRef.current) return { ok: false, code: 'STORAGE_NOT_READY', message: '本地数据尚未成功加载，无法导出备份。' };
+    const scope = createOperationScope();
     try {
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '用户已切换，已取消导出。' };
+      }
       const latest = preview ? previewStateRef.current : (await loadLatestState()).state;
-      const portable = await createPortableBackupState(latest, { isPreview: preview });
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '用户已切换，已取消导出。' };
+      }
+      const portable = await createPortableBackupState(latest, {
+        isPreview: preview,
+        isScopeValid: () => isOperationScopeValid(scope),
+      });
+      if (!isOperationScopeValid(scope)) {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '用户已切换，已取消导出。' };
+      }
       const backupObj = {
         app: '考公工作台·土豆新版',
         version: 3,
         exportedAt: new Date().toISOString(),
         state: portable,
       };
-      const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+      const jsonString = JSON.stringify(backupObj, null, 2);
+      const utf8Bytes = new TextEncoder().encode(jsonString).byteLength;
+      if (utf8Bytes > MAX_BACKUP_SIZE_BYTES) {
+        return {
+          ok: false,
+          code: 'BACKUP_TOO_LARGE',
+          message: `备份文件大小 (${utf8Bytes} 字节) 超过 50MB 限制，已停止导出。`,
+        };
+      }
+      const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1462,10 +1486,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       return { ok: true, value: undefined };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (message === 'AUTH_SCOPE_INVALID') {
+        return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '导出期间用户身份已切换，已取消导出。' };
+      }
       setStorageError(message);
       return { ok: false, code: 'EXPORT_FAILED', message };
     }
-  }, [preview]);
+  }, [createOperationScope, isOperationScopeValid, preview]);
 
   const importBackup = useCallback(
     async (jsonContent: string): Promise<MutationResult<{ summary: string }>> => {
@@ -1475,6 +1502,55 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       }
       const nextState = validated.migratedState;
       const user = currentUserRef.current;
+
+      // A07: 校验备份中的旧云端媒体引用（离线无法证明的旧云端引用明确拒绝）
+      const cloudRefs: string[] = [];
+      const addRefIfCloud = (ref: unknown) => {
+        if (typeof ref === 'string') {
+          const id = parseServerMediaRef(ref);
+          if (id) cloudRefs.push(id);
+        }
+      };
+      if (nextState.profile?.avatar) addRefIfCloud(nextState.profile.avatar);
+      for (const w of nextState.wrong ?? []) {
+        if (w.image) addRefIfCloud(w.image);
+        if (Array.isArray(w.images)) {
+          for (const img of w.images) addRefIfCloud(img);
+        }
+      }
+
+      if (cloudRefs.length > 0) {
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : false;
+        for (const id of cloudRefs) {
+          const local = await getMedia(id);
+          if (!local) {
+            if (!user || preview || !isOnline) {
+              return {
+                ok: false,
+                code: 'UNPROVEN_CLOUD_MEDIA',
+                message: `离线状态下无法证明备份中的云端媒体引用 (${id})，已拒绝恢复。请联网后重试或使用包含完整图片的备份。`,
+              };
+            }
+            try {
+              const probe = await fetch(`/api/media/${id}`, { credentials: 'same-origin' });
+              if (!probe.ok) {
+                return {
+                  ok: false,
+                  code: 'INVALID_MEDIA_REF',
+                  message: `备份引用的云端媒体附件 (${id}) 不存在或不属于当前账号，无法恢复。`,
+                };
+              }
+            } catch {
+              return {
+                ok: false,
+                code: 'MEDIA_PROBE_FAILED',
+                message: `无法验证媒体引用 (${id})，已拒绝恢复。`,
+              };
+            }
+          }
+        }
+      }
+
       if (user && !preview) {
         const snapshot = await loadSnapshot(user.id);
         try {

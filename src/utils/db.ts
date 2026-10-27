@@ -1604,10 +1604,25 @@ export async function resetDatabase(userId?: string | null): Promise<boolean> {
   });
 }
 
+export function parseServerMediaRef(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  let id: string | null = null;
+  if (value.startsWith('/api/media/')) {
+    id = value.slice('/api/media/'.length);
+  } else if (value.startsWith('media:')) {
+    id = value.slice('media:'.length);
+  } else if (value.startsWith('media_')) {
+    id = value;
+  }
+  if (!id) return null;
+  if (!/^[A-Za-z0-9_-]{4,128}$/.test(id)) return null;
+  return id;
+}
+
 /** Resolve local attachment references before generating a portable JSON backup. */
 export async function createPortableBackupState(
   state: AppState,
-  options?: { isPreview?: boolean }
+  options?: { isPreview?: boolean; isScopeValid?: () => boolean }
 ): Promise<AppState> {
   const portable = structuredClone(state);
   const asDataURL = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
@@ -1616,26 +1631,102 @@ export async function createPortableBackupState(
     reader.onerror = () => reject(reader.error || new Error('读取备份图片失败'));
     reader.readAsDataURL(blob);
   });
+
+  const POSE_RE = /^pose-[0-7]$/;
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
   const resolveImage = async (image: string, storagePath?: string): Promise<string> => {
-    // Built-in potato avatars (pose-0 to pose-7), static assets, data URIs, media refs and external URLs are self-contained.
-    if (!storagePath && (!image || /^(data:image\/|https?:\/\/)/i.test(image) || image.startsWith('pose-') || image.startsWith('/') || image.startsWith('./') || image.startsWith('media:'))) {
+    if (options?.isScopeValid && !options.isScopeValid()) {
+      throw new Error('AUTH_SCOPE_INVALID');
+    }
+
+    if (!image) return '';
+
+    // Built-in potato avatars (pose-0 to pose-7) and static assets are self-contained.
+    if (POSE_RE.test(image) || image.startsWith('/branding/')) {
       return image;
     }
+
     // In isolated preview mode, never query the real persistent IndexedDB media store.
     if (options?.isPreview) {
       return image;
     }
-    if (!storagePath && image.startsWith('blob:')) {
+
+    // Existing data URL
+    if (image.startsWith('data:image/')) {
+      const comma = image.indexOf(',');
+      if (comma !== -1) {
+        const b64 = image.slice(comma + 1);
+        const approxBytes = Math.ceil((b64.length * 3) / 4);
+        if (approxBytes > MAX_IMAGE_BYTES) {
+          throw new Error('单张图片大小不能超过 10MB');
+        }
+      }
+      return image;
+    }
+
+    // Blob URL
+    if (image.startsWith('blob:')) {
       const response = await fetch(image);
       if (!response.ok) throw new Error('无法读取本地错题图片');
-      return asDataURL(await response.blob());
+      const blob = await response.blob();
+      if (blob.size > MAX_IMAGE_BYTES) throw new Error('单张图片大小不能超过 10MB');
+      return asDataURL(blob);
     }
-    const media = await getMedia(storagePath || image);
-    if (!media) throw new Error('备份图片附件缺失，已停止导出，请检查错题照片。');
-    if (media.blob instanceof Blob) return asDataURL(media.blob);
-    if (typeof media.blob === 'string' && (media.blob.startsWith('data:image/') || media.blob.startsWith('https://'))) return media.blob;
-    throw new Error('备份图片附件格式无效，已停止导出。');
+
+    // 优先读取本地副本 (getMedia)
+    const mediaKey = (storagePath && storagePath.trim()) || parseServerMediaRef(image) || image;
+    let media = await getMedia(mediaKey);
+    if (!media && storagePath && image) {
+      media = await getMedia(image);
+    }
+
+    if (media) {
+      if (media.blob instanceof Blob) {
+        if (media.blob.size > MAX_IMAGE_BYTES) throw new Error('单张图片大小不能超过 10MB');
+        return asDataURL(media.blob);
+      }
+      if (typeof media.blob === 'string') {
+        if (media.blob.startsWith('data:image/')) {
+          const comma = media.blob.indexOf(',');
+          if (comma !== -1) {
+            const b64 = media.blob.slice(comma + 1);
+            if (Math.ceil((b64.length * 3) / 4) > MAX_IMAGE_BYTES) throw new Error('单张图片大小不能超过 10MB');
+          }
+          return media.blob;
+        }
+        if (media.blob.startsWith('https://')) return media.blob;
+      }
+    }
+
+    // 没有本地副本时，通过当前账号同源媒体接口 (fetch('/api/media/<id>')) 读取并转为 data:image/...
+    const cloudId = parseServerMediaRef(image);
+    if (cloudId) {
+      if (options?.isScopeValid && !options.isScopeValid()) {
+        throw new Error('AUTH_SCOPE_INVALID');
+      }
+      const response = await fetch(`/api/media/${cloudId}`, { credentials: 'same-origin' });
+      if (!response.ok) {
+        throw new Error(`无法从云端获取媒体附件 (${cloudId})，HTTP ${response.status}`);
+      }
+      if (options?.isScopeValid && !options.isScopeValid()) {
+        throw new Error('AUTH_SCOPE_INVALID');
+      }
+      const blob = await response.blob();
+      if (blob.size > MAX_IMAGE_BYTES) {
+        throw new Error('单张图片大小不能超过 10MB');
+      }
+      return asDataURL(blob);
+    }
+
+    // Legacy external https URL
+    if (image.startsWith('https://')) {
+      return image;
+    }
+
+    throw new Error(`备份图片附件缺失，已停止导出: ${image.slice(0, 30)}`);
   };
+
   for (const wrong of portable.wrong) {
     wrong.image = await resolveImage(wrong.image, wrong.storagePath);
     delete wrong.storagePath;

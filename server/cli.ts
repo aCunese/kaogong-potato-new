@@ -131,7 +131,11 @@ async function run() {
       if (!fs.existsSync(resolved)) { console.error(`❌ 文件不存在: ${resolved}`); process.exit(1); }
       const content = fs.readFileSync(resolved, 'utf-8');
       const result = restoreUserWorkspace(userId, content, 'cli_restore');
-      console.log(result.ok ? `✅ ${result.message}` : `❌ ${result.message}`);
+      if (!result.ok) {
+        console.error(`❌ ${result.message}`);
+        process.exit(1);
+      }
+      console.log(`✅ ${result.message}`);
       break;
     }
 
