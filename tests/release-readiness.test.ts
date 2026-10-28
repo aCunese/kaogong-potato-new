@@ -7,8 +7,8 @@ import { CURRENT_WEB_VERSION, CURRENT_WEB_BUILD, compareBuildNumbers } from '../
 
 it('advertises a newer Web release with Schema 5 while preserving the verified APK identity', () => {
   const publicVersion = JSON.parse(fs.readFileSync('public/version.json', 'utf8'));
-  expect(CURRENT_WEB_VERSION).toBe('1.0.9');
-  expect(compareBuildNumbers(CURRENT_WEB_BUILD, '20261027.04')).toBeGreaterThan(0);
+  expect(CURRENT_WEB_VERSION).toBe('1.0.10');
+  expect(compareBuildNumbers(CURRENT_WEB_BUILD, '20261028.04')).toBeGreaterThan(0);
   expect(publicVersion).toMatchObject({version: CURRENT_WEB_VERSION, build: CURRENT_WEB_BUILD, schemaVersion: 5});
   expect(release.schemaVersion).toBe(5);
   expect(release.apkVersion).toBe('1.0.5');
@@ -22,5 +22,5 @@ it('the service worker reports the same new release and uses a separate shell ca
   vm.runInNewContext(fs.readFileSync('public/sw.js', 'utf8'), {self: {addEventListener: (type: string, handler: any) => handlers.set(type, handler)}});
   let identity: any;
   handlers.get('message')!({data: {type: 'GET_RELEASE_INFO'}, ports: [{postMessage: (message: any) => {identity = message;}}]});
-  expect(identity).toMatchObject({version: '1.0.9', build: '20261028.04', cacheName: 'kaogong-shell-v5-1.0.9-20261028.04'});
+  expect(identity).toMatchObject({version: '1.0.10', build: '20261028.05', cacheName: 'kaogong-shell-v5-1.0.10-20261028.05'});
 });

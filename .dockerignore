@@ -27,3 +27,6 @@ verification-screens*/
 # 4. 排除本地 node_modules 与开发构建输出（由容器内全新安装与构建）
 node_modules/
 dist/
+
+# 5. 严禁本地私密环境变量（SMTP 授权码、验证码密钥等）进入构建上下文与镜像层
+.env*
