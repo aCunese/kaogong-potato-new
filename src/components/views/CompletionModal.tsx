@@ -5,7 +5,7 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
 import { X, CheckCircle2, Award, ArrowRight, AlertCircle, Camera } from 'lucide-react';
 import { Plan, StudyRecord } from '../../types';
-import { getCompletionMinutes, getCompletionSummary, getPlanCompletion } from '../../utils/workflowPresentation';
+import { canCorrectStudyRecord, getCompletionMinutes, getCompletionSummary, getPlanCompletion } from '../../utils/workflowPresentation';
 
 interface CompletionModalProps {
   plan: Plan | null;
@@ -14,6 +14,7 @@ interface CompletionModalProps {
   onToast: (msg: string) => void;
   initialSuccess?: boolean; // For 50-screen direct inspection of complete-success variants (Fixes A07)
   onOpenPhotoImport?: (target: { bookId: string; date: string }) => void;
+  onEditRecord?: (record: StudyRecord) => void;
 }
 
 export const CompletionModal: React.FC<CompletionModalProps> = ({
@@ -23,6 +24,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   onToast,
   initialSuccess = false,
   onOpenPhotoImport,
+  onEditRecord,
 }) => {
   const { state, completePlan, pauseTimer, activeDate } = useApp();
   const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
@@ -87,6 +89,8 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     setPreparedPlanId(livePlan.id);
   }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
 
+  const successRecord = state.records.find(r => r.id === completedRecord?.id)
+    ?? (livePlan ? getPlanCompletion(livePlan, state.records).record : undefined);
   if (!isOpen || !plan) return null;
 
   const handleClose = () => {
@@ -214,15 +218,16 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                 </div>
               </div>
               <div className="text-sm font-bold text-sage">
-                {lastCompletedData?.summary}
+                {successRecord ? getCompletionSummary(successRecord.type === 'course' ? { ...successRecord, minutes: livePlan?.actualMinutes ?? successRecord.minutes } : successRecord) : lastCompletedData?.summary}
               </div>
             </div>
 
+            {successRecord && onEditRecord && canCorrectStudyRecord(state, successRecord) && <Button fullWidth variant="secondary" onClick={() => onEditRecord(successRecord)}>修改本次登记</Button>}
             {Boolean(
-              completedRecord &&
-              completedRecord.type === 'book' &&
-              completedRecord.errors > 0 &&
-              state.books.some(b => b.id === completedRecord.sourceId) &&
+              successRecord &&
+              successRecord.type === 'book' &&
+              successRecord.errors > 0 &&
+              state.books.some(b => b.id === successRecord.sourceId) &&
               onOpenPhotoImport
             ) ? (
               <div className="space-y-2">
@@ -231,10 +236,10 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                   size="lg"
                   fullWidth
                   onClick={() => {
-                    if (completedRecord) {
+                    if (successRecord) {
                       const target = {
-                        bookId: completedRecord.sourceId,
-                        date: completedRecord.date,
+                        bookId: successRecord.sourceId,
+                        date: successRecord.date,
                       };
                       handleClose();
                       onOpenPhotoImport?.(target);

@@ -5,6 +5,7 @@ import Database, { Database as DatabaseType } from 'better-sqlite3';
 import { acquireDataDirectoryLock } from './dataLock';
 import { validateWorkspacePayload } from './workspace';
 import { extractMediaIdsFromState } from './media';
+import { migrateAccountFeatures, validateAccountFeatureSchema } from './accountFeatureSchema';
 
 export interface RestoreOfflineOptions {
   sourceDir: string;
@@ -161,6 +162,7 @@ export function validateRestoreDatabase(
   }
 
   // 4. 检查外键定义
+  validateAccountFeatureSchema(db);
   for (const fk of REQUIRED_FOREIGN_KEYS) {
     const fks = db.pragma(`foreign_key_list(${fk.table})`) as Array<{ table: string; from: string; to: string }>;
     const hasFk = fks.some(f => f.table === fk.toTable && f.from === fk.from && f.to === fk.toCol);
@@ -490,6 +492,7 @@ export async function restoreOffline(options: RestoreOfflineOptions): Promise<Re
       stagingDb.prepare("INSERT OR REPLACE INTO server_meta (key, value) VALUES ('generation_id', ?)").run(nextGenId);
       stagingDb.prepare("UPDATE workspaces SET generation_id = ?").run(nextGenId);
       stagingDb.prepare("DELETE FROM sessions").run();
+      migrateAccountFeatures(stagingDb);
       stagingDb.pragma('wal_checkpoint(TRUNCATE)');
 
       // 暂存库应用 Schema 全量校验

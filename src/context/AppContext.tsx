@@ -10,6 +10,7 @@ import {
   LibraryItem,
   Plan,
   StudyRecord,
+  StudyRecordCorrectionInput,
   WrongRecord,
   StudySubject,
   Profile,
@@ -79,6 +80,7 @@ import {
   applyMaintainTimers,
   applyPauseTimer,
   applyCompletePlan,
+  applyStudyRecordCorrection,
   applyAddPlan,
   applyAddCustomPlan,
   applyQuickAddPlan,
@@ -155,6 +157,7 @@ export interface AppContextType {
 
   // Unified Atomic Completion
   completePlan: (input: CompletionInput) => Promise<MutationResult<{ recordId: string; record: StudyRecord }>>;
+  updateStudyRecord: (input: StudyRecordCorrectionInput) => Promise<MutationResult<StudyRecord>>;
 
   // Backward-compatible Completion Wrappers
   completeBookPlan: (planId: string, questions: number, errors: number, actualMinutes: number) => Promise<{ success: boolean; error?: string }>;
@@ -1281,6 +1284,12 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     [executeMutation]
   );
 
+  const updateStudyRecord = useCallback(
+    (input: StudyRecordCorrectionInput): Promise<MutationResult<StudyRecord>> =>
+      executeMutation(draft => applyStudyRecordCorrection(draft, input), 'correct_study_record'),
+    [executeMutation]
+  );
+
   const completeBookPlan = useCallback(
     async (planId: string, questions: number, errors: number, actualMinutes: number) => {
       const res = await completePlan({ type: 'book', planId, questions, errors, minutes: actualMinutes });
@@ -2364,6 +2373,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         pauseTimer,
         deletePlan,
         completePlan,
+        updateStudyRecord,
         completeBookPlan,
         completeCoursePlan,
         completeCustomPlan,

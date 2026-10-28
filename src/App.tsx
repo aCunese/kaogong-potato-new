@@ -8,6 +8,7 @@ import { AnalysisView } from './components/views/AnalysisView';
 import { SettingsView } from './components/views/SettingsView';
 import { FocusModal } from './components/views/FocusModal';
 import { CompletionModal } from './components/views/CompletionModal';
+import { StudyRecordEditModal } from './components/views/StudyRecordEditModal';
 import { MonthPickerModal } from './components/views/MonthPickerModal';
 import { SyncModal } from './components/views/SyncModal';
 import { ConflictModal } from './components/views/ConflictModal';
@@ -115,6 +116,17 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [focusVariantOverride, setFocusVariantOverride] = useState<'normal' | 'paused' | 'course' | 'custom'>('normal');
   const [completePlan, setCompletePlan] = useState<Plan | null>(null);
   const [completionInitialSuccess, setCompletionInitialSuccess] = useState<boolean>(false);
+  const [recordToEdit, setRecordToEdit] = useState<StudyRecord | null>(null);
+  const recordEditOwner = useRef(currentUser?.id);
+  const openRecordEditor = (record: StudyRecord) => {
+    recordEditOwner.current = currentUser?.id;
+    setRecordToEdit(record);
+  };
+  useEffect(() => { setRecordToEdit(null); setCompletePlan(null); }, [currentUser?.id]);
+  useEffect(() => {
+    if (!recordToEdit) return;
+    return registerUpdateBlocker('record_edit_modal', '正在修改学习登记，已暂缓应用更新');
+  }, [recordToEdit, registerUpdateBlocker]);
 
   const [bookModalState, setBookModalState] = useState<{ open: boolean; book?: Book }>({ open: false });
   const [courseModalState, setCourseModalState] = useState<{ open: boolean; course?: Course }>({ open: false });
@@ -856,6 +868,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'today' ? (
             <TodayView
+              onEditRecord={openRecordEditor}
               forcedMode={todayForcedMode}
               onOpenAddPlan={() => { setAddPlanLibraryId(undefined); setAddPlanOpen(true); }}
               onOpenFocus={(plan, mode) => {
@@ -927,6 +940,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'analysis' ? (
             <AnalysisView
+              onEditRecord={openRecordEditor}
               initialSubTab={analysisSubTab}
               selectedMonth={selectedMonth}
               onOpenMonthPicker={() => setMonthPickerOpen(true)}
@@ -1043,6 +1057,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         />
 
         <CompletionModal
+          onEditRecord={openRecordEditor}
           plan={completePlan}
           isOpen={Boolean(completePlan)}
           initialSuccess={completionInitialSuccess}
@@ -1058,6 +1073,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           }}
           onToast={showToast}
         />
+
+        {recordToEdit && recordEditOwner.current === currentUser?.id && <StudyRecordEditModal key={`${currentUserId}:${recordToEdit.id}`} record={recordToEdit} onClose={() => setRecordToEdit(null)} onToast={showToast} />}
 
         <BookEditModal
           isOpen={bookModalState.open}

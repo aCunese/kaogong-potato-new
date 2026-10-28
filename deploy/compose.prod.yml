@@ -23,6 +23,12 @@ services:
       - DATA_DIR=/app/data
       - PORT=3000
       - SESSION_SECRET=${SESSION_SECRET:?required}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - EMAIL_CODE_SECRET=${EMAIL_CODE_SECRET:-}
     volumes:
       # 生产真实持久化目录（绝对路径）：包含 potato.db、attachments/、backups/
       - ${PROD_DATA_DIR:?required}:/app/data

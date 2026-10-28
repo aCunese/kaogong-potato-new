@@ -5,15 +5,16 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { Card, Button, Tag, Modal } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
-import { Plan, MutationResult, TimerMode } from '../../types';
+import { Plan, StudyRecord, MutationResult, TimerMode } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
-import { getPlanElapsedMs } from '../../utils/workflowPresentation';
+import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs } from '../../utils/workflowPresentation';
 
 interface TodayViewProps {
   forcedMode?: 'normal' | 'empty' | 'multi';
   onOpenAddPlan: () => void;
   onOpenFocus: (plan: Plan, mode?: TimerMode) => void;
   onOpenComplete: (plan: Plan) => void;
+  onEditRecord?: (record: StudyRecord) => void;
   onOpenCountdownEdit: (id: string) => void;
   onAddCountdown: () => void;
   onOpenDeleteConfirm?: (plan: Plan) => void;
@@ -26,6 +27,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onOpenAddPlan,
   onOpenFocus,
   onOpenComplete,
+  onEditRecord,
   onOpenCountdownEdit,
   onAddCountdown,
   onOpenDeleteConfirm,
@@ -353,6 +355,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     >
                       查看登记总结
                     </button>
+                    {onEditRecord && (() => { const record = getPlanCompletion(plan, state.records).record; return record && canCorrectStudyRecord(state, record) ? <button className="text-sage underline text-[11px]" onClick={() => onEditRecord(record)}>修改登记</button> : null; })()}
                   </div>
                 )}
               </Card>
@@ -365,7 +368,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         <select id="history-date" aria-label="查看历史日程" value={historyDate} onChange={e => setHistoryDate(e.target.value)} className="w-full p-2.5 bg-paper border border-line rounded-xl text-sm"><option value="">选择日期查看或补登记</option>{historyDates.map(date => <option key={date} value={date}>{date}</option>)}</select>
         {historyDate && state.plans.filter(p => p.date === historyDate).map(p => <Card key={p.id} className="p-3 space-y-2">
           <p className="text-sm font-bold">{p.name}</p><p className="text-xs text-ink-muted">{p.date} · {Math.floor(getPlanElapsedMs(p) / 60000)}分钟 · {p.done ? '已登记' : '待补登记'}</p>
-          <div className="flex justify-between"><button className="text-xs text-sage" onClick={() => onOpenComplete(p)}>{p.done ? '查看登记总结' : '补登记'}</button><button className="text-xs text-alarm" onClick={() => onOpenDeleteConfirm ? onOpenDeleteConfirm(p) : void runTimerAction(() => deletePlan(p.id))}>删除并撤销登记</button></div>
+          <div className="flex justify-between gap-2 flex-wrap"><button className="text-xs text-sage" onClick={() => onOpenComplete(p)}>{p.done ? '查看登记总结' : '补登记'}</button>{p.done && onEditRecord && (() => { const record = getPlanCompletion(p, state.records).record; return record && canCorrectStudyRecord(state, record) ? <button className="text-xs text-sage underline" onClick={() => onEditRecord(record)}>修改登记</button> : null; })()}<button className="text-xs text-alarm" onClick={() => onOpenDeleteConfirm ? onOpenDeleteConfirm(p) : void runTimerAction(() => deletePlan(p.id))}>删除并撤销登记</button></div>
         </Card>)}
       </section>
       <StandaloneTimerModal key={currentUser?.id ?? 'preview'} isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} />

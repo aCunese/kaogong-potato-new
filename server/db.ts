@@ -2,6 +2,7 @@ import Database, { Database as DatabaseType } from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { migrateAccountFeatures } from './accountFeatureSchema';
 
 export function getDataDir(): string {
   return process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
@@ -152,6 +153,7 @@ export function getDb(): DatabaseType {
     db.prepare('INSERT INTO server_meta (key, value) VALUES (?, ?)').run('generation_id', initialGenId);
   }
 
+  migrateAccountFeatures(db);
   dbInstance = db;
   return db;
 }

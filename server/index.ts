@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import app, { getReleaseValidation } from './app';
 import { getDb, getCurrentGenerationId, getDataDir, closeDb } from './db';
 import { acquireDataDirectoryLock, DataDirectoryLock } from './dataLock';
+import { startReminderWorker } from './reminders';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -37,6 +38,7 @@ lock.lost.catch((err) => {
 // 3. Ensure DB is initialized
 getDb();
 const genId = getCurrentGenerationId();
+const reminderWorker = startReminderWorker();
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`\n========================================`);
@@ -52,6 +54,7 @@ let isShuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  await reminderWorker.stop();
   console.log(`收到 ${signal} 信号，正在平稳关闭服务...`);
 
   if (typeof (server as any).closeIdleConnections === 'function') {

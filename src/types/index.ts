@@ -121,6 +121,10 @@ export interface WrongRecord {
   images?: string[];
 }
 
+export type StudyRecordCorrectionInput =
+  | { recordId: string; type: 'book'; questions: number; errors: number; expected: { questions: number; errors: number } }
+  | { recordId: string; type: 'course'; lessons: number; expected: { lessons: number } };
+
 export interface Profile {
   name: string;
   username: string;

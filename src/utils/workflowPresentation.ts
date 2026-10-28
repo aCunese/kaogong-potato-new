@@ -1,4 +1,4 @@
-import { Plan, StudyRecord } from '../types';
+import { AppState, Plan, StudyRecord } from '../types';
 import { learningElapsedMs } from './studyTimers';
 
 export function getPlanElapsedMs(plan: Plan, now = Date.now()): number {
@@ -19,6 +19,11 @@ export function getCompletionSummary(record: StudyRecord): string {
     return `听完 ${record.lessons ?? 0} 节 · 用时 ${record.minutes} 分钟`;
   }
   return `完成自定义事项 · 累计投入 ${record.minutes} 分钟`;
+}
+
+export function canCorrectStudyRecord(state: AppState, record: StudyRecord): boolean {
+  return (record.type === 'book' || record.type === 'course') && (!record.sessionId ||
+    state.plans.some(p => p.sessionId === record.sessionId && p.recordId === record.id));
 }
 
 export type AnalysisRange = '30' | '90' | 'all';

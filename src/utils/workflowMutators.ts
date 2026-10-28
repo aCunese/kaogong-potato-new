@@ -5,6 +5,7 @@ import {
   LibraryItem,
   Plan,
   StudyRecord,
+  StudyRecordCorrectionInput,
   WrongRecord,
   StudySubject,
   isStudySubjectForType,
@@ -21,6 +22,52 @@ import { buildLibraryFromSources } from '../constants/initialData';
 export type MutatorReturn<T> =
   | { nextState: AppState; value: T; newMedia?: MediaRecord[]; deletedMediaIds?: string[] }
   | { error: { code: string; message: string; field?: string } };
+
+/** Correct quantities in place; timing, identity and photo archives retain their original values. */
+export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCorrectionInput): MutatorReturn<StudyRecord> {
+  const record = draft.records.find(r => r.id === input.recordId);
+  if (!record) return { error: { code: 'NOT_FOUND', message: '这条学习登记已不存在，请刷新记录。' } };
+  if (record.type !== input.type) return { error: { code: 'INVALID_INPUT', message: '登记类型不一致。' } };
+  if (record.sessionId && !draft.plans.some(p => p.sessionId === record.sessionId && p.recordId === record.id)) {
+    return { error: { code: 'TIME_ONLY_RECORD', message: '这是跨日用时分段，请修改该次学习结束日期的登记。' } };
+  }
+  if (input.type === 'book') {
+    if (!Number.isSafeInteger(input.questions) || input.questions <= 0 || !Number.isSafeInteger(input.errors) || input.errors < 0 || input.errors > input.questions) {
+      return { error: { code: 'INVALID_COUNTS', message: '做题数须为正整数，错题数须为不超过做题数的非负整数。' } };
+    }
+    if (!input.expected || record.questions !== input.expected.questions || record.errors !== input.expected.errors) {
+      return { error: { code: 'RECORD_CHANGED', message: '这条登记已被修改，请重新打开后再编辑。' } };
+    }
+    const book = draft.books.find(b => b.id === record.sourceId);
+    if (book && record.sourceApplied !== false) {
+      const remainingDone = book.done - record.questions;
+      const remainingErrors = book.errors - record.errors;
+      const done = remainingDone + input.questions;
+      const errors = remainingErrors + input.errors;
+      if (![remainingDone, remainingErrors, done, errors].every(Number.isSafeInteger) || remainingDone < 0 || remainingErrors < 0 || remainingErrors > remainingDone || done < 0 || errors < 0 || errors > done) {
+        return { error: { code: 'COUNTER_INCONSISTENT', message: '题本累计数据与登记不一致，请先校正题本累计数据。' } };
+      }
+      book.done = done;
+      book.errors = errors;
+    }
+    record.questions = input.questions;
+    record.errors = input.errors;
+  } else {
+    if (!Number.isSafeInteger(input.lessons) || input.lessons <= 0) return { error: { code: 'INVALID_LESSONS', message: '完成节数须为正整数。' } };
+    const oldLessons = record.lessons ?? 0;
+    if (!input.expected || oldLessons !== input.expected.lessons) return { error: { code: 'RECORD_CHANGED', message: '这条登记已被修改，请重新打开后再编辑。' } };
+    const course = draft.courses.find(c => c.id === record.sourceId);
+    if (course && record.sourceApplied !== false) {
+      const completed = course.completedLessons - oldLessons + input.lessons;
+      if (!Number.isSafeInteger(completed) || course.completedLessons < oldLessons || completed < 0 || completed > course.totalLessons) {
+        return { error: { code: 'COUNTER_INCONSISTENT', message: '修正后的累计节数须在总节数范围内，请检查课程累计数据。' } };
+      }
+      course.completedLessons = completed;
+    }
+    record.lessons = input.lessons;
+  }
+  return { nextState: draft, value: record };
+}
 
 /**
  * Starts the positive timer on a plan.

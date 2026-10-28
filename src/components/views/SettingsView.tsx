@@ -7,6 +7,8 @@ import {
   CURRENT_WEB_BUILD,
 } from '../../utils/versionCheck';
 import { UpdateModal } from './UpdateModal';
+import { EmailRemindersModal } from './EmailRemindersModal';
+import { SharingModal } from './SharingModal';
 import {
   getLatestRecoverySnapshot,
 } from '../../utils/db';
@@ -26,6 +28,8 @@ import {
   Database,
   Trash2,
   RotateCcw,
+  Mail,
+  Users,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -63,10 +67,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     isCheckingUpdate,
     checkForUpdate,
     updateGuard,
+    registerUpdateBlocker,
   } = useApp();
 
   // Update modal state
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showEmailReminders, setShowEmailReminders] = useState(false);
+  const [showSharing, setShowSharing] = useState(false);
+  useEffect(() => {
+    if (!showEmailReminders && !showSharing) return;
+    return registerUpdateBlocker('account_feature_modal', '正在管理邮箱提醒或共享授权，已暂缓应用更新');
+  }, [showEmailReminders, showSharing, registerUpdateBlocker]);
 
   // About App modal state
   const [showAboutModal, setShowAboutModal] = useState(false);
@@ -390,6 +401,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        <button type="button" disabled={!currentUser} onClick={() => setShowEmailReminders(true)} className="w-full text-left flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-cream/40 disabled:opacity-50">
+          <span className="flex items-center gap-3"><Mail size={18} className="text-sage shrink-0" /><span><span className="block text-xs font-bold">邮箱与提醒</span><span className="block text-[11px] text-ink-muted mt-0.5">绑定邮箱，在指定日期时间收到学习提醒</span></span></span>
+          <ChevronRight size={15} className="text-ink-muted shrink-0" />
+        </button>
+        <button type="button" disabled={!currentUser} onClick={() => setShowSharing(true)} className="w-full text-left flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-cream/40 disabled:opacity-50">
+          <span className="flex items-center gap-3"><Users size={18} className="text-sage shrink-0" /><span><span className="block text-xs font-bold">学习数据共享</span><span className="block text-[11px] text-ink-muted mt-0.5">通过分享码授权伙伴只读查看学习进度</span></span></span>
+          <ChevronRight size={15} className="text-ink-muted shrink-0" />
+        </button>
+
         {/* 必要的账号与数据设置 */}
         <div
           onClick={() => setShowDataSettingsModal(true)}
@@ -428,6 +448,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <ChevronRight size={15} className="text-ink-muted/60" />
         </div>
       </Card>
+
+      <EmailRemindersModal key={`email:${currentUser?.id ?? 'guest'}`} isOpen={showEmailReminders && Boolean(currentUser)} onClose={() => setShowEmailReminders(false)} onToast={onToast} />
+      <SharingModal key={`sharing:${currentUser?.id ?? 'guest'}`} isOpen={showSharing && Boolean(currentUser)} onClose={() => setShowSharing(false)} onToast={onToast} />
 
       {/* 3. 统一的应用更新弹窗 (R16/R17) */}
       <UpdateModal

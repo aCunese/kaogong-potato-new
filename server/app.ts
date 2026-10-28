@@ -31,6 +31,8 @@ import {
 import { saveUserMedia, getUserMediaFile, deleteUserMedia, getUserTotalMediaUsage, MAX_USER_QUOTA_BYTES } from './media';
 import { resetPasswordWithCode } from './admin';
 import { createSeedState } from '../src/utils/seedFactory';
+import { emailRouter } from './emailRoutes';
+import { sharingRouter } from './sharingRoutes';
 
 const app = express();
 
@@ -776,9 +778,12 @@ if (fs.existsSync(distPath)) {
       next();
       return;
     }
-    res.sendFile(path.join(distPath, 'index.html'));
+    res.sendFile('index.html', { root: distPath });
   });
 }
+
+app.use(emailRouter);
+app.use(sharingRouter);
 
 // 404 for unhandled API routes
 app.all('/api/{*splat}', (_req: Request, res: Response) => {

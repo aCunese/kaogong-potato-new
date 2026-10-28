@@ -5,7 +5,7 @@ import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
 import { SUBJECTS, STUDY_SUBJECTS, StudySubject, AnalysisSubTab, StudyRecord } from '../../types';
-import { filterAnalysisRecords } from '../../utils/workflowPresentation';
+import { canCorrectStudyRecord, filterAnalysisRecords, getCompletionSummary } from '../../utils/workflowPresentation';
 import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
 
 const SUBJECT_COLORS: Record<StudySubject, string> = {
@@ -31,6 +31,7 @@ interface AnalysisViewProps {
   selectedMonth?: string;
   onOpenMonthPicker: () => void;
   onOpenLegendDetail: (records?: StudyRecord[], rangeLabel?: string) => void;
+  onEditRecord?: (record: StudyRecord) => void;
 }
 
 export const AnalysisView: React.FC<AnalysisViewProps> = ({
@@ -38,12 +39,14 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   selectedMonth: controlledMonth,
   onOpenMonthPicker,
   onOpenLegendDetail,
+  onEditRecord,
 }) => {
   const { state, activeDate } = useApp();
   const [subTab, setSubTab] = useState<AnalysisSubTab>(initialSubTab === 'monthly' ? 'monthly' : 'overall');
   const [category, setCategory] = useState<AnalysisCategory>('course');
   const [range, setRange] = useState<'30' | '90' | 'all'>('30');
   const [localMonth, setLocalMonth] = useState<string>(activeDate.slice(0, 7) || '2026-10');
+  const [recordPage, setRecordPage] = useState(1);
 
   const selectedMonth = controlledMonth || localMonth;
 
@@ -56,6 +59,10 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
 
   const overallRecords = filterAnalysisRecords(state.records, range, activeDate);
   const overallTotalMinutes = overallRecords.reduce((sum, r) => sum + r.minutes, 0);
+
+  const visibleHistory = [...(subTab === 'monthly' ? state.records.filter(r => r.date.startsWith(selectedMonth)) : overallRecords)]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  useEffect(() => setRecordPage(1), [subTab, range, selectedMonth]);
 
   // Calculate subject minutes for overall
   const subjectTimeDistribution = STUDY_SUBJECTS.map(s => {
@@ -117,6 +124,19 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
 
   return (
     <div className="space-y-4 pb-24">
+      <details className="bg-paper border border-line rounded-2xl p-4">
+        <summary className="text-sm font-bold text-sage cursor-pointer">学习登记记录（{visibleHistory.length}）</summary>
+        <div className="mt-3 space-y-3">
+          {visibleHistory.slice(0, recordPage * 20).map(record => <div key={record.id} className="border-t border-line pt-3 text-xs space-y-1">
+            <p className="font-medium break-words">{state.books.find(b => b.id === record.sourceId)?.name ?? state.courses.find(c => c.id === record.sourceId)?.name ?? '历史学习记录'}</p>
+            <p className="text-ink-muted">{record.date} · {record.subject} · {record.minutes} 分钟</p>
+            <p>{getCompletionSummary(record)}</p>
+            {onEditRecord && canCorrectStudyRecord(state, record) && <button className="text-sage underline py-1" onClick={() => onEditRecord(record)}>修改本次登记</button>}
+          </div>)}
+          {!visibleHistory.length && <p className="text-xs text-ink-muted">当前范围暂无学习登记。</p>}
+          {visibleHistory.length > recordPage * 20 && <Button size="sm" fullWidth onClick={() => setRecordPage(page => page + 1)}>加载更多登记</Button>}
+        </div>
+      </details>
       {/* 头部与吉祥物 */}
       <div className="flex items-center justify-between pt-1">
         <div>

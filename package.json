@@ -10,8 +10,8 @@
     "preview": "vite preview --port 4174",
     "server": "node --import tsx server/index.ts",
     "admin": "node --import tsx server/cli.ts",
-    "test:unit": "bun test tests/timer-countdown.test.tsx tests/custom-schedule.test.tsx tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts tests/defects-f01-f12-regression.test.ts tests/sync-core-regressions.test.ts tests/boundaries-regressions.test.ts tests/v10-v11-regressions.test.ts tests/import-scope-regressions.test.ts tests/backup-export-regressions.test.ts tests/backup-photo-regressions.test.ts tests/experience-fixes.test.ts tests/experience-ui.test.ts tests/experience-network.test.ts tests/timer-sessions.test.ts tests/learning-v5-ui.test.tsx tests/final-polish.test.tsx tests/release-readiness.test.ts --timeout 60000",
-    "test:server": "node --import tsx --test tests/timer-countdown-server.test.ts tests/custom-schedule-server.test.ts tests/server.test.ts tests/data-lock.test.ts tests/experience-server.test.ts",
+    "test:unit": "bun test tests/record-correction.test.ts tests/record-correction-ui.test.tsx tests/timer-countdown.test.tsx tests/custom-schedule.test.tsx tests/screens_audit.test.ts tests/storage.test.ts tests/storage-regressions.test.ts tests/ui_interaction.test.ts tests/workflow.test.ts tests/workflow-regressions.test.ts tests/m1-regressions.test.ts tests/defects-f01-f12-regression.test.ts tests/sync-core-regressions.test.ts tests/boundaries-regressions.test.ts tests/v10-v11-regressions.test.ts tests/import-scope-regressions.test.ts tests/backup-export-regressions.test.ts tests/backup-photo-regressions.test.ts tests/experience-fixes.test.ts tests/experience-ui.test.ts tests/experience-network.test.ts tests/timer-sessions.test.ts tests/learning-v5-ui.test.tsx tests/final-polish.test.tsx tests/release-readiness.test.ts --timeout 60000",
+    "test:server": "node --import tsx --test tests/timer-countdown-server.test.ts tests/custom-schedule-server.test.ts tests/server.test.ts tests/data-lock.test.ts tests/experience-server.test.ts tests/email-reminders-server.test.ts tests/sharing-server.test.ts tests/account-features-integration.test.ts",
     "test:dr": "node --import tsx --test tests/disaster-recovery.test.ts",
     "test": "npm run test:unit && npm run test:server && npm run test:dr",
     "verify:boundaries": "bun scripts/verify-boundaries.ts",
@@ -20,7 +20,9 @@
     "verify:auth": "bun scripts/auth-epoch-audit.ts",
     "verify:backup": "bun scripts/backup-restore-audit.ts",
     "verify:apk": "./scripts/build-apk.sh --unsigned-verify",
-    "verify:apk-old": "./scripts/build-apk.sh --verify-apk release/apk/kaogong-potato-v1.0.2.apk"
+    "verify:apk-old": "./scripts/build-apk.sh --verify-apk release/apk/kaogong-potato-v1.0.2.apk",
+    "server:smtp": "node --env-file=.env.smtp.local --import tsx server/index.ts",
+    "verify:study-extensions": "node --import tsx scripts/study-extensions-e2e-audit.ts"
   },
   "dependencies": {
     "argon2": "^0.45.1",
@@ -30,6 +32,7 @@
     "express": "5",
     "lucide-react": "^1.16.0",
     "multer": "^2.5.0",
+    "nodemailer": "^10.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsx": "^4.23.15"
@@ -40,6 +43,7 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",
     "@types/node": "^22.10.1",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
