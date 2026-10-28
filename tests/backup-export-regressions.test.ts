@@ -52,7 +52,10 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         w.mount();
         await new Promise(r => setTimeout(r, 60));
 
-        // Locate "数据备份与恢复" in the DOM
+        (document.querySelector('button[aria-label="数据管理"]') as HTMLButtonElement).click();
+        await new Promise(r => setTimeout(r, 60));
+
+        // Locate "数据备份与恢复" inside the data management page
         const headings = Array.from(document.querySelectorAll('div, h2, h3, span'));
         const backupEntry = headings.find(el => el.textContent?.trim() === '数据备份与恢复');
         if (!backupEntry) return { foundEntry: false };

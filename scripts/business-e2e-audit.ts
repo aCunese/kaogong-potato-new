@@ -555,7 +555,8 @@ async function main() {
   await pageB.getByRole('button', { name: /保存资料/ }).click();
   await pageB.waitForTimeout(800);
   const beforeClear = await localSnapshot(pageB);
-  await pageB.locator('text=必要的账号与数据设置').first().click();
+  await pageB.getByRole('button', { name: '数据管理', exact: true }).click();
+  await pageB.getByText('更多数据操作', { exact: true }).click();
   await pageB.getByRole('button', { name: '清理缓存' }).click();
   await pageB.waitForTimeout(1200);
   const afterClear = await localSnapshot(pageB);
@@ -590,13 +591,14 @@ async function main() {
   check('F: a real completion record is created and synced', wsWithRecord.state.records.length >= 1);
   await navTo(pageB, '我的');
   await closeAnyDialog(pageB);
-  await pageB.locator('text=必要的账号与数据设置').first().click();
+  await pageB.getByRole('button', { name: '数据管理', exact: true }).click();
+  await pageB.getByText('更多数据操作', { exact: true }).click();
   await pageB.getByRole('button', { name: '重置题库' }).click();
   await pageB.getByRole('button', { name: /确认/ }).first().click();
   await pageB.waitForTimeout(2000);
   const afterReset = await localSnapshot(pageB);
   check('F: reset created a real recovery point', Boolean(afterReset.snapshot) && (await localSnapshot(pageB)).syncState !== undefined);
-  await pageB.locator('text=必要的账号与数据设置').first().click();
+  await pageB.getByRole('button', { name: '数据管理', exact: true }).click();
   const recoveryRow = pageB.getByText(/还原最近应急恢复点/).first();
   const recoveryVisible = await recoveryRow.isVisible().catch(() => false);
   check('F: recovery entry available in settings after reset', recoveryVisible);
@@ -623,7 +625,8 @@ async function main() {
   const pageH = await loginThroughUi(contextH, userA, passA);
   await pageH.waitForTimeout(1000);
   await navTo(pageH, '我的');
-  await pageH.getByText('检查更新').first().click();
+  await pageH.getByRole('button', { name: '关于与更新', exact: true }).click();
+  await pageH.getByRole('button', { name: '检查更新', exact: true }).click();
   await pageH.getByRole('dialog').waitFor({ timeout: 10000 });
   await pageH.waitForTimeout(2500);
   const updateDialogText = await pageH.getByRole('dialog').innerText();

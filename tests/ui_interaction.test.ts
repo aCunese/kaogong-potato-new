@@ -355,11 +355,12 @@ describe('Milestone 3: Clean up Fake Texts & Offline Clarification', () => {
         })
       )
     );
-    // 验证五大紧凑业务入口存在
+    // Common features remain reachable while low-frequency controls live in their management pages.
     expect(html).toContain('同步状态');
-    expect(html).toContain('检查更新');
-    expect(html).toContain('关于应用');
-    expect(html).toContain('账号与数据设置');
+    expect(html).toContain('学习提醒');
+    expect(html).toContain('学习伙伴');
+    expect(html).toContain('数据管理');
+    expect(html).toContain('关于与更新');
     expect(html).toContain('退出登录');
     // 验证废弃文案已彻底移除
     expect(html).not.toContain('离线单机模式（未接入云端）');
@@ -617,8 +618,8 @@ describe('S09: Conflict Deferral & Recoverable Workflow (ConflictModal & Setting
     expect(htmlWithConflict).toContain('检测到数据版本冲突待处理');
     expect(htmlWithConflict).toContain('云端与本机记录存在分叉版本');
     expect(htmlWithConflict).toContain('处理冲突');
-    expect(htmlWithConflict).toContain('需要处理版本冲突');
-    expect(htmlWithConflict).not.toContain('已保存到服务器');
+    expect(htmlWithConflict).toContain('同步冲突待处理');
+    expect(htmlWithConflict).not.toContain('已同步');
   });
 
   it('SettingsView does not render conflict banner when conflictData is null', () => {
@@ -659,6 +660,6 @@ describe('S09: Conflict Deferral & Recoverable Workflow (ConflictModal & Setting
 
     expect(htmlClean).not.toContain('检测到数据版本冲突待处理');
     expect(htmlClean).not.toContain('处理冲突');
-    expect(htmlClean).toContain('已保存到服务器');
+    expect(htmlClean).toContain('已同步');
   });
 });

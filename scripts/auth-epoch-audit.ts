@@ -168,7 +168,7 @@ async function main() {
   // Trigger a manual sync (the "云端同步状态" row) which will issue the held GET.
   await pageA.locator('nav button', { hasText: '我的' }).first().click();
   await pageA.waitForTimeout(300);
-  await pageA.locator('text=云端同步状态').first().click();
+  await pageA.getByRole('button', { name: '云端同步状态', exact: true }).click();
   await pageA.waitForTimeout(600);
   await logoutViaUi(pageA);
   const loginAfterLogout = await pageA.getByPlaceholder('请输入用户名').isVisible().catch(() => false);

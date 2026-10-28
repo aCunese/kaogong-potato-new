@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Avatar } from '../common/Avatar';
-import { Card, Button, Tag, Modal } from '../common/UIComponents';
+import { Card, Button, Modal } from '../common/UIComponents';
 import {
   CURRENT_WEB_VERSION,
   CURRENT_WEB_BUILD,
@@ -15,16 +15,12 @@ import {
 import { SnapshotRecord } from '../../types';
 import {
   RefreshCw,
-  Sparkles,
   Info,
-  Shield,
   LogOut,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
   ChevronRight,
-  ExternalLink,
-  Download,
   Database,
   Trash2,
   RotateCcw,
@@ -58,7 +54,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     conflictData,
     storageError,
     clearStorageError,
-    offlineReady,
     pendingSyncCount,
     hasUnsyncedChanges,
     clearSafeCache,
@@ -172,7 +167,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-alarm-light text-alarm rounded-full text-[11px] font-medium">
           <AlertTriangle size={11} />
-          需要处理版本冲突
+          同步冲突待处理
         </span>
       );
     }
@@ -180,7 +175,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-sage-light text-sage-dark rounded-full text-[11px] font-medium">
           <CheckCircle2 size={11} className="text-sage" />
-          {pendingSyncCount > 0 ? `已保存到服务器 · 待传 ${pendingSyncCount} 项` : '已保存到服务器'}
+          {pendingSyncCount > 0 ? `待同步 ${pendingSyncCount} 项` : '已同步'}
         </span>
       );
     }
@@ -193,7 +188,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-[11px] font-medium">
-        同步暂未完成，正在重试{pendingSyncCount > 0 ? ` (${pendingSyncCount} 项)` : ''}
+        正在重试{pendingSyncCount > 0 ? ` (${pendingSyncCount} 项)` : ''}
       </span>
     );
   };
@@ -273,181 +268,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* 1. 个人资料卡片 */}
-      <Card className="p-4 bg-gradient-to-br from-paper to-cream/70 border-line">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              onClick={onOpenProfile}
-              className="w-14 h-14 rounded-2xl bg-paper border-2 border-line overflow-hidden flex items-center justify-center cursor-pointer shadow-soft active:scale-95 transition-transform shrink-0"
-              title="点击修改头像"
-            >
-              <Avatar avatar={state.profile.avatar} size={52} className="w-full h-full" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-bold text-ink-main truncate">{state.profile.name}</h2>
-                <Tag variant="sage" className="shrink-0">
-                  @{currentUser ? currentUser.username : state.profile.username}
-                </Tag>
-              </div>
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap text-xs text-ink-muted">
-                <span>正式学员专属空间</span>
-                {offlineReady && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-sage-light text-sage-dark rounded text-[10px] font-bold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
-                    离线就绪
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onOpenProfile}
-            className="shrink-0 whitespace-nowrap px-3 py-1.5 text-xs font-bold border border-line/60 bg-paper hover:bg-cream active:scale-95 transition-all"
-          >
-            编辑资料
-          </Button>
+      <Card className="p-4 bg-paper border-line">
+        <div className="flex items-center gap-3">
+          <button type="button" aria-label="编辑头像" onClick={onOpenProfile} className="h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-cream border border-line"><Avatar avatar={state.profile.avatar} size={44} className="w-full h-full" /></button>
+          <div className="flex-1 min-w-0"><h2 className="text-base font-bold text-ink-main truncate">{state.profile.name}</h2><p className="text-[11px] text-ink-muted truncate mt-0.5">@{currentUser?.username || state.profile.username || '我的备考空间'}</p></div>
+          <Button variant="ghost" size="sm" onClick={onOpenProfile} className="shrink-0 text-xs px-2">编辑资料</Button>
         </div>
+        <button type="button" aria-label="云端同步状态" onClick={handleManualSync} disabled={isSyncingNow} className="mt-3 pt-3 border-t border-line/60 w-full flex items-center justify-between gap-2 text-left disabled:opacity-60"><span className="text-[11px] text-ink-muted shrink-0">同步状态</span>{renderSyncBadge()}</button>
+        {syncStatus === 'failed' && <p className="mt-2 text-xs text-alarm">{syncMessage || '同步暂未完成，点击同步状态重试。'}</p>}
       </Card>
-
-      {/* 2. 紧凑功能列表 (规范排版：同步状态、检查更新、关于应用、数据设置、退出登录) */}
-      <Card className="p-0 bg-paper border-line divide-y divide-line/60 overflow-hidden shadow-card">
-        {/* 同步状态 */}
-        <div
-          onClick={handleManualSync}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-sage-light/60 flex items-center justify-center text-sage">
-              <RefreshCw size={16} className={isSyncingNow ? 'animate-spin' : ''} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-ink-main">云端同步状态</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                {syncMessage || (navigator.onLine ? '学情实时自动双向同步' : '当前离线，已在本地安全暂存')}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {renderSyncBadge()}
-            <ChevronRight size={15} className="text-ink-muted/60" />
-          </div>
-        </div>
-
-        {/* 检查更新 */}
-        <div
-          onClick={handleManualCheckUpdate}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-potato/20 flex items-center justify-center text-ink-main">
-              <Sparkles size={16} className="text-potato-dark" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-ink-main">检查更新</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                支持 Web 与 Android 原生容器版本核验
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {renderUpdateBadge()}
-            <ChevronRight size={15} className="text-ink-muted/60" />
-          </div>
-        </div>
-
-        {/* 数据备份与恢复 */}
-        <div
-          onClick={onOpenBackup}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-sage-light/60 flex items-center justify-center text-sage">
-              <Database size={16} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-ink-main">数据备份与恢复</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                离线全量 JSON 备份导出与换机恢复
-              </div>
-            </div>
-          </div>
-          <ChevronRight size={15} className="text-ink-muted/60" />
-        </div>
-
-        {/* 关于应用 */}
-        <div
-          onClick={() => setShowAboutModal(true)}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-              <Info size={16} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-ink-main">关于应用</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                版本信息、技术规范与品牌版权
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-ink-muted font-mono">v{CURRENT_WEB_VERSION}</span>
-            <ChevronRight size={15} className="text-ink-muted/60" />
-          </div>
-        </div>
-
-        <button type="button" disabled={!currentUser} onClick={() => setShowEmailReminders(true)} className="w-full text-left flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-cream/40 disabled:opacity-50">
-          <span className="flex items-center gap-3"><Mail size={18} className="text-sage shrink-0" /><span><span className="block text-xs font-bold">邮箱与提醒</span><span className="block text-[11px] text-ink-muted mt-0.5">绑定邮箱，在指定日期时间收到学习提醒</span></span></span>
-          <ChevronRight size={15} className="text-ink-muted shrink-0" />
+      <section aria-label="常用功能" className="grid grid-cols-2 gap-3">
+        <button type="button" aria-label="学习提醒" disabled={!currentUser} onClick={() => setShowEmailReminders(true)} className="min-w-0 text-left rounded-2xl border border-[#E8DFC6] bg-[#F7F0DE] p-4 min-h-[138px] flex flex-col gap-2.5 transition-colors hover:bg-[#F1E7CE] active:scale-[0.99] disabled:opacity-50">
+          <span className="w-9 h-9 rounded-xl bg-paper/80 flex items-center justify-center"><Mail size={20} className="text-[#8B733D]" /></span>
+          <span className="flex items-center justify-between gap-1 w-full"><span className="font-bold text-base text-ink-main">学习提醒</span><ChevronRight size={15} className="text-[#8B733D] shrink-0" /></span>
+          <span className="text-[11px] text-[#83775A] leading-relaxed">安排时间，到点收邮件</span>
         </button>
-        <button type="button" disabled={!currentUser} onClick={() => setShowSharing(true)} className="w-full text-left flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-cream/40 disabled:opacity-50">
-          <span className="flex items-center gap-3"><Users size={18} className="text-sage shrink-0" /><span><span className="block text-xs font-bold">学习数据共享</span><span className="block text-[11px] text-ink-muted mt-0.5">通过分享码授权伙伴只读查看学习进度</span></span></span>
-          <ChevronRight size={15} className="text-ink-muted shrink-0" />
+        <button type="button" aria-label="学习伙伴" disabled={!currentUser} onClick={() => setShowSharing(true)} className="min-w-0 text-left rounded-2xl border border-[#DDE4D4] bg-[#EDF1E8] p-4 min-h-[138px] flex flex-col gap-2.5 transition-colors hover:bg-[#E3EAD9] active:scale-[0.99] disabled:opacity-50">
+          <span className="w-9 h-9 rounded-xl bg-paper/80 flex items-center justify-center"><Users size={20} className="text-sage" /></span>
+          <span className="flex items-center justify-between gap-1 w-full"><span className="font-bold text-base text-ink-main">学习伙伴</span><ChevronRight size={15} className="text-sage shrink-0" /></span>
+          <span className="text-[11px] text-[#77816B] leading-relaxed">添加朋友，查看学习进度</span>
         </button>
-
-        {/* 必要的账号与数据设置 */}
-        <div
-          onClick={() => setShowDataSettingsModal(true)}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-cream/40 cursor-pointer transition-colors active:bg-cream/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center text-amber-700">
-              <Shield size={16} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-ink-main">必要的账号与数据设置</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                缓存清理、应急快照还原与资料重置
-              </div>
-            </div>
-          </div>
-          <ChevronRight size={15} className="text-ink-muted/60" />
-        </div>
-
-        {/* 退出登录 */}
-        <div
-          onClick={onOpenLogoutConfirm}
-          className="flex items-center justify-between px-4 py-3.5 hover:bg-red-50/40 cursor-pointer transition-colors active:bg-red-50/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-alarm">
-              <LogOut size={16} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-alarm">退出登录</div>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                退出当前账号，未同步学情安全保留在设备
-              </div>
-            </div>
-          </div>
-          <ChevronRight size={15} className="text-ink-muted/60" />
-        </div>
+      </section>
+      {!currentUser && <p className="text-xs text-ink-muted text-center">登录后即可设置提醒、添加学习伙伴。</p>}
+      <Card className="p-0 border-line divide-y divide-line/60 overflow-hidden">
+        <button type="button" aria-label="数据管理" onClick={() => setShowDataSettingsModal(true)} className="w-full text-left px-4 py-4 flex items-center gap-3 hover:bg-cream/40"><Database size={19} className="text-sage shrink-0" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">数据管理</span><span className="block text-[11px] text-ink-muted mt-1">备份、恢复与本机数据</span></span><ChevronRight size={15} className="text-ink-muted shrink-0" /></button>
+        <button type="button" aria-label="关于与更新" onClick={() => setShowAboutModal(true)} className="w-full text-left px-4 py-4 flex items-center gap-3 hover:bg-cream/40"><Info size={19} className="text-ink-muted shrink-0" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium">关于与更新</span><span className="block text-[11px] text-ink-muted mt-1">应用信息与版本检查</span></span>{updateCheckState?.status === 'update_available' ? renderUpdateBadge() : <ChevronRight size={15} className="text-ink-muted shrink-0" />}</button>
       </Card>
+      <button type="button" onClick={onOpenLogoutConfirm} className="w-full flex items-center justify-center gap-2 py-3 text-xs text-ink-muted hover:text-alarm"><LogOut size={14} />退出登录</button>
 
       <EmailRemindersModal key={`email:${currentUser?.id ?? 'guest'}`} isOpen={showEmailReminders && Boolean(currentUser)} onClose={() => setShowEmailReminders(false)} onToast={onToast} />
       <SharingModal key={`sharing:${currentUser?.id ?? 'guest'}`} isOpen={showSharing && Boolean(currentUser)} onClose={() => setShowSharing(false)} onToast={onToast} />
@@ -471,7 +318,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <Modal
         isOpen={showAboutModal}
         onClose={() => setShowAboutModal(false)}
-        title="关于考公工作台"
+        title="关于与更新"
       >
         <div className="space-y-4 text-xs">
           <div className="flex flex-col items-center text-center p-3">
@@ -501,6 +348,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
+          <Button variant="primary" fullWidth onClick={() => { setShowAboutModal(false); void handleManualCheckUpdate(); }}><RefreshCw size={15} />检查更新</Button>
           <p className="text-[11px] text-ink-muted leading-relaxed text-center">
             致力于为公考备考者提供纯粹、轻量、可靠的手动刷题记录与学情复盘，不含繁杂题库与广告干扰。
           </p>
@@ -511,30 +359,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <Modal
         isOpen={showDataSettingsModal}
         onClose={() => setShowDataSettingsModal(false)}
-        title="账号与数据安全设置"
+        title="数据管理"
       >
         <div className="space-y-4 text-xs">
-          {/* 清理本地缓存 */}
-          <div className="p-3 bg-cream/60 border border-line rounded-2xl flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="font-bold text-ink-main flex items-center gap-1.5">
-                <Trash2 size={14} className="text-ink-muted" />
-                清理本地临时缓存
-              </div>
-              <div className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
-                只释放可安全重建的旧缓存，不会删除账号快照、未同步学情、待处理照片与恢复点
-              </div>
-              {hasUnsyncedChanges && (
-                <div className="text-[10px] text-amber-700 mt-1">
-                  当前有 {pendingSyncCount} 项未同步内容，清理将自动保留这些数据
-                </div>
-              )}
-            </div>
-            <Button variant="secondary" size="sm" onClick={handleClearCache}>
-              清理缓存
-            </Button>
-          </div>
-
+          <button type="button" onClick={() => { setShowDataSettingsModal(false); onOpenBackup(); }} className="w-full rounded-2xl border border-line bg-cream/60 p-4 text-left flex items-center gap-3"><Database size={20} className="text-sage shrink-0" /><span className="min-w-0 flex-1"><span className="block font-bold text-sm">数据备份与恢复</span><span className="block mt-1 text-xs text-ink-muted">导出完整备份，或导入已有记录</span></span><ChevronRight size={16} className="text-ink-muted" /></button>
           {/* 应急恢复点还原 */}
           <div className="p-3 bg-sage-light/40 border border-sage/30 rounded-2xl flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -555,6 +383,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               disabled={isRestoringRecovery || !latestRecovery}
             >
               {isRestoringRecovery ? '还原中...' : '还原该快照'}
+            </Button>
+          </div>
+
+          <details className="rounded-2xl border border-line p-3">
+            <summary className="cursor-pointer text-xs text-ink-muted py-1">更多数据操作</summary>
+            <div className="space-y-3 mt-3">
+          {/* 清理本地缓存 */}
+          <div className="p-3 bg-cream/60 border border-line rounded-2xl flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-bold text-ink-main flex items-center gap-1.5">
+                <Trash2 size={14} className="text-ink-muted" />
+                清理本地临时缓存
+              </div>
+              <div className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                只释放可安全重建的旧缓存，不会删除账号快照、未同步学情、待处理照片与恢复点
+              </div>
+              {hasUnsyncedChanges && (
+                <div className="text-[10px] text-amber-700 mt-1">
+                  当前有 {pendingSyncCount} 项未同步内容，清理将自动保留这些数据
+                </div>
+              )}
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleClearCache}>
+              清理缓存
             </Button>
           </div>
 
@@ -580,6 +432,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               重置题库
             </Button>
           </div>
+            </div>
+          </details>
         </div>
       </Modal>
     </div>

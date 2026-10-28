@@ -80,44 +80,74 @@ try {
   pass('Book/course corrections persist, recompute totals, reject invalid errors, retain draft after storage failure and fit 360/393/412');
 
   await owner.page.getByRole('button',{name:'我的',exact:true}).click();
-  await owner.page.getByRole('button',{name:/邮箱与提醒/}).click();
-  const mail=owner.page.getByRole('dialog',{name:'邮箱与定时提醒'});
+  await owner.page.clock.runFor(3500);
+  for(const [width,height] of [[360,800],[393,873],[412,915]]) {
+    await owner.page.setViewportSize({width,height});await owner.page.clock.runFor(50);
+    for(const label of ['学习提醒','学习伙伴']) {
+      const entry=owner.page.getByRole('button',{name:label,exact:true});await entry.waitFor({state:'visible',timeout:3000});
+      const box=await entry.boundingBox();assert.ok(box&&box.y>=0&&box.y+box.height<height-65,'Primary entry must fit first viewport: '+label);
+    }
+    await owner.page.screenshot({path:path.join(output,'settings-polished-'+width+'.png')});
+  }
+  await owner.page.getByRole('button',{name:'数据管理',exact:true}).click();
+  const dataManager=owner.page.getByRole('dialog',{name:'数据管理'});
+  assert.equal(await dataManager.getByRole('button',{name:'重置题库',exact:true}).isVisible(),false);
+  await dataManager.getByText('更多数据操作',{exact:true}).click();assert.equal(await dataManager.getByRole('button',{name:'重置题库',exact:true}).isVisible(),true);
+  await dataManager.getByRole('button',{name:/数据备份与恢复/}).click();
+  await owner.page.getByRole('dialog',{name:'数据备份与恢复',exact:true}).waitFor();
+  await owner.page.getByRole('dialog',{name:'数据备份与恢复',exact:true}).getByRole('button',{name:'关闭弹窗',exact:true}).click();
+  await owner.page.getByRole('button',{name:'关于与更新',exact:true}).click();await owner.page.getByRole('dialog',{name:'关于与更新'}).getByRole('button',{name:'检查更新',exact:true}).waitFor();await owner.page.getByRole('dialog',{name:'关于与更新'}).getByRole('button',{name:'关闭弹窗',exact:true}).click();
+  pass('Primary features fit the first viewport; backup/update remain reachable and reset stays tucked away');
+  await owner.page.getByRole('button',{name:'学习提醒',exact:true}).click();
+  const mail=owner.page.getByRole('dialog',{name:'学习提醒'});
   await mail.getByLabel('邮箱地址',{exact:true}).fill('recipient@example.test');await mail.getByRole('button',{name:'发送验证码',exact:true}).click();
   await mail.getByLabel('6 位验证码').waitFor();
   const verification=messages.find(message=>message.subject.includes('验证码'))!;assert.ok(verification);
   const code=verification.text.match(/\b\d{6}\b/)![0];await mail.getByLabel('6 位验证码').fill(code);await mail.getByRole('button',{name:'验证并绑定'}).click();
-  await mail.getByRole('button',{name:'新建',exact:true}).click();await mail.getByLabel('提醒标题').fill('晚间错题复盘');await mail.getByLabel('提醒正文').fill('复盘图形推理错题');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:02');await mail.getByRole('button',{name:'保存一次性提醒'}).click();
-  await mail.getByRole('button',{name:'编辑',exact:true}).click();await mail.getByLabel('提醒标题').fill('晚间错题复盘（已改）');await mail.getByRole('button',{name:'保存修改',exact:true}).click();
+  await mail.getByLabel('提醒标题').waitFor();assert.equal(await mail.getByLabel('新邮箱地址',{exact:true}).count(),0);
+  await mail.getByRole('button',{name:'更换邮箱',exact:true}).click();await mail.getByLabel('新邮箱地址',{exact:true}).waitFor();await mail.getByRole('button',{name:'取消更换',exact:true}).click();assert.equal(await mail.getByLabel('新邮箱地址',{exact:true}).count(),0);
+  await mail.getByLabel('提醒标题').fill('晚间错题复盘');await mail.getByLabel('提醒正文').fill('复盘图形推理错题');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:02');
+  for(const width of [360,393,412]) {
+    await owner.page.setViewportSize({width,height:873});await owner.page.clock.runFor(50);
+    const box=await mail.boundingBox(), inputBox=await mail.getByLabel('提醒发送时间').boundingBox();assert.ok(box&&inputBox&&inputBox.x>=box.x&&inputBox.x+inputBox.width<=box.x+box.width);
+    assert.equal(await mail.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await mail.screenshot({path:path.join(output,'reminder-form-'+width+'.png')});
+  }
+  await mail.getByRole('button',{name:'保存提醒'}).click();
+  await mail.getByText(/将在10月28日10点02分提醒你/).waitFor();
+  await mail.getByRole('button',{name:'编辑提醒',exact:true}).click();await mail.getByLabel('提醒标题').fill('晚间错题复盘（已改）');await mail.getByRole('button',{name:'保存修改',exact:true}).click();
   await mail.getByText('晚间错题复盘（已改）',{exact:true}).waitFor();
   clock+=120000;await worker.poll();assert.equal(messages.filter(message=>message.subject.includes('晚间错题复盘')).length,1);await worker.poll();assert.equal(messages.filter(message=>message.subject.includes('晚间错题复盘')).length,1);
   assert.equal((db.prepare("SELECT status FROM email_reminders WHERE user_id='owner'").get() as any).status,'sent');
-  await mail.getByRole('button',{name:'关闭弹窗',exact:true}).click();await owner.page.getByRole('button',{name:/邮箱与提醒/}).click();
-  await mail.getByText('晚间错题复盘（已改）',{exact:true}).waitFor();
+  await mail.getByRole('button',{name:'关闭弹窗',exact:true}).click();await owner.page.getByRole('button',{name:'学习提醒',exact:true}).click();
+  await mail.getByRole('tab',{name:/^历史记录/}).click();await mail.getByText('晚间错题复盘（已改）',{exact:true}).waitFor();
+  await owner.page.clock.runFor(3500);
   for(const width of [360,393,412]){await owner.page.setViewportSize({width,height:915});assert.equal(await mail.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await mail.screenshot({path:path.join(output,'email-reminders-'+width+'.png')});}
-  await mail.getByRole('button',{name:'新建',exact:true}).click();await mail.getByLabel('提醒标题').fill('取消测试');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:03');await mail.getByRole('button',{name:'保存一次性提醒'}).click();await mail.getByRole('button',{name:'取消提醒',exact:true}).click();await mail.getByText('已取消',{exact:true}).waitFor();
+  await mail.getByRole('button',{name:'新建提醒',exact:true}).click();await mail.getByLabel('提醒标题').fill('取消测试');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:03');await mail.getByRole('button',{name:'保存提醒'}).click();await mail.getByRole('button',{name:'取消提醒',exact:true}).click();await mail.getByText('已取消',{exact:true}).waitFor();
   pass('Verified recipient binding, reminder creation/editing and one-shot worker delivery work through real UI with isolated fake SMTP');
   await mail.getByRole('button',{name:'关闭弹窗',exact:true}).click();
 
-  await owner.page.getByRole('button',{name:/学习数据共享/}).click();const sharing=owner.page.getByRole('dialog',{name:'学习数据分享'});
-  await sharing.getByRole('button',{name:'生成一次性分享码'}).click();const sharedCode=await sharing.locator('#generated-study-code').inputValue();assert.ok(sharedCode);
-  await viewer.page.getByRole('button',{name:'我的',exact:true}).click();await viewer.page.getByRole('button',{name:/学习数据共享/}).click();
-  const received=viewer.page.getByRole('dialog');await received.locator('#redeem-study-code').fill(sharedCode!);await received.getByRole('button',{name:'获得只读查看授权'}).click();await received.getByRole('button',{name:'只读查看',exact:true}).click();
-  await received.getByLabel('好友只读学习概览').waitFor();await received.getByText('图形推理700题',{exact:true}).first().waitFor();
+  await owner.page.getByRole('button',{name:'学习伙伴',exact:true}).click();const sharing=owner.page.getByRole('dialog',{name:'学习伙伴'});
+  assert.equal(await sharing.getByRole('tab',{name:'我查看的',exact:true}).getAttribute('aria-selected'),'true');assert.equal(await sharing.getByRole('button',{name:'生成分享码',exact:true}).count(),0);
+  await sharing.getByRole('tab',{name:'谁可以看我',exact:true}).click();await sharing.getByRole('button',{name:'生成分享码',exact:true}).click();const sharedCode=await sharing.locator('#generated-study-code').inputValue();assert.ok(sharedCode);
+  await viewer.page.getByRole('button',{name:'我的',exact:true}).click();await viewer.page.getByRole('button',{name:'学习伙伴',exact:true}).click();
+  const received=viewer.page.getByRole('dialog');assert.equal(await received.locator('#redeem-study-code').count(),0);await received.getByRole('button',{name:'添加学习伙伴',exact:true}).click();await received.getByLabel('朋友的分享码',{exact:true}).fill(sharedCode!);await received.getByRole('button',{name:'确认添加'}).click();await received.getByRole('button',{name:'查看学情',exact:true}).click();
+  await received.getByLabel('伙伴只读学习概览').waitFor();await received.getByText('图形推理700题',{exact:true}).first().waitFor();
   assert.equal(await received.getByRole('button',{name:'修改登记',exact:true}).count(),0);
   const beforeViewer=(db.prepare("SELECT state_json FROM workspaces WHERE user_id='viewer'").get() as any).state_json;
+  await viewer.page.clock.runFor(3500);
   for(const width of [360,393,412]){await viewer.page.setViewportSize({width,height:915});assert.equal(await received.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await received.screenshot({path:path.join(output,'shared-overview-'+width+'.png')});}
   const grant=(db.prepare("SELECT id FROM sharing_grants WHERE owner_id='owner' AND viewer_id='viewer'").get() as any).id;
   assert.equal((await stranger.context.request.get(base+'/api/sharing/grants/'+grant+'/overview')).status(),403);
   let release!:()=>void, captured!:()=>void;
   const responseReady=new Promise<void>(resolve=>{captured=resolve;}), responseRelease=new Promise<void>(resolve=>{release=resolve;});
   await viewer.page.route('**/api/sharing/grants/*/overview?**',async route=>{const response=await route.fetch();captured();await responseRelease;await route.fulfill({response}).catch(()=>{});});
-  await received.getByRole('button',{name:'刷新分享数据'}).click();await responseReady;
+  await received.getByRole('button',{name:'刷新伙伴学情'}).click();await responseReady;
   await received.getByRole('button',{name:'关闭弹窗',exact:true}).click();release();
-  await viewer.page.getByRole('button',{name:/学习数据共享/}).click();await viewer.page.unroute('**/api/sharing/grants/*/overview?**');
-  assert.equal(await viewer.page.getByLabel('好友只读学习概览').count(),0);
-  await received.getByRole('button',{name:'只读查看',exact:true}).click();await received.getByLabel('好友只读学习概览').waitFor();
-  await sharing.getByRole('button',{name:'刷新分享数据'}).click();await sharing.getByRole('button',{name:'撤销授权'}).click();
-  await received.getByRole('button',{name:'刷新分享数据'}).click();await received.getByRole('alert').waitFor();assert.equal(await received.getByLabel('好友只读学习概览').count(),0);
+  await viewer.page.getByRole('button',{name:'学习伙伴',exact:true}).click();await viewer.page.unroute('**/api/sharing/grants/*/overview?**');
+  assert.equal(await viewer.page.getByLabel('伙伴只读学习概览').count(),0);
+  await received.getByRole('button',{name:'查看学情',exact:true}).click();await received.getByLabel('伙伴只读学习概览').waitFor();
+  await sharing.getByRole('button',{name:'刷新学习伙伴'}).click();await sharing.getByRole('button',{name:'撤销授权'}).click();
+  await received.getByRole('button',{name:'刷新伙伴学情'}).click();await received.getByRole('alert').waitFor();assert.equal(await received.getByLabel('伙伴只读学习概览').count(),0);
   assert.equal((db.prepare("SELECT state_json FROM workspaces WHERE user_id='viewer'").get() as any).state_json,beforeViewer);
   pass('Sharing code redemption, late-response cancellation, read-only overview, third-account denial and revocation leave viewer data untouched');
   assert.deepEqual(errors,[]);pass('No browser runtime errors');

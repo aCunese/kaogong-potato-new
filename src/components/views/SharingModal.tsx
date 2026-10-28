@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Copy, Eye, Link2, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronDown, Copy, Eye, Link2, MonitorPlay, Plus, RefreshCw, ShieldCheck, Users, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Button, Modal } from '../common/UIComponents';
 import type { CreatedSharingCode, SharedGrant, SharedStudyOverview, SharedStudyTotals, SharingCodeMetadata, SharingGrantsResponse } from '../../types/sharing';
@@ -22,8 +22,8 @@ export const SharingModal: React.FC<SharingModalProps> = props => {
   const { currentUser, csrfToken } = useApp();
   if (!props.isOpen) return null;
   if (!currentUser || !csrfToken) return (
-    <Modal isOpen onClose={props.onClose} title="学习数据分享">
-      <p className="text-sm text-ink-muted">请登录后使用学习数据分享。</p>
+    <Modal isOpen onClose={props.onClose} title="学习伙伴">
+      <p className="text-sm text-ink-muted">请登录后添加学习伙伴。</p>
     </Modal>
   );
   // Replacing this child erases all fetched data and invalidates pending requests on an account change.
@@ -36,6 +36,9 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
   const [codes, setCodes] = useState<SharingCodeMetadata[]>([]);
   const [createdCode, setCreatedCode] = useState<CreatedSharingCode | null>(null);
   const [redeemCode, setRedeemCode] = useState('');
+  const [tab, setTab] = useState<'received' | 'owned'>('received');
+  const [addingPartner, setAddingPartner] = useState(false);
+  const [codesExpanded, setCodesExpanded] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [listLoading, setListLoading] = useState(true);
@@ -166,7 +169,7 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
       if (!alive.current) return;
       listRequest.current += 1;
       setReceived(previous => [result.grant, ...previous.filter(grant => grant.id !== result.grant.id)]);
-      setRedeemCode(''); setListLoading(false); onToast?.('已获得只读查看授权');
+      setRedeemCode(''); setAddingPartner(false); setListLoading(false); onToast?.('学习伙伴已添加');
     });
   }
 
@@ -191,25 +194,31 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
     setError(''); void loadList(); if (selectedId) setRefresh(value => value + 1);
   }
 
+  const selectedNickname = overview?.ownerNickname || received.find(grant => grant.id === selectedId)?.nickname;
+
   return (
-    <Modal isOpen onClose={onClose} title={selectedId ? '好友学习数据 · 只读' : '学习数据分享'}>
-      <div className="space-y-5">
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-xs leading-5 text-ink-muted">{selectedId ? '展示分享者最近同步到云端的学习数据。' : '将一次性分享码交给已登录的朋友，即可持续查看你的学习统计。你可以随时撤销授权。'}</p>
-          <Button size="sm" variant="ghost" onClick={refreshData} disabled={listLoading || viewLoading || busy} aria-label="刷新分享数据"><RefreshCw size={14} />刷新</Button>
-        </div>
+    <div className="[&_h3]:min-w-0 [&_h3]:flex-1 [&_h3]:break-words [&_h3]:pr-2">
+    <Modal isOpen onClose={onClose} title={selectedId ? selectedNickname ? `${selectedNickname}的学情` : '伙伴学情' : '学习伙伴'}>
+      <div className="min-w-0 space-y-5">
         {error && <p role="alert" className="rounded-xl bg-alarm-light p-3 text-xs leading-5 text-alarm">{error}</p>}
         {selectedId ? (
           <>
-            <Button size="sm" variant="secondary" onClick={() => { setSelectedId(null); setOverview(null); setError(''); }}><ArrowLeft size={14} />返回分享管理</Button>
+            <div className="flex items-center justify-between gap-2">
+              <Button size="sm" variant="ghost" className="-ml-2 px-2" onClick={() => { setSelectedId(null); setOverview(null); setTab('received'); setError(''); }}><ArrowLeft size={14} />返回伙伴列表</Button>
+              <Button size="sm" variant="ghost" className="shrink-0" onClick={refreshData} disabled={listLoading || viewLoading || busy} aria-label="刷新伙伴学情"><RefreshCw size={14} />刷新</Button>
+            </div>
+            <div className="flex items-start gap-2 rounded-xl bg-sage-light/50 px-3 py-2.5">
+              <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md bg-paper px-1.5 py-0.5 text-[10px] font-bold text-sage-dark"><Eye size={11} />只读</span>
+              <p className="min-w-0 text-[11px] leading-5 text-ink-muted">云端最近同步：{overview ? formatTime(overview.updatedAt) : viewLoading ? '正在读取…' : '暂时无法读取'}</p>
+            </div>
             <form className="space-y-2" onSubmit={event => {
               event.preventDefault();
               if (fromInput && toInput && fromInput > toInput) { setError('开始日期不能晚于结束日期'); return; }
               setPage(1); setRange({ from: fromInput, to: toInput }); setRefresh(value => value + 1);
             }}>
               <div className="grid grid-cols-2 gap-2">
-                <label className="min-w-0 text-xs text-ink-muted">开始日期<input type="date" aria-label="分享统计开始日期" className={`${inputClass} mt-1`} value={fromInput} onChange={event => setFromInput(event.target.value)} /></label>
-                <label className="min-w-0 text-xs text-ink-muted">结束日期<input type="date" aria-label="分享统计结束日期" className={`${inputClass} mt-1`} value={toInput} onChange={event => setToInput(event.target.value)} /></label>
+                <label className="min-w-0 text-xs text-ink-muted">开始日期<input type="date" aria-label="分享统计开始日期" className={`${inputClass} mt-1 max-w-full appearance-none`} value={fromInput} onChange={event => setFromInput(event.target.value)} /></label>
+                <label className="min-w-0 text-xs text-ink-muted">结束日期<input type="date" aria-label="分享统计结束日期" className={`${inputClass} mt-1 max-w-full appearance-none`} value={toInput} onChange={event => setToInput(event.target.value)} /></label>
               </div>
               <Button type="submit" size="sm" fullWidth disabled={viewLoading}>查询日期范围</Button>
             </form>
@@ -218,53 +227,64 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
           </>
         ) : (
           <>
-            <section className="space-y-3 rounded-2xl border border-sage/30 bg-sage-light/30 p-4" aria-label="分享我的学习数据">
-              <h4 className="flex items-center gap-2 text-sm font-bold text-ink-main"><Link2 size={16} />分享我的学习数据</h4>
-              <p className="text-xs leading-5 text-ink-muted">仅分享学习统计、题库与课程进度、每日学习记录。头像、账号、错题照片、笔记和未来日程不会展示。</p>
-              <Button variant="primary" size="sm" onClick={generate} disabled={busy}>生成一次性分享码</Button>
-              {createdCode && (
-                <div className="space-y-2 rounded-xl border border-line bg-paper p-3">
-                  <label className="block text-xs font-bold text-ink-main" htmlFor="generated-study-code">本次分享码（仅本次展示）</label>
-                  <input id="generated-study-code" className={`${inputClass} font-mono text-xs`} readOnly value={createdCode.value} onFocus={event => event.target.select()} />
-                  <p className="text-[11px] text-ink-muted">有效至 {formatTime(createdCode.expiresAt)}，使用一次后失效。</p>
-                  <Button size="sm" onClick={() => void copyCode()}><Copy size={13} />复制分享码</Button>
+            <div role="tablist" aria-label="学习伙伴授权方向" className="grid grid-cols-2 gap-1 rounded-xl bg-cream p-1">
+              {([['received', '我查看的'], ['owned', '谁可以看我']] as const).map(([value, label]) => <button key={value} type="button" role="tab" id={`learning-partners-${value}-tab`} aria-controls={`learning-partners-${value}-panel`} aria-selected={tab === value} disabled={busy} onClick={() => { setTab(value); setError(''); }} className={`rounded-lg px-2 py-2.5 text-sm font-bold transition-colors ${tab === value ? 'bg-paper text-sage-dark shadow-sm' : 'text-ink-muted hover:text-ink-main'} disabled:opacity-50`}>{label}</button>)}
+            </div>
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-xs leading-5 text-ink-muted">{tab === 'received' ? '输入朋友的分享码，查看对方学习进度' : '生成分享码后，收到码的朋友可查看你的学习数据'}</p>
+              <Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={refreshData} disabled={listLoading || busy} aria-label="刷新学习伙伴"><RefreshCw size={14} />刷新</Button>
+            </div>
+            {tab === 'received' ? (
+              <section id="learning-partners-received-panel" role="tabpanel" aria-labelledby="learning-partners-received-tab" className="space-y-5">
+                {addingPartner ? (
+                  <form className="space-y-3 rounded-2xl border border-sage/25 bg-sage-light/25 p-4" onSubmit={redeem}>
+                    <h4 className="text-sm font-bold text-ink-main">添加学习伙伴</h4>
+                    <label htmlFor="redeem-study-code" className="block text-xs text-ink-muted">朋友的分享码</label>
+                    <input id="redeem-study-code" className={`${inputClass} bg-paper`} value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="粘贴一次性分享码" maxLength={128} autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={busy} autoFocus />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" size="sm" disabled={busy} onClick={() => { setAddingPartner(false); setRedeemCode(''); setError(''); }}>取消添加</Button>
+                      <Button type="submit" variant="primary" size="sm" disabled={busy || !redeemCode.trim()}>{busy ? '添加中…' : '确认添加'}</Button>
+                    </div>
+                  </form>
+                ) : <Button variant="primary" fullWidth onClick={() => { setAddingPartner(true); setError(''); }} disabled={busy}><Plus size={16} />添加学习伙伴</Button>}
+                <div aria-label="可查看的学习伙伴" className="space-y-3">
+                  <h4 className="text-sm font-bold text-ink-main">伙伴列表<span className="ml-2 text-xs font-normal text-ink-muted">{listLoading ? '' : `${received.length} 位`}</span></h4>
+                  {listLoading ? <p role="status" className="py-5 text-center text-xs text-ink-muted">正在读取伙伴列表…</p> : received.length === 0 ? <div className="py-6 text-center"><span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-potato-light text-potato-dark"><Users size={23} /></span><p className="text-sm font-medium text-ink-main">还没有学习伙伴</p><p className="mt-1.5 text-xs leading-5 text-ink-muted">收到朋友的分享码后，即可添加并查看学情。</p></div> : <ul className="divide-y divide-line">{received.map(grant => <li key={grant.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0"><p className="break-words text-sm font-bold text-ink-main">{grant.nickname}</p><p className="mt-1 text-[11px] text-ink-muted">已授权 · 只读</p></div>
+                    <Button size="sm" variant="light" className="shrink-0" disabled={busy} onClick={() => { setPage(1); setRange({ from: '', to: '' }); setFromInput(''); setToInput(''); setSelectedId(grant.id); }}><Eye size={13} />查看学情</Button>
+                  </li>)}</ul>}
                 </div>
-              )}
-              {codes.length > 0 && <ul className="space-y-2">{codes.map(code => (
-                <li key={code.id} className="flex items-center justify-between gap-2 text-xs text-ink-muted">
-                  <span>待使用 · {new Date(code.expiresAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 到期</span>
-                  <Button size="sm" variant="ghost" onClick={() => cancelCode(code.id)} disabled={busy} aria-label="取消待使用分享码"><X size={13} />取消</Button>
-                </li>
-              ))}</ul>}
-            </section>
-            <form className="space-y-2" onSubmit={redeem}>
-              <label htmlFor="redeem-study-code" className="block text-sm font-bold text-ink-main">输入朋友的分享码</label>
-              <input id="redeem-study-code" className={inputClass} value={redeemCode} onChange={event => setRedeemCode(event.target.value)} placeholder="粘贴一次性分享码" maxLength={128} autoComplete="off" autoCapitalize="none" spellCheck={false} disabled={busy} />
-              <Button type="submit" size="sm" fullWidth disabled={busy || !redeemCode.trim()}><Eye size={14} />获得只读查看授权</Button>
-            </form>
-            <section className="space-y-2" aria-label="已授权查看者">
-              <h4 className="flex items-center gap-2 text-sm font-bold text-ink-main"><ShieldCheck size={16} />谁可以查看我</h4>
-              {listLoading ? <p role="status" className="text-xs text-ink-muted">正在读取授权…</p> : owned.length === 0 ? <p className="text-xs text-ink-muted">尚未授权任何朋友。</p> : <ul className="divide-y divide-line">{owned.map(grant => (
-                <li key={grant.id} className="flex items-center justify-between gap-3 py-2">
-                  <div className="min-w-0"><p className="break-words text-sm text-ink-main">{grant.nickname}</p><p className="text-[10px] text-ink-muted">授权于 {formatTime(grant.createdAt)}</p></div>
-                  <Button size="sm" variant="danger" disabled={busy} onClick={() => revoke(grant.id)}>撤销授权</Button>
-                </li>
-              ))}</ul>}
-            </section>
-            <section className="space-y-2" aria-label="可查看的朋友">
-              <h4 className="text-sm font-bold text-ink-main">朋友分享给我</h4>
-              {!listLoading && received.length === 0 && <p className="text-xs text-ink-muted">输入朋友的分享码后，会显示在这里。</p>}
-              <ul className="divide-y divide-line">{received.map(grant => (
-                <li key={grant.id} className="flex items-center justify-between gap-3 py-2">
-                  <span className="min-w-0 break-words text-sm text-ink-main">{grant.nickname}</span>
-                  <Button size="sm" variant="light" disabled={busy} onClick={() => { setPage(1); setRange({ from: '', to: '' }); setFromInput(''); setToInput(''); setSelectedId(grant.id); }}><Eye size={13} />只读查看</Button>
-                </li>
-              ))}</ul>
-            </section>
+              </section>
+            ) : (
+              <section id="learning-partners-owned-panel" role="tabpanel" aria-labelledby="learning-partners-owned-tab" className="space-y-5">
+                <div className="space-y-3">
+                  <Button variant="primary" fullWidth onClick={generate} disabled={busy}><Link2 size={16} />生成分享码</Button>
+                  {createdCode && <div className="space-y-2.5 rounded-2xl border border-potato/40 bg-potato-light p-4">
+                    <label className="block text-xs font-bold text-ink-main" htmlFor="generated-study-code">本次分享码</label>
+                    <input id="generated-study-code" className={`${inputClass} bg-paper font-mono text-xs`} readOnly value={createdCode.value} onFocus={event => event.target.select()} />
+                    <p className="text-[11px] leading-5 text-ink-muted">10 分钟内可用一次，截止 {formatTime(createdCode.expiresAt)}。关闭后不再展示完整码。</p>
+                    <Button size="sm" variant="secondary" onClick={() => void copyCode()}><Copy size={13} />复制分享码</Button>
+                  </div>}
+                  {codes.length > 0 && <div className="border-b border-line pb-2">
+                    <button type="button" aria-expanded={codesExpanded} aria-controls="pending-study-codes" onClick={() => setCodesExpanded(value => !value)} className="flex w-full items-center justify-between gap-2 py-2 text-xs text-ink-muted"><span>待使用分享码 · {codes.length} 个</span><ChevronDown size={14} className={`shrink-0 transition-transform ${codesExpanded ? 'rotate-180' : ''}`} /></button>
+                    {codesExpanded && <ul id="pending-study-codes" className="space-y-1">{codes.map(code => <li key={code.id} className="flex items-center justify-between gap-2 py-1 text-xs text-ink-muted"><span className="min-w-0">{formatTime(code.expiresAt)} 到期</span><Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={() => cancelCode(code.id)} disabled={busy} aria-label="取消待使用分享码"><X size={13} />取消</Button></li>)}</ul>}
+                  </div>}
+                </div>
+                <div className="space-y-3" aria-label="已授权查看者">
+                  <h4 className="flex items-center gap-2 text-sm font-bold text-ink-main"><ShieldCheck size={16} className="text-sage" />已授权查看者</h4>
+                  {listLoading ? <p role="status" className="text-xs text-ink-muted">正在读取授权…</p> : owned.length === 0 ? <p className="rounded-xl bg-cream/70 px-3 py-4 text-xs leading-5 text-ink-muted">还没有朋友可以查看你的学习数据。</p> : <ul className="divide-y divide-line">{owned.map(grant => <li key={grant.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0"><p className="break-words text-sm font-bold text-ink-main">{grant.nickname}</p><p className="mt-1 text-[11px] text-ink-muted">可只读查看我的学习数据</p></div>
+                    <Button size="sm" variant="danger" className="shrink-0" disabled={busy} onClick={() => revoke(grant.id)}>撤销授权</Button>
+                  </li>)}</ul>}
+                  <p className="text-[11px] leading-5 text-ink-muted">仅展示学习统计、资料进度和学习记录，可随时撤销授权。</p>
+                </div>
+              </section>
+            )}
           </>
         )}
       </div>
     </Modal>
+    </div>
   );
 }
 
@@ -274,25 +294,36 @@ function Totals({ totals }: { totals: SharedStudyTotals }) {
     ['错题数', formatNumber(totals.errors)], ['正确率', totals.accuracy === null ? '暂无题量' : `${formatNumber(totals.accuracy)}%`],
     ['完成节数', formatNumber(totals.lessons)],
   ];
-  return <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">{values.map(([label, value]) => <div key={label} className="rounded-xl bg-cream p-3"><dt className="text-[11px] text-ink-muted">{label}</dt><dd className="mt-1 font-mono text-base font-bold text-ink-main">{value}</dd></div>)}</dl>;
+  return <dl className="grid grid-cols-2 gap-x-3 gap-y-4 rounded-2xl bg-sage-light/40 p-4 sm:grid-cols-3">{values.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-[11px] text-ink-muted">{label}</dt><dd className="mt-1 break-words font-mono text-lg font-bold text-ink-main">{value}</dd></div>)}</dl>;
 }
 
 function SharedOverview({ overview, onPage }: { overview: SharedStudyOverview; onPage: (page: number) => void }) {
   const pageCount = Math.max(1, Math.ceil(overview.records.total / overview.records.pageSize));
-  return <div className="space-y-5" aria-label="好友只读学习概览">
-    <div><h4 className="break-words font-bold text-ink-main">{overview.ownerNickname}的学习概览</h4><p className="mt-1 text-[11px] leading-5 text-ink-muted">上次云端同步：{formatTime(overview.updatedAt)}</p></div>
-    <section className="space-y-2"><h5 className="text-xs font-bold text-ink-main">所选日期统计 · {overview.range.from || '最早'} 至 {overview.range.to || '至今'}</h5><Totals totals={overview.selectedTotals} /></section>
-    <section className="space-y-2"><h5 className="text-xs font-bold text-ink-main">全部学习记录累计</h5><Totals totals={overview.allTimeTotals} /></section>
-    {(['books', 'courses'] as const).map(type => <section key={type} className="space-y-2">
-      <h5 className="text-sm font-bold text-ink-main">{type === 'books' ? '题库累计进度' : '课程累计进度'}</h5>
-      <p className="text-[11px] text-ink-muted">累计资料进度不随日期筛选变化。</p>
-      {overview[type].length === 0 ? <p className="text-xs text-ink-muted">暂无{type === 'books' ? '题库' : '课程'}。</p> : <ul className="space-y-3">{overview[type].map((source, index) => <li key={`${type}-${index}`} className="rounded-xl border border-line p-3">
+  const hasRange = Boolean(overview.range.from || overview.range.to);
+  const totalsDiffer = (['minutes', 'questions', 'errors', 'accuracy', 'lessons'] as const).some(key => overview.selectedTotals[key] !== overview.allTimeTotals[key]);
+  return <div className="space-y-5" aria-label="伙伴只读学习概览">
+    <section className="space-y-2.5">
+      <h4 className="text-sm font-bold text-ink-main">{hasRange ? '所选日期统计' : '学习统计'}</h4>
+      <p className="text-[11px] text-ink-muted">{hasRange ? `${overview.range.from || '最早'} 至 ${overview.range.to || '至今'}` : '全部学习记录'}</p>
+      <Totals totals={overview.selectedTotals} />
+      {hasRange && !totalsDiffer && <p className="text-[11px] leading-5 text-ink-muted">本次范围与全部学习记录的累计统计一致。</p>}
+    </section>
+    {hasRange && totalsDiffer && <section className="space-y-1.5 rounded-xl bg-cream/70 px-3 py-2.5">
+      <h5 className="text-xs font-bold text-ink-main">累计学习统计 · 全部记录</h5>
+      <p className="text-[11px] leading-6 text-ink-muted">{formatNumber(overview.allTimeTotals.minutes)} 分钟 · {formatNumber(overview.allTimeTotals.questions)} 题 · 错 {formatNumber(overview.allTimeTotals.errors)} 题 · {overview.allTimeTotals.accuracy === null ? '暂无正确率' : `正确率 ${formatNumber(overview.allTimeTotals.accuracy)}%`} · {formatNumber(overview.allTimeTotals.lessons)} 节</p>
+    </section>}
+    <section className="space-y-4 border-t border-line pt-4" aria-label="累计资料进度">
+      <div><h4 className="text-sm font-bold text-ink-main">累计资料进度</h4><p className="mt-1 text-[11px] leading-5 text-ink-muted">题本与网课的累计进度，不随日期范围变化。</p></div>
+      {(['books', 'courses'] as const).map(type => <section key={type} className="space-y-2">
+      <h5 className="flex items-center gap-1.5 text-xs font-bold text-ink-main">{type === 'books' ? <BookOpen size={14} className="text-sage" /> : <MonitorPlay size={14} className="text-course-text" />}{type === 'books' ? '题本' : '网课'}<span className="font-normal text-ink-muted">{overview[type].length}</span></h5>
+      {overview[type].length === 0 ? <p className="py-1 text-xs text-ink-muted">暂无{type === 'books' ? '题本' : '网课'}。</p> : <ul className="divide-y divide-line">{overview[type].map((source, index) => <li key={`${type}-${index}`} className="py-3 first:pt-1">
         <div className="flex items-start justify-between gap-2 text-xs"><span className="min-w-0 break-words font-bold text-ink-main">{source.name}</span><span className="shrink-0 text-ink-muted">{source.subject}</span></div>
-        <div role="progressbar" aria-label={`${source.name}累计进度`} aria-valuemin={0} aria-valuemax={source.total || 1} aria-valuenow={Math.min(source.done, source.total || 1)} className="my-2 h-1.5 overflow-hidden rounded-full bg-cream"><div className="h-full rounded-full bg-sage" style={{ width: `${source.total ? Math.min(100, source.done / source.total * 100) : 0}%` }} /></div>
+        <div role="progressbar" aria-label={`${source.name}累计进度`} aria-valuemin={0} aria-valuemax={source.total || 1} aria-valuenow={Math.min(source.done, source.total || 1)} className="my-2 h-1.5 overflow-hidden rounded-full bg-cream"><div className={`h-full rounded-full ${type === 'books' ? 'bg-sage' : 'bg-course-text'}`} style={{ width: `${source.total ? Math.min(100, source.done / source.total * 100) : 0}%` }} /></div>
         <p className="text-[11px] leading-5 text-ink-muted">{formatNumber(source.done)} / {formatNumber(source.total)} {type === 'books' ? '题' : '节'} · {formatNumber(source.minutes)} 分钟{type === 'books' ? ` · 错 ${formatNumber(source.errors)} 题` : ''}</p>
       </li>)}</ul>}
-    </section>)}
-    <section className="space-y-3">
+      </section>)}
+    </section>
+    <section className="space-y-3 border-t border-line pt-4">
       <h5 className="text-sm font-bold text-ink-main">每日学习记录 · 共 {overview.records.total} 条</h5>
       {overview.records.items.length === 0 ? <p className="text-xs text-ink-muted">所选日期暂无学习记录。</p> : <ul className="divide-y divide-line">{overview.records.items.map((record, index) => <li key={`${record.date}-${index}`} className="space-y-1 py-2.5">
         <p className="text-[11px] text-ink-muted">{record.date} · {record.type === 'book' ? '刷题' : record.type === 'course' ? '网课' : '自定义学习'} · {record.subject}</p>
