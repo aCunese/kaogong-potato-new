@@ -13,6 +13,12 @@ dist
 dist-ssr
 *.local
 
+# Local environment credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
 # Editor & OS files
 .vscode/*
 !.vscode/extensions.json
@@ -42,3 +48,4 @@ android/build/
 
 # Local tool scratch
 .playwright-mcp/
+.serena/
