@@ -1,6 +1,6 @@
 {
-  "version": "1.0.8",
-  "build": "20261028.03",
+  "version": "1.0.9",
+  "build": "20261028.04",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-28T05:54:36Z",
-  "summary": "番茄钟改为开始前选择学习类别并自动登记（专注与休息同源统计）；首页倒数日支持自定义名称与日期（最多6个，可增删改、已结束态）"
+  "deployedAt": "2026-10-28T06:28:33Z",
+  "summary": "倒数日改为上下纵向排列（最多6个，可增删改、已结束态）；番茄钟开始前选类别并自动登记（同 1.0.8）"
 }
