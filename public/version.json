@@ -1,6 +1,6 @@
 {
-  "version": "1.0.7",
-  "build": "20261028.02",
+  "version": "1.0.8",
+  "build": "20261028.03",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-28T03:56:06Z",
-  "summary": "自定义日程支持直接填写事项名称与八科＋其他科目；分析页新增自定义学习用时分布、图例固定颜色与月度其他科目统计，统一计时与总时长口径"
+  "deployedAt": "2026-10-28T05:54:36Z",
+  "summary": "番茄钟改为开始前选择学习类别并自动登记（专注与休息同源统计）；首页倒数日支持自定义名称与日期（最多6个，可增删改、已结束态）"
 }
