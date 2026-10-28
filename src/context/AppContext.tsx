@@ -1,3 +1,5 @@
+import { applyCreateSession, applySessionAction, applySessionConfig, applyRegisterSession, maintainSessionTimers } from '../utils/timerSessions';
+import type { TimerSession, SessionRegistration } from '../types';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
   AppState,
@@ -69,7 +71,7 @@ import { mergeSeedIntoState } from '../utils/seedMerge';
 import { buildGuestMigration, executeGuestMigration, GuestMigrationPreview } from '../utils/guestMigration';
 import {
   applyStartTimer,
-  applyAddTodo,
+  applyAddTodayTodo,
   applyToggleTodo,
   applyDeleteTodo,
   applyConfigureTimer,
@@ -131,11 +133,16 @@ export interface AppContextType {
   pauseTimer: (planId: string) => Promise<MutationResult<void>>;
   deletePlan: (planId: string) => Promise<MutationResult<void>>;
 
-  addTodo: (text: string, date: string) => Promise<MutationResult<TodoItem>>;
+  addTodo: (text: string) => Promise<MutationResult<TodoItem>>;
   toggleTodo: (id: string) => Promise<MutationResult<void>>;
   deleteTodo: (id: string) => Promise<MutationResult<void>>;
   configureTimer: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
   switchTimerPhase: (id: string, phase: 'focus' | 'rest') => Promise<MutationResult<void>>;
+
+  beginTimerSession: (config: TimerConfig, phase: 'focus' | 'rest') => Promise<MutationResult<TimerSession>>;
+  sessionAction: (id: string, action: 'focus' | 'rest' | 'pause' | 'finish') => Promise<MutationResult<void>>;
+  configureSession: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
+  registerSession: (id: string, input: SessionRegistration) => Promise<MutationResult<string>>;
 
   // Unified Atomic Completion
   completePlan: (input: CompletionInput) => Promise<MutationResult<{ recordId: string; record: StudyRecord }>>;
@@ -224,10 +231,12 @@ export const AppContext = createContext<AppContextType | null>(null);
 
 function createPreviewState(): AppState {
   const demo = structuredClone(DEMO_STATE);
+  const sampleDay = demo.plans.map(p => p.date).sort().at(-1);
+  demo.plans = demo.plans.map(p => p.date === sampleDay && !p.done ? { ...p, date: getLocalDateString() } : p);
   const course = demo.library.find(item => item.type === 'course');
   if (course && !demo.plans.some(plan => plan.type === 'course' && !plan.done)) {
     demo.plans.push({
-      id: 'preview-course-plan', date: '2026-10-25', libraryId: course.id,
+      id: 'preview-course-plan', date: getLocalDateString(), libraryId: course.id,
       name: course.name, type: course.type, sourceId: course.sourceId, subject: course.subject,
       plannedMinutes: course.defaultMinutes, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: 0,
     });
@@ -277,7 +286,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   // Local Date Management: Initialize with getLocalDateString()
-  const [activeDate, setActiveDate] = useState<string>(() => preview ? '2026-10-25' : getLocalDateString());
+  const [activeDate, setActiveDate] = useState<string>(() => getLocalDateString());
 
   const clearStorageError = useCallback(() => {
     setStorageError(null);
@@ -889,8 +898,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   }, []);
 
   const isAnyTimerRunning = useCallback((): boolean => {
-    return state.plans.some(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0));
-  }, [state.plans]);
+    return state.plans.some(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0)) || Boolean(state.timerSessions?.some(s => s.status === 'running'));
+  }, [state.plans, state.timerSessions]);
 
   const updateGuard = useCallback((): { ok: boolean; reason?: string } => {
     if (updateBlockersRef.current.size > 0) {
@@ -959,13 +968,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   }, [isLoading, storageError, preview]);
 
   useEffect(() => {
-    if (preview) return;
     const checkMidnightRollover = () => {
       const today = getLocalDateString();
       setActiveDate(prev => (prev !== today ? today : prev));
     };
 
     const maybeSync = () => {
+      if (preview) return;
       const now = Date.now();
       if (now - lastFocusSyncAtRef.current < 10000) return;
       lastFocusSyncAtRef.current = now;
@@ -987,6 +996,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
     const handleOnline = async () => {
       checkMidnightRollover();
+      if (preview) return;
       // R05: reconnect must first restore session + CSRF, then auto-flush.
       if (currentUserRef.current) {
         const refreshed = await refreshSession();
@@ -1069,7 +1079,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         const previousFormat = draft.version;
         const res = await mutator(draft);
         if ('nextState' in res) {
-          if (previousFormat === 4) res.nextState.version = 4;
+          res.nextState.version = Math.max(previousFormat, res.nextState.version) as AppState['version'];
           appliedNextState = res.nextState;
         }
         return res;
@@ -1148,11 +1158,36 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     [activeDate, executeMutation]
   );
 
-  const addTodo = useCallback((text: string, date: string) => executeMutation(draft => applyAddTodo(draft, text, date), 'add_todo'), [executeMutation]);
+  const addTodo = useCallback((text: string) => executeMutation(draft => applyAddTodayTodo(draft, text), 'add_todo'), [executeMutation]);
   const toggleTodo = useCallback((id: string) => executeMutation(draft => applyToggleTodo(draft, id), 'toggle_todo'), [executeMutation]);
   const deleteTodo = useCallback((id: string) => executeMutation(draft => applyDeleteTodo(draft, id), 'delete_todo'), [executeMutation]);
   const configureTimer = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applyConfigureTimer(draft, id, config), 'configure_timer'), [executeMutation]);
   const switchTimerPhase = useCallback((id: string, phase: 'focus' | 'rest') => executeMutation(draft => applySwitchTimerPhase(draft, id, phase), 'timer_phase'), [executeMutation]);
+
+  const beginTimerSession = useCallback((config: TimerConfig, phase: 'focus' | 'rest') => executeMutation(draft => {
+    const created = applyCreateSession(draft, config);
+    if ('error' in created) return created;
+    const changed = applySessionAction(draft, created.value.id, phase);
+    return 'error' in changed ? changed : { nextState: draft, value: created.value };
+  }, 'begin_session'), [executeMutation]);
+  const sessionAction = useCallback((id: string, action: 'focus' | 'rest' | 'pause' | 'finish') => executeMutation(draft => applySessionAction(draft, id, action), 'session_action'), [executeMutation]);
+  const configureSession = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applySessionConfig(draft, id, config), 'configure_session'), [executeMutation]);
+  const registerSession = useCallback((id: string, input: SessionRegistration) => executeMutation(draft => applyRegisterSession(draft, id, input), 'register_session'), [executeMutation]);
+  useEffect(() => {
+    if (isLoading || !readyRef.current || (!preview && authPhase !== 'authenticated')) return;
+    let busy = false;
+    const maintain = async () => {
+      if (busy || !state.timerSessions?.some(s => s.status === 'running' && s.phase === 'rest' && Date.now() >= s.runningSince + Math.max(0, s.restMinutes * 60000 - s.phaseMs))) return;
+      busy = true;
+      try { await executeMutation(draft => { maintainSessionTimers(draft); return { nextState: draft, value: undefined }; }, 'session_maintenance'); }
+      finally { busy = false; }
+    };
+    void maintain();
+    const interval = setInterval(() => void maintain(), 1000);
+    const foreground = () => { if (document.visibilityState === 'visible') void maintain(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', foreground); };
+  }, [state.timerSessions, isLoading, preview, authPhase, executeMutation]);
 
   // Reconcile absolute deadlines on boot, foreground, and while the page is open.
   useEffect(() => {
@@ -2282,6 +2317,10 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         toggleTodo,
         deleteTodo,
         configureTimer,
+        beginTimerSession,
+        sessionAction,
+        configureSession,
+        registerSession,
         switchTimerPhase,
         startTimer,
         pauseTimer,

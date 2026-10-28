@@ -1,3 +1,5 @@
+import { SubjectGroups } from '../common/SubjectGroups';
+import type { Subject } from '../../types';
 import { TodoView } from './TodoView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -13,6 +15,7 @@ interface LearningViewProps {
   onOpenCustomAdd: () => void;
   onOpenDeleteConfirm: (type: 'book' | 'course' | 'custom', id: string, name: string) => void;
   onToast: (msg: string) => void;
+  onAddCourseToToday?: (libraryId: string) => void;
 }
 
 export const LearningView: React.FC<LearningViewProps> = ({
@@ -22,9 +25,12 @@ export const LearningView: React.FC<LearningViewProps> = ({
   onOpenCustomAdd,
   onOpenDeleteConfirm,
   onToast,
+  onAddCourseToToday,
 }) => {
   const { state, updateLibraryMinutes, quickAddPlan } = useApp();
   const [errorMsg, setErrorMsg] = useState('');
+  const [bookGroups, setBookGroups] = useState<Partial<Record<Subject, boolean>>>({});
+  const [courseGroups, setCourseGroups] = useState<Partial<Record<Subject, boolean>>>({});
   const [pendingAddId, setPendingAddId] = useState('');
   const updateMinutes = async (id: string, minutes: number) => {
     setErrorMsg('');
@@ -83,11 +89,10 @@ export const LearningView: React.FC<LearningViewProps> = ({
             </Button>
           </div>
 
-          <div className="space-y-3">
-            {state.books.map(b => {
+          <SubjectGroups items={state.books} unit="本题本" expanded={bookGroups} onToggle={subject => setBookGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,b) => n+b.done,0), total: items.reduce((n,b) => n+b.total,0), unit: '题' })} renderItem={b => {
               const pct = b.total > 0 ? Math.min(100, Math.round((b.done / b.total) * 100)) : 0;
               const accuracy = b.done > 0 ? Math.max(0, Math.round(((b.done - b.errors) / b.done) * 100)) : 0;
-              const avgMin = b.done > 0 ? (b.minutes / b.done).toFixed(1) : '0.0';
+
 
               return (
                 <Card key={b.id} className="p-4 bg-paper border-line">
@@ -136,21 +141,12 @@ export const LearningView: React.FC<LearningViewProps> = ({
                       <div className="text-[10px] text-ink-muted">错题数</div>
                       <div className="font-bold text-alarm font-mono mt-0.5">{b.errors} 题</div>
                     </div>
-                    <div>
-                      <div className="text-[10px] text-ink-muted">正确率</div>
-                      <div className="font-bold text-ink-main font-mono mt-0.5">
-                        {b.done > 0 ? `${accuracy}%` : '暂无'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-ink-muted">均速</div>
-                      <div className="font-bold text-ink-main font-mono mt-0.5">{avgMin} 分/题</div>
-                    </div>
+                    <div><div className="text-[10px] text-ink-muted">正确题数</div><div className="font-bold text-sage font-mono mt-0.5">{Math.max(0, b.done - b.errors)} 题</div></div>
+                    <div><div className="text-[10px] text-ink-muted">正确率</div><div className="font-bold text-ink-main font-mono mt-0.5">{b.done > 0 ? `${accuracy}%` : '暂无'}</div></div>
                   </div>
                 </Card>
               );
-            })}
-          </div>
+            }} />
         </div>
       )}
 
@@ -167,8 +163,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
             </Button>
           </div>
 
-          <div className="space-y-3">
-            {state.courses.map(c => {
+          <SubjectGroups items={state.courses} unit="门网课" expanded={courseGroups} onToggle={subject => setCourseGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,c) => n+c.completedLessons,0), total: items.reduce((n,c) => n+c.totalLessons,0), unit: '节' })} renderItem={c => {
               const pct = c.totalLessons > 0 ? Math.min(100, Math.round((c.completedLessons / c.totalLessons) * 100)) : 0;
               const hasUrl = Boolean(c.url && /^https?:\/\//i.test(c.url));
 
@@ -204,7 +199,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
                   {/* 进度 */}
                   <div className="space-y-1 mb-3">
                     <div className="flex justify-between text-xs text-ink-muted">
-                      <span>已听课时 {c.completedLessons} / {c.totalLessons} 讲</span>
+                      <span>已完成 {c.completedLessons} / {c.totalLessons} 节</span>
                       <span className="font-mono font-bold text-sage">{pct}%</span>
                     </div>
                     <ProgressBar value={pct} />
@@ -229,10 +224,10 @@ export const LearningView: React.FC<LearningViewProps> = ({
                       <span className="text-[11px] text-ink-muted/70">待添加课程链接</span>
                     )}
                   </div>
+                  {onAddCourseToToday && <Button variant="light" size="sm" fullWidth className="mt-3" disabled={c.completedLessons >= c.totalLessons} onClick={() => onAddCourseToToday(`lib-course-${c.id}`)}>加入今日</Button>}
                 </Card>
               );
-            })}
-          </div>
+            }} />
         </div>
       )}
 

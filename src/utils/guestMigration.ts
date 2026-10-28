@@ -1,3 +1,4 @@
+import { sessionSegments } from './timerSessions';
 import {
   AppState,
   Book,
@@ -185,6 +186,13 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     }
   }
 
+  const sessionIds = new Set((merged.timerSessions ?? []).map(s => s.id));
+  const sessionIdMap = new Map<string, string>();
+  for (const session of guest.timerSessions ?? []) {
+    const id = sessionIds.has(session.id) ? uniqueId('gs', sessionIds) : session.id;
+    sessionIds.add(id); sessionIdMap.set(session.id, id);
+  }
+
   // 4. Plans — remap libraryId/sourceId; skip only when the source was invalid.
   const planIds = new Set(merged.plans.map(p => p.id));
   const planIdMap = new Map<string, string>();
@@ -192,7 +200,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
 
   for (const guestPlan of guest.plans ?? []) {
     const mappedLibraryId = libraryIdMap.get(guestPlan.libraryId) || guestPlan.libraryId;
-    const libraryItem = merged.library.find(l => l.id === mappedLibraryId);
+    const libraryItem = merged.library.find(l => l.id === mappedLibraryId) ?? (guestPlan.sessionId ? { type: guestPlan.type } : undefined);
     if (!libraryItem) {
       preview.plansSkipped += 1;
       continue;
@@ -208,6 +216,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
 
     const plan: Plan = {
       ...guestPlan,
+      ...(guestPlan.sessionId ? { sessionId: sessionIdMap.get(guestPlan.sessionId) ?? guestPlan.sessionId } : {}),
       id: newPlanId,
       libraryId: mappedLibraryId,
       sourceId: mappedSourceId,
@@ -239,6 +248,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
 
     const record: StudyRecord = {
       ...guestRecord,
+      ...(guestRecord.sessionId ? { sessionId: sessionIdMap.get(guestRecord.sessionId) ?? guestRecord.sessionId } : {}),
       id: newRecordId,
       planId: planIdMap.get(guestRecord.planId) || guestRecord.planId,
       sourceId: mappedSourceId,
@@ -331,6 +341,20 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     }
   }
 
+  if (guest.timerSessions !== undefined) {
+    merged.timerSessions = [...(merged.timerSessions ?? []), ...guest.timerSessions.map(session => {
+      const unfinished = session.status === 'running' || session.status === 'paused';
+      const now = Math.max(Date.now(), session.createdAt, ...session.segments.map(s => s.end));
+      return { ...session, id: sessionIdMap.get(session.id)!,
+        ...(session.planId ? { planId: planIdMap.get(session.planId) ?? session.planId } : {}),
+        ...(unfinished ? { status: 'pending' as const, segments: sessionSegments(session, now), runningSince: 0, endedAt: now } : {}) };
+    })];
+  }
+  if (guest.todos !== undefined) {
+    const todoIds = new Set((merged.todos ?? []).map(t => t.id));
+    merged.todos = [...(merged.todos ?? []), ...guest.todos.map(todo => ({ ...todo, id: todoIds.has(todo.id) ? uniqueId('gt', todoIds) : todo.id }))];
+  }
+
   // 8. Avatar — only when the account has none.
   if (!merged.profile.avatar && guest.profile?.avatar) {
     merged.profile.avatar = guest.profile.avatar;
@@ -343,7 +367,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
     preview.notes.push(`${preview.photosToMigrate} 张旧错题照片将在联网后自动上传云端`);
   }
 
-  merged.version = account.version === 4 || guest.version === 4 || merged.records.some(r => r.sourceApplied !== undefined) ? 4 : 3;
+  merged.version = Math.max(account.version, guest.version, merged.records.some(r => r.sourceApplied !== undefined) ? 4 : 3) as AppState['version'];
   return { mergedState: merged, preview };
 }
 

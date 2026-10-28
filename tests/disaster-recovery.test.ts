@@ -916,7 +916,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
       assertTargetPreserved(env);
     });
 
-    it('rejects restore when workspace state_json schema is invalid (e.g. future version 5 or missing profile)', async () => {
+    it('rejects restore when workspace state_json schema is invalid (e.g. future version 6 or missing profile)', async () => {
       const { restoreOffline } = await import('../server/disasterRecovery');
       const base = path.join(testRoot, 'reg_bad_ws_schema');
       const env = setupPreservedTarget(base);
@@ -925,7 +925,7 @@ describe('Disaster Recovery & Hot Backup Drill', () => {
       const bDb = initTestAppDb(backupDbFile);
       populateTestUser(bDb, 'u_bk', 'bk_user');
       bDb.prepare("UPDATE workspaces SET state_json = ? WHERE user_id = 'u_bk'").run(
-        JSON.stringify({ ...BLANK_STATE, version: 5 })
+        JSON.stringify({ ...BLANK_STATE, version: 6 })
       );
       bDb.close();
 

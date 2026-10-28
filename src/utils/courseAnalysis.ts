@@ -10,6 +10,8 @@ export function getCourseAnalysis(courses: Course[], records: StudyRecord[]) {
     completedLessons: course.completedLessons, totalLessons: course.totalLessons,
     cumulativeMinutes: course.minutes, deleted: false,
   }]));
+  const courseSessionIds = new Map<string, Set<string>>();
+  const sessionIds = new Set<string>();
   const days = new Map<string, { date: string; minutes: number; lessons: number }>();
   for (const record of selected) {
     if (!rows.has(record.sourceId)) rows.set(record.sourceId, {
@@ -18,14 +20,18 @@ export function getCourseAnalysis(courses: Course[], records: StudyRecord[]) {
       cumulativeMinutes: 0, deleted: true,
     });
     const row = rows.get(record.sourceId)!;
-    row.minutes += record.minutes; row.lessons += record.lessons ?? 0; row.sessions++;
+    row.minutes += record.minutes; row.lessons += record.lessons ?? 0;
+    const key = record.sessionId ?? record.id;
+    sessionIds.add(key);
+    const keys = courseSessionIds.get(record.sourceId) ?? new Set<string>(); keys.add(key); courseSessionIds.set(record.sourceId, keys);
+    row.sessions = keys.size;
     const day = days.get(record.date) ?? { date: record.date, minutes: 0, lessons: 0 };
     day.minutes += record.minutes; day.lessons += record.lessons ?? 0; days.set(record.date, day);
   }
   return {
     minutes: selected.reduce((sum, r) => sum + r.minutes, 0),
     lessons: selected.reduce((sum, r) => sum + (r.lessons ?? 0), 0),
-    sessions: selected.length,
+    sessions: sessionIds.size,
     courses: [...rows.values()],
     subjects: SUBJECTS.map(subject => ({ subject, minutes: selected.filter(r => r.subject === subject).reduce((sum, r) => sum + r.minutes, 0) })),
     days: [...days.values()].sort((a, b) => b.date.localeCompare(a.date)),

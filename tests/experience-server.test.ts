@@ -36,6 +36,21 @@ test('schema4 round-trip, legacy idempotent replay, downgrade fence, seed merge 
     const seeded = await (await fetch(`${base}/api/workspace`, { headers })).json(); assert.equal(seeded.state.version, 4); assert.deepEqual(seeded.state.todos, upgraded.todos); assert.equal(seeded.schemaVersion, 4);
     const restored = admin.restoreUserWorkspace(auth.user.id, JSON.stringify(upgraded), 'experience-test'); assert.equal(restored.ok, true);
     const afterRestore = await (await fetch(`${base}/api/workspace`, { headers })).json(); assert.equal(afterRestore.schemaVersion, 4); assert.deepEqual(afterRestore.state.todos, upgraded.todos);
+    const { applyCreateSession, applySessionAction } = await import('../src/utils/timerSessions');
+    const v5 = structuredClone(upgraded) as any;
+    const started = applyCreateSession(v5, { timerMode: 'pomodoro', focusMinutes: 25, restMinutes: 5 }, 1000000);
+    assert.ok('value' in started);
+    if ('value' in started) {
+      applySessionAction(v5, started.value.id, 'focus', 1000000);
+      applySessionAction(v5, started.value.id, 'rest', 2800000);
+      applySessionAction(v5, started.value.id, 'finish', 3400000);
+    }
+    const v5push = await push({ ...legacy, requestId: 'schema-five', state: v5, schemaVersion: 5, expectedRevision: afterRestore.revision, generationId: afterRestore.generationId });
+    assert.equal(v5push.status, 200, await v5push.text());
+    const v5cloud = await (await fetch(`${base}/api/workspace`, { headers })).json();
+    assert.deepEqual(v5cloud.state.timerSessions, v5.timerSessions); assert.equal(v5cloud.schemaVersion, 5);
+    assert.equal((await push({ ...legacy, requestId: 'downgrade-five', state: upgraded, schemaVersion: 4, expectedRevision: v5cloud.revision, generationId: v5cloud.generationId })).status, 426);
+    const v5restore = admin.restoreUserWorkspace(auth.user.id, JSON.stringify(v5), 'schema-five-test'); assert.equal(v5restore.ok, true);
     assert.equal((await register('friend-reused-code')).status, 400);
     // The disaster-recovery manifest describes the database container, while each workspace has its own format.
     const { execFileSync } = await import('node:child_process');
@@ -48,7 +63,7 @@ test('schema4 round-trip, legacy idempotent replay, downgrade fence, seed merge 
     const restoredDb = new Database(path.join(restoredDir, 'potato.db'), { readonly: true });
     try {
       const row = restoredDb.prepare('SELECT state_json, schema_version FROM workspaces WHERE user_id = ?').get(auth.user.id) as any;
-      assert.equal(row.schema_version, 4); assert.deepEqual(JSON.parse(row.state_json).todos, upgraded.todos);
+      assert.equal(row.schema_version, 5); assert.deepEqual(JSON.parse(row.state_json).timerSessions, v5.timerSessions);
     } finally { restoredDb.close(); }
 
   } finally {

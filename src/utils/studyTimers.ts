@@ -26,6 +26,7 @@ export function isPlanRunning(plan: Plan): boolean {
 export function getTimerReminder(plan: Plan, now = Date.now()): { key: string; message: string } | undefined {
   if (plan.done || plan.archived || !plan.timerMode || plan.timerMode === 'countup' || now >= planDayEnd(plan)) return;
   const rest = plan.timerPhase === 'rest';
+  if (!rest && plan.timerMode === 'pomodoro') return;
   const target = (rest ? plan.restMinutes ?? 5 : plan.focusMinutes ?? plan.plannedMinutes) * 60000;
   const elapsed = rest || plan.timerMode === 'pomodoro' ? phaseElapsedMs(plan, now) : learningElapsedMs(plan, now);
   if (elapsed < target || (!rest && !plan.timerStart)) return;

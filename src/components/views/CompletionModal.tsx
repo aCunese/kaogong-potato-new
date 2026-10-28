@@ -1,10 +1,11 @@
+import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
 import { X, CheckCircle2, Award, ArrowRight, AlertCircle, Camera } from 'lucide-react';
 import { Plan, StudyRecord } from '../../types';
-import { getCompletionMinutes, getCompletionSummary } from '../../utils/workflowPresentation';
+import { getCompletionMinutes, getCompletionSummary, getPlanCompletion } from '../../utils/workflowPresentation';
 
 interface CompletionModalProps {
   plan: Plan | null;
@@ -27,11 +28,15 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
 
   // Form states with dynamic per-task reset (Fixes A12)
-  const [questions, setQuestions] = useState<number>(0);
-  const [errors, setErrors] = useState<number>(0);
+  const [questions, setQuestions] = useState('0');
+  const [errors, setErrors] = useState('0');
   const actualMinutes = livePlan ? getCompletionMinutes(livePlan) : 0;
   const [lessons, setLessons] = useState(String(plan?.plannedLessons ?? 1));
-  const validLessons = /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0;
+  const liveCourse = state.courses.find(course => course.id === livePlan?.sourceId);
+  const remainingLessons = liveCourse ? liveCourse.totalLessons - liveCourse.completedLessons : 0;
+  const validLessons = /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0 && Number(lessons) <= remainingLessons;
+  const parsedQuestions = parseIntegerDraft(questions), parsedErrors = parseIntegerDraft(errors, 'nonnegative');
+  const validQuestions = parsedQuestions !== null && parsedErrors !== null && parsedErrors <= parsedQuestions;
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [preparedPlanId, setPreparedPlanId] = useState('');
   const [prepareAttempt, setPrepareAttempt] = useState(0);
@@ -55,25 +60,16 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     setPreparedPlanId('');
     setIsSubmitting(false);
     setErrorMsg('');
-    setQuestions(0);
-    setErrors(0);
+    setQuestions('0');
+    setErrors('0');
     setLessons(String(livePlan.plannedLessons ?? 1));
     setIsSuccess(false);
     setCompletedRecord(null);
 
     if (livePlan.done || initialSuccess) {
-      const record = state.records.find(item => item.id === livePlan.recordId)
-        || state.records.find(item => item.planId === livePlan.id);
-      if (record) {
-        setCompletedRecord(record);
-      }
-      setLastCompletedData({
-        name: livePlan.name,
-        type: livePlan.type,
-        subject: record?.subject || livePlan.subject,
-        minutes: record?.minutes ?? livePlan.actualMinutes,
-        summary: record ? getCompletionSummary(record) : '该计划未关联可用的学习记录',
-      });
+      const display = getPlanCompletion(livePlan, state.records);
+      if (display.record) setCompletedRecord(display.record);
+      setLastCompletedData({ name: livePlan.name, type: livePlan.type, subject: display.record?.subject || livePlan.subject, minutes: display.minutes, summary: display.summary });
       setIsSuccess(true);
       return;
     }
@@ -112,11 +108,11 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     let res;
 
     if (plan.type === 'book') {
-      if (questions < 0 || errors < 0 || actualMinutes < 0) {
-        setErrorMsg('题量与用时不能为负数');
+      if (!validQuestions) {
+        setErrorMsg('本次做题数须为正整数，错题数须为不超过做题数的非负整数');
         return;
       }
-      if (errors > questions) {
+      if (Number(parsedErrors) > Number(parsedQuestions)) {
         setErrorMsg('错题数不能大于本次做题总数');
         return;
       }
@@ -124,13 +120,13 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       res = await completePlan({
         type: 'book',
         planId: plan.id,
-        questions,
-        errors,
+        questions: parsedQuestions!,
+        errors: parsedErrors!,
         minutes: actualMinutes,
       });
     } else if (plan.type === 'course') {
       if (!validLessons || actualMinutes < 0) {
-        setErrorMsg('课时数必须大于0，用时不能为负数');
+        setErrorMsg(`本次节数须为正整数，且不能超过剩余 ${Math.max(0, remainingLessons)} 节`);
         return;
       }
       setIsSubmitting(true);
@@ -299,9 +295,9 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                     <label className="block text-xs text-ink-muted font-medium mb-1">本次做题数</label>
                     <input
                       type="number"
-                      min="0"
-                      value={questions}
-                      onChange={e => setQuestions(parseInt(e.target.value) || 0)}
+                      min="1"
+                      aria-label="本次做题数" required step="1" value={questions}
+                      onChange={e => setQuestions(e.target.value)}
                       className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
                     />
                   </div>
@@ -310,8 +306,8 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={errors}
-                      onChange={e => setErrors(parseInt(e.target.value) || 0)}
+                      aria-label="本次错题数" required step="1" value={errors}
+                      onChange={e => setErrors(e.target.value)}
                       className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage text-alarm font-bold"
                     />
                   </div>
@@ -327,13 +323,14 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
             {plan.type === 'course' && (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs text-ink-muted font-medium mb-1">本次完成课时</label>
+                  <label className="block text-xs text-ink-muted font-medium mb-1">本次完成节数</label>
                   <input
                     type="number"
                     min="1"
+                    max={remainingLessons}
                     value={lessons}
                     onChange={e => setLessons(e.target.value)}
-                    aria-label="本次完成课时"
+                    aria-label="本次完成节数"
                     required
                     step="1"
                     className="w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
@@ -368,7 +365,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                   重试暂停计时
                 </Button>
               ) : null}
-              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart) || actualMinutes <= 0 || (plan.type === 'course' && !validLessons)}>
+              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart) || actualMinutes <= 0 || (plan.type === 'book' && !validQuestions) || (plan.type === 'course' && !validLessons)}>
                 <CheckCircle2 size={16} />
                 保存并完成
               </Button>

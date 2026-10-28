@@ -110,6 +110,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   // Modals state
   const [addPlanOpen, setAddPlanOpen] = useState(false);
   const [focusInitialMode, setFocusInitialMode] = useState<TimerMode | undefined>();
+  const [addPlanLibraryId, setAddPlanLibraryId] = useState<string | undefined>();
   const [focusPlan, setFocusPlan] = useState<Plan | null>(null);
   const [focusVariantOverride, setFocusVariantOverride] = useState<'normal' | 'paused' | 'course' | 'custom'>('normal');
   const [completePlan, setCompletePlan] = useState<Plan | null>(null);
@@ -856,7 +857,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           ) : activeTab === 'today' ? (
             <TodayView
               forcedMode={todayForcedMode}
-              onOpenAddPlan={() => setAddPlanOpen(true)}
+              onOpenAddPlan={() => { setAddPlanLibraryId(undefined); setAddPlanOpen(true); }}
               onOpenFocus={(plan, mode) => {
                 setFocusInitialMode(mode);
                 setFocusPlan(plan);
@@ -883,6 +884,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
               initialSubTab={learningSubTab}
               onOpenBookEdit={book => setBookModalState({ open: true, book })}
               onOpenCourseEdit={course => setCourseModalState({ open: true, course })}
+              onAddCourseToToday={id => { setAddPlanLibraryId(id); setAddPlanOpen(true); }}
               onOpenCustomAdd={() => setCustomAddOpen(true)}
               onOpenDeleteConfirm={(type, id, name) => {
                 setConfirmConfig({
@@ -1018,6 +1020,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
 
         {/* 各类功能弹窗挂载 */}
         <AddPlanModal
+          initialLibraryId={addPlanLibraryId}
           onOpenCustomAdd={() => setCustomAddOpen(true)}
           isOpen={addPlanOpen}
           onClose={() => setAddPlanOpen(false)}

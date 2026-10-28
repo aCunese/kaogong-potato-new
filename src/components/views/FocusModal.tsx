@@ -49,13 +49,6 @@ export const FocusModal: React.FC<FocusModalProps> = ({ plan, isOpen, onClose, o
   const phaseTime = live?.timerMode === 'pomodoro' || isRest ? phaseElapsed : elapsed;
   const timed = live?.timerMode === 'pomodoro' || live?.timerMode === 'countdown';
   const reached = Boolean(timed && phaseTime >= target);
-  useEffect(() => {
-    if (!isOpen || !live || !reached || isRest || !live.timerStart) return;
-    const key = `${live.id}:${live.timerStart}:${live.timerMode}`;
-    if (reminded.current === key) return;
-    reminded.current = key;
-    navigator.vibrate?.(150);
-  }, [isOpen, live?.id, live?.timerStart, reached, isRest]);
   if (!isOpen || !live) return null;
   const running = isPlanRunning(live) && variantOverride !== 'paused';
   const dirty = mode !== (live.timerMode ?? 'countup') || Number(focus) !== (live.focusMinutes ?? (live.timerMode === 'pomodoro' ? 25 : live.plannedMinutes)) || Number(rest) !== (live.restMinutes ?? 5);
@@ -75,7 +68,7 @@ export const FocusModal: React.FC<FocusModalProps> = ({ plan, isOpen, onClose, o
       {!live.archived && <fieldset disabled={running || busy} className="text-left space-y-2 mt-4 disabled:opacity-60">
         <p className="text-xs text-ink-muted">计时模式（暂停后可设置）</p>
         <div role="group" aria-label="计时模式" className="grid grid-cols-3 gap-1 rounded-xl bg-cream p-1">
-          {([['countup', '正计时'], ['countdown', '倒计时'], ['pomodoro', '番茄钟']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => { setMode(value); setFocus(String(value === 'pomodoro' ? 25 : live.plannedMinutes)); }} className={`rounded-lg py-2 text-xs ${mode === value ? 'bg-sage text-white font-bold' : 'text-ink-muted'}`}>{label}</button>)}
+          {([['countup', '正计时'], ['countdown', '倒计时'], ['pomodoro', '专注时间']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => { setMode(value); setFocus(String(value === 'pomodoro' ? 25 : live.plannedMinutes)); }} className={`rounded-lg py-2 text-xs ${mode === value ? 'bg-sage text-white font-bold' : 'text-ink-muted'}`}>{label}</button>)}
         </div>
         {mode !== 'countup' && <div className="flex gap-2">
           <label className="flex-1 min-w-0 text-xs text-ink-muted">专注分钟<input aria-label="专注分钟" type="number" min="1" step="1" value={focus} onChange={e => setFocus(e.target.value)} className="mt-1 w-full border border-line rounded-lg p-2 bg-paper" /></label>

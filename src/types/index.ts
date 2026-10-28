@@ -48,6 +48,7 @@ export interface Plan {
   done: boolean;
   timerStart: number; // timestamp in ms, 0 if paused/not running
   recordId?: string;
+  sessionId?: string;
   plannedLessons?: number;
   timerMode?: TimerMode;
   focusMinutes?: number;
@@ -101,6 +102,7 @@ export interface StudyRecord {
   lessons?: number; // for course completion
   /** False when a migrated record was not added to its matched source counters. */
   sourceApplied?: boolean;
+  sessionId?: string;
 }
 
 export interface WrongRecord {
@@ -129,7 +131,8 @@ export interface AppState {
   records: StudyRecord[];
   wrong: WrongRecord[];
   todos?: TodoItem[];
-  version: 3 | 4;
+  timerSessions?: TimerSession[];
+  version: 3 | 4 | 5;
 }
 
 export type MutationResult<T> =
@@ -153,7 +156,7 @@ export interface MediaRecord {
 export interface SnapshotRecord {
   key: string;
   state: AppState;
-  version: 3 | 4;
+  version: 3 | 4 | 5;
   /**
    * Local mutation version. Monotonic counter of local writes to this partition.
    * NEVER send this value as the cloud `expectedRevision`.
@@ -239,7 +242,7 @@ export interface WorkspacePushPayload {
   requestId: string;
   expectedRevision: number;
   expectedContentHash?: string;
-  schemaVersion: 3 | 4;
+  schemaVersion: 3 | 4 | 5;
   generationId: string;
   state: AppState;
   reason: string;
@@ -265,7 +268,7 @@ export interface DamagedCacheRecord {
 
 export type MainTab = 'today' | 'learning' | 'wrong' | 'analysis' | 'settings';
 export type LearningSubTab = 'books' | 'courses' | 'library';
-export type AnalysisSubTab = 'overall' | 'monthly' | 'courses';
+export type AnalysisSubTab = 'overall' | 'monthly';
 
 export interface LockScope {
   ownerId: string;
@@ -320,3 +323,16 @@ declare global {
   }
 }
 
+
+export interface TimerSession extends TimerConfig {
+  id: string;
+  phase: 'focus' | 'rest';
+  phaseMs: number;
+  status: 'paused' | 'running' | 'pending' | 'registered' | 'voided';
+  createdAt: number;
+  endedAt: number;
+  runningSince: number;
+  segments: { phase: 'focus' | 'rest'; start: number; end: number }[];
+  planId?: string;
+}
+export interface SessionRegistration { libraryId: string; questions?: number; errors?: number; lessons?: number; }

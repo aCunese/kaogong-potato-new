@@ -1,3 +1,4 @@
+import { TimeDistribution, AnalysisCategory } from './TimeDistribution';
 import { CourseAnalysisView } from './CourseAnalysisView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -38,7 +39,8 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   onOpenLegendDetail,
 }) => {
   const { state, activeDate } = useApp();
-  const [subTab, setSubTab] = useState<AnalysisSubTab>(initialSubTab);
+  const [subTab, setSubTab] = useState<AnalysisSubTab>(initialSubTab === 'monthly' ? 'monthly' : 'overall');
+  const [category, setCategory] = useState<AnalysisCategory>('course');
   const [range, setRange] = useState<'30' | '90' | 'all'>('30');
   const [localMonth, setLocalMonth] = useState<string>(activeDate.slice(0, 7) || '2026-10');
 
@@ -68,7 +70,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
 
   // Unique dates in records with questions for line chart
   const dateMap: Record<string, Record<Subject, { q: number; e: number }>> = {};
-  overallRecords.filter(r => r.questions > 0).forEach(r => {
+  overallRecords.filter(r => r.type === 'book' && r.questions > 0).forEach(r => {
     if (!dateMap[r.date]) {
       dateMap[r.date] = {} as any;
     }
@@ -84,14 +86,14 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   // Monthly statistics
   const monthlyRecords = state.records.filter(r => r.date.startsWith(selectedMonth));
   const monthMinutes = monthlyRecords.reduce((sum, r) => sum + r.minutes, 0);
-  const monthQuestions = monthlyRecords.reduce((sum, r) => sum + r.questions, 0);
-  const monthErrors = monthlyRecords.reduce((sum, r) => sum + r.errors, 0);
+  const monthQuestions = monthlyRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.questions, 0);
+  const monthErrors = monthlyRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.errors, 0);
   const monthAccuracy = monthQuestions > 0 ? Math.round(((monthQuestions - monthErrors) / monthQuestions) * 100) : 0;
 
   const monthlySubjectStats = SUBJECTS.map(s => {
     const sRecords = monthlyRecords.filter(r => r.subject === s);
-    const q = sRecords.reduce((sum, r) => sum + r.questions, 0);
-    const e = sRecords.reduce((sum, r) => sum + r.errors, 0);
+    const q = sRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.questions, 0);
+    const e = sRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.errors, 0);
     const m = sRecords.reduce((sum, r) => sum + r.minutes, 0);
     const acc = q > 0 ? Math.round(((q - e) / q) * 100) : null;
     return {
@@ -119,7 +121,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-ink-main">学情分析复盘</h1>
           <p className="text-xs text-ink-muted mt-1">
-            只统计真实完成登记的数据，科学回溯备考投入
+            回顾学习进度与投入，掌握专注和休息分配
           </p>
         </div>
         <PotatoSprite pose={subTab === 'overall' ? 4 : 5} size={64} />
@@ -128,15 +130,13 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
       {/* 分段控制 */}
       <Segment
         options={[
-          { label: '总体趋势', value: 'overall' },
+          { label: '总体分析', value: 'overall' },
           { label: '每月分析', value: 'monthly' },
-          { label: '网课分析', value: 'courses' },
         ]}
         value={subTab}
         onChange={val => setSubTab(val as AnalysisSubTab)}
       />
 
-      {subTab === 'courses' && <CourseAnalysisView />}
 
       {/* 1. 总体分析 */}
       {subTab === 'overall' && (
@@ -167,63 +167,11 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
             </div>
           </div>
 
-          {/* 八科时间分布饼图卡片 */}
-          <Card className="p-4 bg-paper border-line">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-bold text-ink-main flex items-center gap-1.5">
-                <PieChart size={16} className="text-sage" />
-                八科时间投入分布
-              </div>
-              <button
-                onClick={() => onOpenLegendDetail(overallRecords, range === 'all' ? '全部记录' : `近${range}天`)}
-                className="text-xs text-sage flex items-center gap-0.5 hover:underline"
-              >
-                <span>图例与明细</span>
-                <ChevronRight size={13} />
-              </button>
-            </div>
-
-            {overallTotalMinutes === 0 ? (
-              <div className="py-8 text-center text-xs text-ink-muted">
-                暂无登记用时数据，完成日程登记后将生成分布图
-              </div>
-            ) : (
-              <div className="flex flex-col sm:flex-row items-center gap-5 my-2">
-                {/* 扇形环形图 */}
-                <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
-                  <div
-                    className="w-full h-full rounded-full shadow-inner"
-                    style={{ background: `conic-gradient(${gradientStops})` }}
-                  />
-                  <div className="absolute inset-4 rounded-full bg-paper flex flex-col items-center justify-center text-center shadow-soft">
-                    <span className="text-[10px] text-ink-muted">总投入</span>
-                    <span className="text-sm font-bold text-ink-main font-mono leading-tight">
-                      {overallTotalMinutes}
-                    </span>
-                    <span className="text-[10px] text-ink-muted">分钟</span>
-                  </div>
-                </div>
-
-                {/* 八科明细图例简表 */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 w-full text-xs">
-                  {subjectTimeDistribution.map(item => (
-                    <div key={item.subject} className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: item.color }} />
-                        <span className="text-ink-muted truncate">{item.subject}</span>
-                      </div>
-                      <span className="font-mono font-medium text-ink-main shrink-0 ml-1">
-                        {item.minutes}m
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
+          <TimeDistribution records={overallRecords} sessions={state.timerSessions ?? []} range={range} today={activeDate} view={category} onViewChange={setCategory} onLegend={() => onOpenLegendDetail(overallRecords.filter(r => r.type === category), range === 'all' ? '全部记录' : `近${range}天`)} />
+          {category === 'course' && <CourseAnalysisView records={overallRecords.filter(r => r.type === 'course')} />}
 
           {/* 各科每日正确率曲线 */}
-          <Card className="p-4 bg-paper border-line">
+          {category === 'book' && <Card className="p-4 bg-paper border-line">
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-bold text-ink-main flex items-center gap-1.5">
                 <TrendingUp size={16} className="text-sage" />
@@ -330,7 +278,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                 </div>
               </div>
             )}
-          </Card>
+          </Card>}
         </div>
       )}
 

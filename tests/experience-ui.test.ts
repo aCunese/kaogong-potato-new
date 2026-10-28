@@ -45,7 +45,7 @@ it('keeps accumulated course minutes read-only while allowing lesson edits', asy
   const course: any = { id: 'c', name: 'Course', subject: '资料分析', totalLessons: 10, completedLessons: 1, minutes: 540, url: '' };
   const html = render(React.createElement(CourseEditModal, { isOpen: true, course, onClose: noop, onToast: noop }));
   expect(html).toContain('<output'); expect(html).toContain('自动累计');
-  expect(html).toContain('aria-label="总课时"'); expect(html).toContain('aria-label="已完成课时"');
+  expect(html).toContain('aria-label="总节数"'); expect(html).toContain('aria-label="已完成节数"');
 });
 it('shows measured completion duration as output and only edits course lesson count', async () => {
   const { CompletionModal } = await import('../src/components/views/CompletionModal');
@@ -62,7 +62,7 @@ it('makes pomodoro visible on the today page and all three modes visible in focu
   const focus = render(React.createElement(FocusModal, { isOpen: true, plan, onClose: noop, onComplete: noop }));
   expect(focus).toContain('aria-label="计时模式"'); expect(focus).toContain('aria-pressed=');
 });
-it('has a dedicated course analysis entry with course-only metrics and progress', () => {
-  const html = render(React.createElement(AnalysisView, { initialSubTab: 'courses' as any, onOpenMonthPicker: noop, onOpenLegendDetail: noop }));
-  expect(html).toContain('网课分析'); expect(html).toContain('本期听课用时'); expect(html).toContain('课程进度'); expect(html).toContain('Course');
+it('integrates course-only metrics and grouped progress into overall analysis', () => {
+  const html = render(React.createElement(AnalysisView, { onOpenMonthPicker: noop, onOpenLegendDetail: noop }));
+  expect(html).not.toContain('网课分析'); expect(html).toContain('本期听课用时'); expect(html).toContain('网课节数进度'); expect(html).toContain('aria-expanded="false"');
 });

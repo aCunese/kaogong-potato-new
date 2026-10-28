@@ -95,7 +95,7 @@ const POSE_RE = /^pose-[0-7]$/;
 const BRANDING_PATH_RE = /^\/branding\/[A-Za-z0-9._\-\/]+$/;
 const LEGACY_IMAGE_DATA_URL_RE = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 
-const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version', 'todos']);
+const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version', 'todos', 'timerSessions']);
 
 /** 根数组字段的安全容量上限（防范存储炸弹与内存耗尽 DoS） */
 const MAX_ARRAY_LIMITS: Record<string, number> = {
@@ -212,20 +212,20 @@ export interface WorkspaceValidationResult {
  * - R06：wrong[].image / wrong[].images / profile.avatar 走统一图片引用契约。
  */
 export function validateWorkspacePayload(state: any, schemaVersion: any): WorkspaceValidationResult {
-  if (schemaVersion !== 3 && schemaVersion !== 4) {
-    return { valid: false, message: `不支持的工作区 schema 版本: ${schemaVersion}，仅支持版本 3、4` };
+  if (![3, 4, 5].includes(schemaVersion)) {
+    return { valid: false, message: `不支持的工作区 schema 版本: ${schemaVersion}，仅支持版本 3、4、5` };
   }
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
     return { valid: false, message: '工作区 state 必须为有效 JSON 对象，不能为字符串、数组或空值' };
   }
   // Preserve legacy version-3 snapshots; version-4 extensions are validated below.
   if (state.version !== undefined) {
-    if (typeof state.version !== 'number' || !Number.isFinite(state.version) || (state.version !== 3 && state.version !== 4)) {
-      return { valid: false, message: `state.version 必须为数字 3 或 4（实际: ${JSON.stringify(state.version)}）` };
+    if (typeof state.version !== 'number' || !Number.isFinite(state.version) || (![3, 4, 5].includes(state.version))) {
+      return { valid: false, message: `state.version 必须为数字 3、4 或 5（实际: ${JSON.stringify(state.version)}）` };
     }
   }
 
-  if ((state.version !== undefined && state.version !== schemaVersion) || (schemaVersion === 4 && state.version !== 4)) return { valid: false, message: '工作区内容版本与同步协议不一致，请更新客户端。' };
+  if ((state.version !== undefined && state.version !== schemaVersion) || (schemaVersion >= 4 && state.version !== schemaVersion)) return { valid: false, message: '工作区内容版本与同步协议不一致，请更新客户端。' };
   const extensionError = validateStudyExtensions(state);
   if (extensionError) return { valid: false, message: extensionError };
 
@@ -912,7 +912,8 @@ export function mergeDefaultSeedIntoState(existing: AppState): AppState {
     records: Array.isArray(existing.records) ? existing.records : [],
     wrong: Array.isArray(existing.wrong) ? existing.wrong : [],
     ...(existing.todos !== undefined ? { todos: existing.todos } : {}),
-    version: existing.version === 4 ? 4 : 3,
+    version: existing.version ?? 3,
+    ...(existing.timerSessions !== undefined ? { timerSessions: existing.timerSessions } : {}),
   };
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Check, Plus, Trash2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Button, Card } from '../common/UIComponents';
@@ -6,8 +6,6 @@ import { Button, Card } from '../common/UIComponents';
 export const TodoView: React.FC = () => {
   const { state, activeDate, addTodo, toggleTodo, deleteTodo } = useApp();
   const [text, setText] = useState('');
-  const [date, setDate] = useState(activeDate);
-  useEffect(() => setDate(activeDate), [activeDate]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState('');
@@ -22,12 +20,12 @@ export const TodoView: React.FC = () => {
   };
   return <div className="space-y-4">
     <p className="text-xs text-ink-muted">按日期记录生活与学习待办，勾选完成。待办不计入学习时长。</p>
-    <form className="space-y-2" onSubmit={e => { e.preventDefault(); void run(() => addTodo(text, date), () => setText('')); }}>
+    <form className="space-y-2" onSubmit={e => { e.preventDefault(); void run(() => addTodo(text), () => setText('')); }}>
       <label className="block text-xs text-ink-muted" htmlFor="todo-text">添加待办</label>
       <input id="todo-text" value={text} onChange={e => setText(e.target.value)} maxLength={200} placeholder="接下来要做什么？" className="w-full px-3 py-3 rounded-xl border border-line bg-paper text-sm" />
       <div className="flex items-center gap-2">
-        <input aria-label="待办日期" type="date" value={date} onChange={e => setDate(e.target.value)} className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-line bg-paper text-sm" />
-        <Button type="submit" disabled={busy || !text.trim() || !date} size="sm"><Plus size={14} />添加</Button>
+        <input aria-label="待办日期" type="date" readOnly value={activeDate} className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-line bg-paper text-sm" />
+        <Button type="submit" disabled={busy || !text.trim()} size="sm"><Plus size={14} />添加</Button>
       </div>
     </form>
     {error && <p role="alert" className="text-xs text-alarm">{error}</p>}

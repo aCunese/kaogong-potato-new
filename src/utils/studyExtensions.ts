@@ -1,12 +1,13 @@
+import { validateTimerSessions } from './sessionValidation';
 import type { AppState, Plan } from '../types';
 
-export const PLAN_EXTENSION_KEYS = ['plannedLessons', 'timerMode', 'focusMinutes', 'restMinutes', 'timerPhase', 'phaseAccumulatedMs', 'restStart', 'archived'] as const;
+export const PLAN_EXTENSION_KEYS = ['plannedLessons', 'timerMode', 'focusMinutes', 'restMinutes', 'timerPhase', 'phaseAccumulatedMs', 'restStart', 'archived', 'sessionId'] as const;
 
 /** Shared by server sync and portable backup import, so new fields cannot disappear in either path. */
 export function validateStudyExtensions(state: any): string | null {
   const records = Array.isArray(state.records) ? state.records : [];
   const hasFields = records.some((r: any) => r && r.sourceApplied !== undefined) || state.todos !== undefined || (Array.isArray(state.plans) && state.plans.some((p: any) => p && PLAN_EXTENSION_KEYS.some(k => p[k] !== undefined)));
-  if (hasFields && state.version !== 4) return '待办和新版计时字段需要工作区版本4，请更新客户端。';
+  if (hasFields && ![4, 5].includes(state.version)) return '待办和新版计时字段需要工作区版本4，请更新客户端。';
   if (state.todos !== undefined) {
     if (!Array.isArray(state.todos) || state.todos.length > 5000) return '待办必须为数组且最多5000条。';
     const ids = new Set<string>();
@@ -32,7 +33,7 @@ export function validateStudyExtensions(state: any): string | null {
       if (plan[k] !== undefined && (typeof plan[k] !== 'number' || !Number.isFinite(plan[k]) || plan[k] < 0)) return `${k} 必须为有限非负数。`;
     }
   }
-  return null;
+  return validateTimerSessions(state);
 }
 
 export function planExtensions(plan: Plan): Partial<Plan> {

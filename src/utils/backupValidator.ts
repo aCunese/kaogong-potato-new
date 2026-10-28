@@ -39,7 +39,7 @@ function isNonNegativeNumber(val: any): boolean {
  * Rules:
  * - Rejects non-string and payload > 50MB
  * - Rejects non-JSON and invalid root objects
- * - Rejects unknown versions (version > 4)
+ * - Rejects unknown versions (version > 5)
  * - Rejects missing core arrays: books, courses, countdowns, plans, records, wrong
  * - Rejects null / non-object elements in any core array
  * - Validates field types, non-negative numbers, subjects against SUBJECTS, and date formats
@@ -73,8 +73,8 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
   for (const candidate of [raw, target]) {
     if (Object.prototype.hasOwnProperty.call(candidate, 'version')) {
       const version = candidate.version;
-      if (!Number.isInteger(version) || version < 1 || version > 4) {
-        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v4` };
+      if (!Number.isInteger(version) || version < 1 || version > 5) {
+        return { valid: false, error: `不支持的备份版本 (v${version})，当前最高支持 v5` };
       }
     }
   }
@@ -328,6 +328,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       errors: Math.round(r.errors),
       lessons,
       ...(r.sourceApplied !== undefined ? { sourceApplied: r.sourceApplied } : {}),
+      ...(r.sessionId !== undefined ? { sessionId: r.sessionId } : {}),
     });
   }
 
@@ -455,7 +456,8 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     records,
     wrong,
     ...(target.todos !== undefined ? { todos: structuredClone(target.todos) } : {}),
-    version: target.version === 4 ? 4 : 3,
+    ...(target.timerSessions !== undefined ? { timerSessions: structuredClone(target.timerSessions) } : {}),
+    version: target.version === 5 ? 5 : target.version === 4 ? 4 : 3,
   };
 
   return {

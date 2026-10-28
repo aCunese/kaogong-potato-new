@@ -1127,7 +1127,7 @@ export async function forceUploadLocal(
     }
 
     // A reviewed overwrite may deliberately restore old content, but never downgrade its wire format.
-    if (server.state?.version === 4) local.state.version = 4;
+    if (server.state) local.state.version = Math.max(server.state.version, local.state.version) as AppState['version'];
     const localVersion = expectedLocalRevision ?? snapshot?.revision ?? local.revision;
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
     const confirmedRevision = reviewed?.serverRevision ?? server.revision;

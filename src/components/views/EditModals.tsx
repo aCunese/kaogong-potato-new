@@ -1,3 +1,4 @@
+import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
@@ -35,86 +36,51 @@ const FormError: React.FC<{ message: string }> = ({ message }) => message ? (
    1. Add Plan Modal (add-plan: 12:1867)
    ========================================================================= */
 export const AddPlanModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onToast: (msg: string) => void;
-  onOpenCustomAdd?: () => void;
-}> = ({ isOpen, onClose, onToast, onOpenCustomAdd }) => {
+  isOpen: boolean; onClose: () => void; onToast: (msg: string) => void;
+  onOpenCustomAdd?: () => void; initialLibraryId?: string;
+}> = ({ isOpen, onClose, onToast, onOpenCustomAdd, initialLibraryId }) => {
   const { state, addPlan } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
-  const [selectedLibId, setSelectedLibId] = useState<string>(state.library[0]?.id || '');
-  const [minutes, setMinutes] = useState<string>(String(state.library[0]?.defaultMinutes ?? 30));
-
+  const initial = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
+  const [type, setType] = useState(initial?.type ?? 'book');
+  const [subject, setSubject] = useState('all');
+  const [selectedLibId, setSelectedLibId] = useState(initial?.id ?? '');
+  const [minutes, setMinutes] = useState(String(initial?.defaultMinutes ?? 30));
   const [lessons, setLessons] = useState('1');
   const selectedItem = state.library.find(l => l.id === selectedLibId);
+  const course = state.courses.find(c => selectedItem?.type === 'course' && c.id === selectedItem.sourceId);
+  const remaining = course ? course.totalLessons - course.completedLessons : 0;
+  const items = state.library.filter(l => l.type === type && (subject === 'all' || subject === l.subject));
   const validMinutes = /^\d+$/.test(minutes) && Number.isSafeInteger(Number(minutes)) && Number(minutes) > 0;
-  const validLessons = selectedItem?.type !== 'course' || (/^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0);
-
+  const validLessons = type !== 'course' || Boolean(course && /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0 && Number(lessons) <= remaining);
+  const select = (id: string) => { setSelectedLibId(id); setMinutes(String(state.library.find(l => l.id === id)?.defaultMinutes ?? 30)); setLessons('1'); setErrorMsg(''); };
   useEffect(() => {
-    if (!state.library.some(item => item.id === selectedLibId)) {
-      setSelectedLibId(state.library[0]?.id || '');
-      setMinutes(String(state.library[0]?.defaultMinutes ?? 30));
-    }
-  }, [state.library, selectedLibId]);
-
-  const handleSelect = (id: string) => {
-    setSelectedLibId(id);
-    const item = state.library.find(l => l.id === id);
-    if (item) setMinutes(String(item.defaultMinutes));
-  };
-
+    if (!isOpen) return;
+    const item = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
+    setType(item?.type ?? 'book'); setSubject('all'); select(item?.id ?? '');
+  }, [isOpen, initialLibraryId]);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedLibId) { setErrorMsg('请先添加题本、网课或自定义事项'); return; }
-    if (!validMinutes || !validLessons) { setErrorMsg('请填写大于0的整数分钟和有效节数，空白或0不能加入。'); return; }
-    void save(() => addPlan(selectedLibId, Number(minutes), selectedItem?.type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
+    if (!selectedItem || selectedItem.type !== type || !validMinutes || !validLessons) { setErrorMsg('请选择事项，填写大于0的分钟和不超过剩余数量的节数。'); return; }
+    void save(() => addPlan(selectedLibId, Number(minutes), type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
   };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="添加今日日程">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <FormError message={errorMsg} />
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1.5">选择事项</label>
-          <select
-            value={selectedLibId}
-            onChange={e => handleSelect(e.target.value)}
-            className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm text-ink-main focus:outline-none focus:border-sage"
-          >
-            {state.library.map(l => (
-              <option key={l.id} value={l.id}>
-                {l.name} ({l.type === 'book' ? '题本' : l.type === 'course' ? '网课' : '自定义'} · {l.subject})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1.5">今日计划用时 (分钟)</label>
-          <input
-            type="number"
-            min="1"
-            value={minutes}
-            onChange={e => setMinutes(e.target.value)}
-            aria-label="今日计划用时"
-            required
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-          />
-        </div>
-
-        {selectedItem?.type === 'course' && <div>
-          <label className="block text-xs text-ink-muted mb-1">本次计划节数</label>
-          <input aria-label="本次计划节数" type="number" min="1" step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-line bg-cream/70 text-sm" />
-          <p className="text-xs text-ink-muted mt-1">结束时确认实际完成节数，计时到点不会自动增加进度。</p>
-        </div>}
-        {(!validMinutes || !validLessons) && <p className="text-xs text-alarm">时长和节数须大于0，填写后才能加入。</p>}
-        {onOpenCustomAdd && <button type="button" className="text-xs text-sage" onClick={() => { onClose(); onOpenCustomAdd(); }}>添加自定义学习事项</button>}
-        <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !selectedLibId || !validMinutes || !validLessons}>
-          确认加入今日日程
-        </Button>
-      </form>
-    </Modal>
-  );
+  return <Modal isOpen={isOpen} onClose={onClose} title="添加今日日程">
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <FormError message={errorMsg} />
+      <div role="group" aria-label="日程类型" className="grid grid-cols-3 rounded-xl bg-cream p-1 gap-1">
+        {([['book','题本'],['course','网课'],['custom','自定义']] as const).map(([value,label]) => <button key={value} type="button" aria-pressed={type === value} onClick={() => {setType(value);setSubject('all');select(state.library.find(l => l.type === value)?.id ?? '');}} className={`rounded-lg py-2 text-xs ${type === value ? 'bg-paper text-sage font-bold shadow-sm' : 'text-ink-muted'}`}>{label}</button>)}
+      </div>
+      <label className="block text-xs text-ink-muted">所属科目<select aria-label="筛选日程科目" value={subject} onChange={e => { const next=e.target.value; setSubject(next);select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');}} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70"><option value="all">全部科目</option>{SUBJECTS.map(s => <option key={s}>{s}</option>)}</select></label>
+      <label className="block text-xs text-ink-muted">选择事项<select aria-label="选择事项" value={selectedLibId} onChange={e => select(e.target.value)} className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">
+        {!items.length && <option value="">该分类暂无内容，请先到学习库添加</option>}{items.map(l => <option key={l.id} value={l.id}>{l.name} · {l.subject}</option>)}
+      </select></label>
+      <label className="block text-xs text-ink-muted">今日计划用时（分钟）<input aria-label="今日计划用时" type="number" min="1" step="1" required value={minutes} onChange={e => setMinutes(e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-line rounded-xl bg-cream/70 font-mono text-sm" /></label>
+      {type === 'course' && <div><p className="text-xs text-ink-muted mb-2">剩余 {Math.max(0,remaining)} 节</p><label className="text-xs text-ink-muted">本次计划节数<input aria-label="本次计划节数" type="number" min="1" max={remaining} step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-line bg-cream/70 text-sm" /></label>{!validLessons && <p className="text-xs text-alarm mt-1">节数须大于0，且不能超过剩余 {Math.max(0,remaining)} 节。</p>}<p className="text-xs text-ink-muted mt-2">完成后确认实际节数，真实用时自动记录。</p></div>}
+      {!validMinutes && <p className="text-xs text-alarm">时长须大于0，空白不能加入。</p>}
+      {onOpenCustomAdd && <button type="button" className="text-xs text-sage" onClick={() => {onClose();onOpenCustomAdd();}}>添加自定义学习事项</button>}
+      <Button type="submit" variant="primary" fullWidth disabled={isSaving || !selectedItem || selectedItem.type !== type || !validMinutes || !validLessons}>确认加入今日日程</Button>
+    </form>
+  </Modal>;
 };
 
 /* =========================================================================
@@ -130,10 +96,10 @@ export const BookEditModal: React.FC<{
 
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<Subject>('资料分析');
-  const [total, setTotal] = useState(500);
-  const [pages, setPages] = useState(240);
-  const [done, setDone] = useState(0);
-  const [errors, setErrors] = useState(0);
+  const [total, setTotal] = useState('500');
+  const [pages, setPages] = useState('240');
+  const [done, setDone] = useState('0');
+  const [errors, setErrors] = useState('0');
   const [minutes, setMinutes] = useState(0);
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
 
@@ -141,22 +107,25 @@ export const BookEditModal: React.FC<{
     if (book) {
       setName(book.name);
       setSubject(book.subject);
-      setTotal(book.total);
-      setPages(book.pages);
-      setDone(book.done);
-      setErrors(book.errors);
+      setTotal(String(book.total));
+      setPages(book.pages ? String(book.pages) : '');
+      setDone(String(book.done));
+      setErrors(String(book.errors));
       setMinutes(book.minutes);
     } else {
       setName('');
       setSubject('资料分析');
-      setTotal(500);
-      setPages(240);
-      setDone(0);
-      setErrors(0);
+      setTotal('500');
+      setPages('240');
+      setDone('0');
+      setErrors('0');
       setMinutes(0);
     }
     setErrorMsg('');
   }, [book, isOpen]);
+
+  const parsed = { total: parseIntegerDraft(total), pages: parseIntegerDraft(pages, 'optional'), done: parseIntegerDraft(done, 'nonnegative'), errors: parseIntegerDraft(errors, 'nonnegative') };
+  const validCounts = Object.values(parsed).every(value => value !== null) && Number(parsed.errors) <= Number(parsed.done);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,15 +133,15 @@ export const BookEditModal: React.FC<{
       setErrorMsg('请填写题本名称');
       return;
     }
-    if (errors > done) {
-      setErrorMsg('错题数不能大于已做题数');
+    if (!validCounts) {
+      setErrorMsg('请补全整数题量：总题数须大于0，页数选填且须大于0，错题数不能超过已做题数。');
       return;
     }
 
     if (book) {
-      void save(() => editBook(book.id, { name: name.trim(), subject, total, pages, done, errors }), '题本数据已更新！');
+      void save(() => editBook(book.id, { name: name.trim(), subject, total: parsed.total!, pages: parsed.pages!, done: parsed.done!, errors: parsed.errors! }), '题本数据已更新！');
     } else {
-      void save(() => addBook({ name: name.trim(), subject, total, pages, done, errors, minutes }), '题本已创建，并自动生成同名事项！');
+      void save(() => addBook({ name: name.trim(), subject, total: parsed.total!, pages: parsed.pages!, done: parsed.done!, errors: parsed.errors!, minutes }), '题本已创建，并自动生成同名事项！');
     }
   };
 
@@ -213,9 +182,9 @@ export const BookEditModal: React.FC<{
             <label className="block text-xs text-ink-muted font-medium mb-1">总题数</label>
             <input
               type="number"
-              min="0"
-              value={total}
-              onChange={e => setTotal(parseInt(e.target.value) || 0)}
+              min="1"
+              aria-label="总题数" step="1" required value={total}
+              onChange={e => setTotal(e.target.value)}
               className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
             />
           </div>
@@ -223,9 +192,9 @@ export const BookEditModal: React.FC<{
             <label className="block text-xs text-ink-muted font-medium mb-1">全书页数</label>
             <input
               type="number"
-              min="0"
-              value={pages}
-              onChange={e => setPages(parseInt(e.target.value) || 0)}
+              min="1"
+              aria-label="全书页数" step="1" value={pages}
+              onChange={e => setPages(e.target.value)}
               className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
             />
           </div>
@@ -237,8 +206,8 @@ export const BookEditModal: React.FC<{
             <input
               type="number"
               min="0"
-              value={done}
-              onChange={e => setDone(parseInt(e.target.value) || 0)}
+              aria-label="已做题数" step="1" required value={done}
+              onChange={e => setDone(e.target.value)}
               className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
             />
           </div>
@@ -247,8 +216,8 @@ export const BookEditModal: React.FC<{
             <input
               type="number"
               min="0"
-              value={errors}
-              onChange={e => setErrors(parseInt(e.target.value) || 0)}
+              aria-label="错题数" step="1" required value={errors}
+              onChange={e => setErrors(e.target.value)}
               className="w-full px-2.5 py-2 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage text-alarm font-bold"
             />
           </div>
@@ -270,7 +239,7 @@ export const BookEditModal: React.FC<{
         </p>
 
         <div className="pt-2">
-          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving}>
+          <Button variant="primary" size="md" fullWidth type="submit" disabled={isSaving || !validCounts}>
             保存题本数据
           </Button>
         </div>
@@ -308,7 +277,7 @@ export const CourseEditModal: React.FC<{
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { setErrorMsg('请填写网课名称'); return; }
-    if (!valid) { setErrorMsg('总课时必须大于0；已完成课时须为不超过总课时的非负整数，不能为空。'); return; }
+    if (!valid) { setErrorMsg('总节数必须大于0；已完成节数须为不超过总节数的非负整数，不能为空。'); return; }
     const details = { name: name.trim(), subject, totalLessons: total, completedLessons: completed, url: url.trim() };
     if (course) void save(() => editCourse(course.id, details), '网课数据已更新！');
     else void save(() => addCourse({ ...details, minutes: 0 }), '网课已添加！');
@@ -319,10 +288,10 @@ export const CourseEditModal: React.FC<{
       <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-name">课程名称</label><input id="course-name" value={name} onChange={e => setName(e.target.value)} placeholder="例如：判断推理图形专项技巧精讲" className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
       <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-subject">所属科目</label><select id="course-subject" value={subject} onChange={e => setSubject(e.target.value as Subject)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">{SUBJECTS.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-total">总课时</label><input id="course-total" aria-label="总课时" type="number" min="1" step="1" required value={totalLessons} onChange={e => setTotalLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
-        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-completed">已完成课时</label><input id="course-completed" aria-label="已完成课时" type="number" min="0" step="1" required value={completedLessons} onChange={e => setCompletedLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
+        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-total">总节数</label><input id="course-total" aria-label="总节数" type="number" min="1" step="1" required value={totalLessons} onChange={e => setTotalLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
+        <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-completed">已完成节数</label><input id="course-completed" aria-label="已完成节数" type="number" min="0" step="1" required value={completedLessons} onChange={e => setCompletedLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
       </div>
-      {!valid && <p className="text-xs text-alarm">请填写有效课时：总课时大于0，已完成课时不能超过总课时。</p>}
+      {!valid && <p className="text-xs text-alarm">请填写有效节数：总节数大于0，已完成节数不能超过总节数。</p>}
       <div className="rounded-xl bg-sage-light/50 p-3 text-sm"><span className="text-xs text-ink-muted">累计用时 · 自动累计</span><output aria-label="累计用时（自动累计）" className="block font-bold font-mono mt-1">{liveCourse?.minutes ?? 0} 分钟</output><p className="text-xs text-ink-muted mt-1">由日程计时与完成登记自动记录，不能手动修改。</p></div>
       <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-url">课程链接（选填，仅限http/https）</label><input id="course-url" type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..." className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
       <Button type="submit" fullWidth disabled={isSaving || !valid || !name.trim()}>保存网课数据</Button>

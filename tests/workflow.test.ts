@@ -332,7 +332,7 @@ describe('Milestone 2: Unified Atomic Plan Completion (completePlan)', () => {
     expect('error' in res).toBe(true);
     if ('error' in res) {
       expect(res.error.code).toBe('LESSONS_OVERFLOW');
-      expect(res.error.message).toContain('完成讲数超过剩余未学讲数');
+      expect(res.error.message).toContain('完成节数超过剩余未学节数');
     }
 
     // Ensure state untouched
