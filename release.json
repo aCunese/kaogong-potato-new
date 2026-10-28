@@ -1,7 +1,7 @@
 {
-  "webVersion": "1.0.5",
-  "webBuild": "20261027.04",
-  "schemaVersion": 3,
+  "webVersion": "1.0.6",
+  "webBuild": "20261028.01",
+  "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
   "apkPackageName": "com.ruyne.kaogong",
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-27T00:00:00Z",
-  "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷"
+  "deployedAt": "",
+  "summary": "新增独立番茄钟与休息统计，完善当天待办、数字输入校验及分类学情分析"
 }

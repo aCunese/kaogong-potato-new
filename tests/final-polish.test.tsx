@@ -42,3 +42,13 @@ it('book completion rejects zero questions without writes and accepts zero error
   expect(applyEditBook(state, state.books[0].id, {minutes:2})).toHaveProperty('error');
   expect(state.books[0].minutes).toBe(1);
 });
+
+it('pomodoro shows its configured phase target and silent overtime while keeping total focus', () => {
+  for (const [phaseMs, want] of [[30000, '00:30'], [125000, '+01:05']] as const) {
+    const state: any = structuredClone(BLANK_STATE);
+    state.timerSessions = [{id:'focus-target', timerMode:'pomodoro', focusMinutes:1, restMinutes:1, phase:'focus', phaseMs, status:'paused', createdAt:1, endedAt:0, runningSince:0, segments:[{phase:'focus',start:1,end:60001},{phase:'rest',start:60001,end:120001},{phase:'focus',start:120001,end:120001+phaseMs}]}];
+    const html = render(<StandaloneTimerModal isOpen onClose={() => {}} />, state);
+    expect(html).toMatch(new RegExp(`aria-label="计时读数"[^>]*>${want.replace('+', '\\+')}</output>`));
+    expect(html).toContain(phaseMs === 30000 ? '专注 01:30' : '专注 03:05');
+  }
+});

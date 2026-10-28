@@ -56,6 +56,8 @@ test('schema4 round-trip, legacy idempotent replay, downgrade fence, seed merge 
     const { execFileSync } = await import('node:child_process');
     const backupDir = path.join(temp, 'backup');
     execFileSync(process.execPath, ['--import', 'tsx', 'server/cli.ts', 'hot-backup', backupDir], { env: { ...process.env, DATA_DIR: temp }, stdio: 'pipe' });
+    const manifest = JSON.parse(fs.readFileSync(path.join(backupDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.schemaVersion, 3, 'database backup format must stay independent from workspace Schema 5');
     const { restoreOffline } = await import('../server/disasterRecovery');
     const restoredDir = path.join(temp, 'restored');
     await restoreOffline({ sourceDir: backupDir, dataDir: restoredDir, offlineConfirmed: true });

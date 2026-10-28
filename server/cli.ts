@@ -226,7 +226,8 @@ async function run() {
       const manifest = {
         version: String(releaseConfig.webVersion || 'unknown'),
         build: String(releaseConfig.webBuild || 'unknown'),
-        schemaVersion: Number(releaseConfig.schemaVersion) || 3,
+        // Database backup format is independent of each workspace schema version.
+        schemaVersion: 3,
         createdAt: new Date().toISOString(),
         generationId: genId,
         database: {

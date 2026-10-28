@@ -14,7 +14,9 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen:boolean; onCl
   const [,tick]=useState(0);
   const [sourceType,setSourceType]=useState<'book'|'course'|'custom'>('book'),[sourceId,setSourceId]=useState('');
   const [questions,setQuestions]=useState(''),[errors,setErrors]=useState('0'),[lessons,setLessons]=useState('1');
-  const current = selectedId ? state.timerSessions?.find(s=>s.id===selectedId) : state.timerSessions?.find(s=>s.status==='running'||s.status==='paused');
+  const selected = selectedId ? state.timerSessions?.find(s=>s.id===selectedId&&s.status==='pending'&&sessionTotals(s).focusMs>0) : undefined;
+  const current = selected ?? state.timerSessions?.find(s=>s.status==='running'||s.status==='paused');
+  useEffect(()=>{if(selectedId&&!selected)setSelectedId(null);},[selectedId,selected?.id]);
   const totals=current?sessionTotals(current):{focusMs:0,restMs:0};
   const running=current?.status==='running',pending=current?.status==='pending'&&totals.focusMs>0;
   useEffect(()=>{if(!isOpen)return;setError('');setSuccess('');if(current){setMode(current.phase==='rest'?'rest':current.timerMode);setFocus(String(current.focusMinutes));setRest(String(current.restMinutes));}},[isOpen,current?.id]);
@@ -49,7 +51,7 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen:boolean; onCl
   const displayRest=running&&current?.phase==='rest';
   const phaseMs=(current?.phaseMs??0)+(running?Math.max(0,Date.now()-(current?.runningSince??Date.now())):0);
   const target=(current?.focusMinutes??Number(focus))*60000;
-  const clock=mode==='rest'?Math.max(0,Number(rest)*60000-(current?.phase==='rest'?phaseMs:0)):mode==='countdown'?target-totals.focusMs:totals.focusMs;
+  const clock=mode==='rest'?Math.max(0,Number(rest)*60000-(current?.phase==='rest'?phaseMs:0)):mode==='countdown'?target-totals.focusMs:mode==='pomodoro'?target-(current?.phase==='focus'?phaseMs:0):totals.focusMs;
   const pendingOthers=(state.timerSessions??[]).filter(s=>s.status==='pending'&&sessionTotals(s).focusMs>0&&s.id!==current?.id);
   const validRegistration=Boolean(source)&&totals.focusMs>0&&(sourceType==='book'? positive(questions)&&/^\d+$/.test(errors)&&Number.isSafeInteger(Number(questions))&&Number.isSafeInteger(Number(errors))&&Number(errors)<=Number(questions):sourceType==='course'?positive(lessons)&&Number(lessons)<=remaining:true);
   return <Modal isOpen={isOpen} onClose={onClose} title="番茄钟">

@@ -161,8 +161,8 @@ describe('Backend Server API & Security Suite', () => {
       `public/sw.js must contain RELEASE_VERSION = '${releaseConfig.webVersion}'`
     );
     assert.ok(
-      swContent.includes('kaogong-shell-v3-${RELEASE_VERSION}-${RELEASE_BUILD}') ||
-        swContent.includes(`kaogong-shell-v3-${releaseConfig.webVersion}-${releaseConfig.webBuild}`),
+      swContent.includes(`kaogong-shell-v${releaseConfig.schemaVersion}-\${RELEASE_VERSION}-\${RELEASE_BUILD}`) ||
+        swContent.includes(`kaogong-shell-v${releaseConfig.schemaVersion}-${releaseConfig.webVersion}-${releaseConfig.webBuild}`),
       'public/sw.js CACHE_NAME must bind to release identity'
     );
   });
@@ -745,7 +745,7 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
     const noNonceJson: any = await noNonceRes.json();
     assert.equal(noNonceJson.version, releaseConfig.webVersion);
     assert.equal(noNonceJson.build, releaseConfig.webBuild);
-    assert.equal(noNonceJson.schemaVersion, 3);
+    assert.equal(noNonceJson.schemaVersion, releaseConfig.schemaVersion);
     // APK metadata is only populated once the new package has been signed with the
     // original release key; until then the endpoint must stay honest and empty.
     if (releaseConfig.apkReleased) {
