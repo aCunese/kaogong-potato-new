@@ -1,6 +1,6 @@
 # 考公工作台 · 个人与亲友单实例正式发布与运维操作指南 (SOP)
 
-> **版本标识**：Web `1.0.5` (build `20261027.04`) ｜ Android `1.0.5` (`versionCode 6`) ｜ 数据架构 Schema `3`  
+> **版本标识**：Web `1.0.11` (build `20261029.01`) ｜ Android `1.0.5` (`versionCode 6`) ｜ 数据架构 Schema `5`  
 > **适用范围**：单实例个人与亲友独立部署 ｜ 生产域名：`https://work.ruyne.space`  
 > **架构定位**：不可变 Docker 镜像、宿主机绝对物理路径数据卷、原地升级全量切换（无灰度/无多节点集群）。  
 > **安全底线**：严禁 `docker compose down -v`、严禁 volume prune、严禁直接从本地覆盖服务器数据库、严禁泄露密钥。
@@ -118,15 +118,24 @@ docker compose --env-file deploy/release.env -f deploy/compose.prod.yml config
 在进入维护窗口前，先在线上创建一次完整的预发布热备份，并将其取回异地副本：
 
 ### 步骤 4.1：执行在线热备份
+
+> **⚠️ 参数警告（2026-10-29 事故后修正）**：`hot-backup` 只接受**一个**参数——备份目标目录。
+> 严禁写成 `hot-backup /app/data /app/data/backups`：多余参数会让 CLI 把数据目录当成备份目标，
+> 从而 `unlink` 生产主库路径并写入不完整副本。已发生过一次，恢复流程见
+> `RELEASE-1.0.11-EXECUTION.md`。执行前先用 `node --import tsx server/cli.ts` 查看命令帮助。
+
 通过运行中的容器或宿主机 CLI 执行热备份（持 shared 锁，支持在线读）：
 
 ```bash
-# 方式 A：在运行中容器内执行
-docker exec -t kaogong-potato-app node --import tsx server/cli.ts hot-backup /app/data /app/data/backups
+# 方式 A：在运行中容器内执行（单参数 = 备份目标目录，时间戳由 shell 生成）
+TS=$(date -u +%Y%m%d_%H%M%S)
+docker exec kaogong-potato-app node --import tsx server/cli.ts hot-backup "/app/data/backups/backup_${TS}"
 
-# 方式 B：使用备份脚本
-docker exec -t kaogong-potato-app ./scripts/backup.sh
+# 方式 B：使用备份脚本（脚本内部使用单参数调用并做完整性校验）
+docker exec kaogong-potato-app ./scripts/backup.sh
 ```
+
+注意：非交互式脚本里不要给 `docker exec` 加 `-t`，否则没有 TTY 时会挂起。
 
 备份完成后，检查最新备份目录中的 `manifest.json` 与 `potato.db`，确认文件完整且 SHA-256 哈希匹配。
 
@@ -160,7 +169,7 @@ docker run --rm --network none \
   --cap-drop ALL --security-opt no-new-privileges:true \
   --mount "type=bind,src=${PROD_DATA_DIR},dst=/app/data" \
   -e DATA_DIR=/app/data "${APP_IMAGE}" \
-  node --import tsx server/cli.ts hot-backup /app/data /app/data/backups
+  node --import tsx server/cli.ts hot-backup "/app/data/backups/backup_stop_$(date -u +%Y%m%d_%H%M%S)"
 ```
 
 确认备份成功后，原始数据保持在原位，进入新镜像启动。
@@ -190,7 +199,7 @@ curl --fail --silent "http://127.0.0.1:3000/api/version?nonce=$(date +%s)"
 1. 打开既有浏览器会话（原登录状态保持，无需注销或清空站点数据）。
 2. 若当前有弹窗编辑中、计时器运行中、或未同步数据存在，`updateGuard` 会有效阻止刷新，并提示“正在进行数据编辑或操作，已暂缓应用更新”。
 3. 完成编辑或关闭弹窗后，点击更新提示或在“设置 → 检查更新”中手动点击更新：
-   - 页面平滑重载至新构建 `20261027.04`。
+   - 页面平滑重载至新构建 `20261029.01`。
    - 检查今日页「只看未完成」开关、「学习登记记录」按日期查看弹窗（含当天日程补登记与当天登记）以及学习提醒的邮箱管理与历史筛选，做题打卡、题本统计及错题照片全部完好。
    - 新建一条做题记录，验证同步至服务端成功。
 
