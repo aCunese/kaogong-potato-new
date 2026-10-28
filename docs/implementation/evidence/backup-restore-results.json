@@ -1,11 +1,11 @@
 {
-  "runId": "backup_1793092541470_3c1cee",
-  "checkedAt": "2026-10-27T09:15:44.043Z",
-  "seedDataDir": "/tmp/potato-backup-audit-i5eTq6/seed-data",
-  "restoreDataDir": "/tmp/potato-backup-audit-i5eTq6/restore-data",
-  "archivePath": "/tmp/potato-backup-audit-i5eTq6/seed-data/backups/backup_20261027_181542.tar.gz",
-  "archiveSize": 7291,
-  "gitHead": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+  "runId": "backup_1793201144555_c9bbca",
+  "checkedAt": "2026-10-28T15:25:47.894Z",
+  "seedDataDir": "/tmp/potato-backup-audit-Mm5DvM/seed-data",
+  "restoreDataDir": "/tmp/potato-backup-audit-Mm5DvM/restore-data",
+  "archivePath": "/tmp/potato-backup-audit-Mm5DvM/seed-data/backups/backup_20261029_002545.tar.gz",
+  "archiveSize": 8655,
+  "gitHead": "4ad8c561846c59929132fbfaa30db4b48de99b96",
   "integrity": {
     "integrity": "ok",
     "workspaces": 1,
@@ -13,15 +13,15 @@
     "seedVersion": 1,
     "mediaCount": 1,
     "sessions": 0,
-    "generation": "gen_1793092542860_ce35be6406b14201"
+    "generation": "gen_1793201146090_9b401576bc7d2baa"
   },
-  "dockerAvailable": false,
+  "dockerAvailable": true,
   "resticAvailable": false,
   "environmentGaps": [
     {
       "item": "Docker 容器重建验收",
-      "available": false,
-      "note": "环境未安装 Docker：容器重建/持久卷挂载验收未执行，不得宣称已验收"
+      "available": true,
+      "note": "已具备执行条件"
     },
     {
       "item": "Restic 异地灾备仓库快照与隔离恢复",
@@ -45,7 +45,7 @@
       "passed": true,
       "detail": {
         "status": 200,
-        "id": "media_1793092541935_009f38f5ab24"
+        "id": "media_1793201145059_9e024a67eb59"
       }
     },
     {
@@ -60,8 +60,8 @@
       "name": "backup: backup.sh produced a tar.gz archive",
       "passed": true,
       "detail": {
-        "archivePath": "/tmp/potato-backup-audit-i5eTq6/seed-data/backups/backup_20261027_181542.tar.gz",
-        "size": 7291
+        "archivePath": "/tmp/potato-backup-audit-Mm5DvM/seed-data/backups/backup_20261029_002545.tar.gz",
+        "size": 8655
       }
     },
     {
@@ -87,7 +87,7 @@
         "seedVersion": 1,
         "mediaCount": 1,
         "sessions": 0,
-        "generation": "gen_1793092542860_ce35be6406b14201"
+        "generation": "gen_1793201146090_9b401576bc7d2baa"
       }
     },
     {
@@ -100,7 +100,7 @@
         "seedVersion": 1,
         "mediaCount": 1,
         "sessions": 0,
-        "generation": "gen_1793092542860_ce35be6406b14201"
+        "generation": "gen_1793201146090_9b401576bc7d2baa"
       }
     },
     {
@@ -115,15 +115,15 @@
       "passed": true,
       "detail": {
         "revision": 2,
-        "image": "/api/media/media_1793092541935_009f38f5ab24"
+        "image": "/api/media/media_1793201145059_9e024a67eb59"
       }
     },
     {
       "name": "restore: generation rotated after restore",
       "passed": true,
       "detail": {
-        "before": "gen_1793092541616_80fba37148d3b69a",
-        "after": "gen_1793092542860_ce35be6406b14201"
+        "before": "gen_1793201144746_457750b504ab7348",
+        "after": "gen_1793201146090_9b401576bc7d2baa"
       }
     },
     {

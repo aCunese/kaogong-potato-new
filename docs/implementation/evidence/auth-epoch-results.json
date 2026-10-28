@@ -1,26 +1,26 @@
 {
-  "runId": "run-20261027-091516-88997d",
-  "checkedAt": "2026-10-27T09:15:34.492Z",
-  "baseUrl": "http://127.0.0.1:53370",
-  "dataDir": "/tmp/run-20261027-091516-88997d-ou1GBa/data",
+  "runId": "run-20261028-152526-bbf212",
+  "checkedAt": "2026-10-28T15:25:44.348Z",
+  "baseUrl": "http://127.0.0.1:52697",
+  "dataDir": "/tmp/run-20261028-152526-bbf212-vW29Rj/data",
   "webBuild": {
-    "version": "1.0.5",
-    "build": "20261027.04",
-    "schemaVersion": 3,
+    "version": "1.0.11",
+    "build": "20261029.01",
+    "schemaVersion": 5,
     "apkVersion": "1.0.5",
     "apkVersionCode": 6,
     "apkDownloadUrl": "/api/download/apk",
-    "apkSha256": "",
-    "apkSizeBytes": 0,
+    "apkSha256": "394fc45d9bbc90a163479e334ad86f42945bb269543883296063c8c871d6d738",
+    "apkSizeBytes": 305550,
     "apkPackageName": "com.ruyne.kaogong",
     "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
-    "apkReleased": false,
-    "deployedAt": "2026-10-27T00:00:00Z",
-    "summary": "个人使用正式上线版：修复资料保存、导入、恢复与安全升级全部缺陷",
-    "servedAt": "2026-10-27T09:15:34.494Z",
-    "nonce": "run-20261027-091516-88997d"
+    "apkReleased": true,
+    "deployedAt": "2026-10-28T15:21:14Z",
+    "summary": "今日日程已完成卡片瘦身与「只看未完成」开关；学习登记记录改为按日期查看，当天日程、补登记与当天登记合并；学习提醒邮箱管理收进二级弹窗，提醒列表紧凑化、历史记录按日期分组并可筛选",
+    "servedAt": "2026-10-28T15:25:44.350Z",
+    "nonce": "run-20261028-152526-bbf212"
   },
-  "gitHead": "913871d3edc1439c56efa7653c045fa0b2170cfa",
+  "gitHead": "4ad8c561846c59929132fbfaa30db4b48de99b96",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -54,7 +54,7 @@
       "detail": {
         "navAfterLateResponse": 0,
         "loginStillVisible": true,
-        "body": "考公工作台\n\n你的专属备考陪伴与学情统计空间\n\n登录账号\n注册新学员\n用户名(支持英文字母与数字)\n学员昵称(用于个性化学习空间称呼)\n账号密码\n至少 8 位字符\n注册邀请码(专属通道凭证)\n注册并进入工作台\n学情记录本地可靠暂存 · 联网"
+        "body": "考公工作台\n\n你的专属备考陪伴与学情统计空间\n\n用户名(支持英文字母与数字)\n学员昵称(用于个性化学习空间称呼)\n账号密码\n至少 8 位字符\n注册邀请码(每位朋友需使用全新邀请码)\n注册并进入工作台\n已有账号？返回登录\n学情记录本地保存 ·"
       }
     },
     {
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793092532872_5792b8aad165"
+        "image": "/api/media/media_1793201142697_68442edcc46f"
       }
     },
     {
