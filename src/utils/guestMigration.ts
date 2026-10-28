@@ -200,7 +200,7 @@ export function buildGuestMigration(account: AppState, guest: AppState): GuestMi
 
   for (const guestPlan of guest.plans ?? []) {
     const mappedLibraryId = libraryIdMap.get(guestPlan.libraryId) || guestPlan.libraryId;
-    const libraryItem = merged.library.find(l => l.id === mappedLibraryId) ?? (guestPlan.sessionId ? { type: guestPlan.type } : undefined);
+    const libraryItem = merged.library.find(l => l.id === mappedLibraryId) ?? (guestPlan.sessionId || (guestPlan.type === 'custom' && !guestPlan.libraryId) ? { type: guestPlan.type } : undefined);
     if (!libraryItem) {
       preview.plansSkipped += 1;
       continue;

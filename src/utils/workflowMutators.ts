@@ -6,7 +6,8 @@ import {
   Plan,
   StudyRecord,
   WrongRecord,
-  Subject,
+  StudySubject,
+  isStudySubjectForType,
   Profile,
   CompletionInput,
   MediaRecord,
@@ -225,6 +226,27 @@ export function applyAddPlan(
   return { nextState: draft, value: newPlan };
 }
 
+/** Creates a standalone custom plan without adding a reusable library item. */
+export function applyAddCustomPlan(
+  draft: AppState,
+  name: string,
+  subject: StudySubject,
+  date: string,
+  plannedMinutes: number
+): MutatorReturn<Plan> {
+  const title = name.trim();
+  if (!title || title.length > 200) return { error: { code: 'INVALID_NAME', message: '请填写1至200字的事项名称。' } };
+  if (!isStudySubjectForType(subject, 'custom')) return { error: { code: 'INVALID_SUBJECT', message: '请选择有效的所属科目。' } };
+  if (!Number.isSafeInteger(plannedMinutes) || plannedMinutes <= 0) return { error: { code: 'INVALID_MINUTES', message: '请填写大于0的整数分钟。' } };
+  const plan: Plan = {
+    id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    date, name: title, subject, type: 'custom', libraryId: '', sourceId: '',
+    plannedMinutes, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: 0,
+  };
+  draft.plans.push(plan);
+  return { nextState: draft, value: plan };
+}
+
 /**
  * Quickly adds a plan with default minutes.
  */
@@ -368,9 +390,10 @@ export function applyDeleteCourse(draft: AppState, id: string): MutatorReturn<vo
 export function applyAddCustomItem(
   draft: AppState,
   name: string,
-  subject: Subject,
+  subject: StudySubject,
   defaultMinutes: number
 ): MutatorReturn<LibraryItem> {
+  if (!name.trim() || name.trim().length > 200 || !isStudySubjectForType(subject, 'custom')) return { error: { code: 'INVALID_INPUT', message: '请填写200字以内的事项名称，并选择有效科目。' } };
   if (!Number.isSafeInteger(defaultMinutes) || defaultMinutes <= 0) return { error: { code: 'INVALID_MINUTES', message: '默认时长必须为大于0的整数分钟。' } };
   const id = `lib-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newItem: LibraryItem = {

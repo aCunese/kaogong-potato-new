@@ -15,7 +15,7 @@ export function getCourseAnalysis(courses: Course[], records: StudyRecord[]) {
   const days = new Map<string, { date: string; minutes: number; lessons: number }>();
   for (const record of selected) {
     if (!rows.has(record.sourceId)) rows.set(record.sourceId, {
-      id: record.sourceId, name: '已删除课程', subject: record.subject,
+      id: record.sourceId, name: '已删除课程', subject: record.subject as Course['subject'],
       minutes: 0, lessons: 0, sessions: 0, completedLessons: 0, totalLessons: 0,
       cumulativeMinutes: 0, deleted: true,
     });

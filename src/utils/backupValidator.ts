@@ -1,5 +1,5 @@
 import { validateStudyExtensions, planExtensions } from './studyExtensions';
-import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, Subject, PlanType } from '../types';
+import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, StudySubject, Subject, PlanType, isStudySubjectForType } from '../types';
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
 
 export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -243,7 +243,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     if (!VALID_PLAN_TYPES.has(p.type)) {
       return { valid: false, error: `学习计划 "${p.name}" 的类型 "${p.type}" 不合法` };
     }
-    if (!VALID_SUBJECT_SET.has(p.subject)) {
+    if (!isStudySubjectForType(p.subject, p.type)) {
       return { valid: false, error: `学习计划 "${p.name}" 的科目 "${p.subject}" 不合法` };
     }
     if (!isNonNegativeNumber(p.plannedMinutes)) {
@@ -275,7 +275,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       name: p.name.trim(),
       type: p.type as PlanType,
       sourceId: typeof p.sourceId === 'string' ? p.sourceId.trim() : '',
-      subject: p.subject as Subject,
+      subject: p.subject as StudySubject,
       plannedMinutes: Math.round(p.plannedMinutes),
       actualMinutes: Math.round(p.actualMinutes),
       accumulatedMs,
@@ -296,7 +296,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     if (!VALID_PLAN_TYPES.has(r.type)) {
       return { valid: false, error: `学习记录中第 ${i + 1} 项的类型 "${r.type}" 不合法` };
     }
-    if (!VALID_SUBJECT_SET.has(r.subject)) {
+    if (!isStudySubjectForType(r.subject, r.type)) {
       return { valid: false, error: `学习记录中第 ${i + 1} 项的科目 "${r.subject}" 不合法` };
     }
     if (!isNonNegativeNumber(r.minutes)) {
@@ -322,7 +322,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       date: r.date.trim(),
       type: r.type as PlanType,
       sourceId: typeof r.sourceId === 'string' ? r.sourceId.trim() : '',
-      subject: r.subject as Subject,
+      subject: r.subject as StudySubject,
       minutes: Math.round(r.minutes),
       questions: Math.round(r.questions),
       errors: Math.round(r.errors),
@@ -437,7 +437,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     if (!item || typeof item !== 'object' || Array.isArray(item)
       || typeof item.id !== 'string' || !item.id.trim()
       || typeof item.name !== 'string' || !item.name.trim()
-      || !VALID_PLAN_TYPES.has(item.type) || !VALID_SUBJECT_SET.has(item.subject)
+      || !VALID_PLAN_TYPES.has(item.type) || !isStudySubjectForType(item.subject, item.type)
       || typeof item.sourceId !== 'string'
       || !isNonNegativeNumber(item.defaultMinutes) || item.defaultMinutes <= 0) {
       return { valid: false, error: `事项库中第 ${index + 1} 项数据无效` };

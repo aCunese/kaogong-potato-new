@@ -16,7 +16,7 @@ import {
   pruneWorkspaceHistory,
   pruneSyncIdempotency,
 } from './retention';
-import { AppState, PlanType } from '../src/types';
+import { AppState, PlanType, isStudySubjectForType } from '../src/types';
 import {
   createSeedState,
   createSeedBooks,
@@ -322,7 +322,7 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
     if (!isNonEmptyString(item.name, WORKSPACE_STRING_LIMITS.libraryName)) {
       return { valid: false, message: `library[${i}].name 必须为非空字符串且长度不超过 ${WORKSPACE_STRING_LIMITS.libraryName}` };
     }
-    if (typeof item.subject !== 'string' || !VALID_SUBJECTS.has(item.subject)) {
+    if (!isStudySubjectForType(item.subject, item.type)) {
       return { valid: false, message: `library[${i}].subject「${item.subject}」不是有效的科目` };
     }
     if (!isNonNegativeNumber(item.defaultMinutes)) {
@@ -356,6 +356,10 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
     } else if (!derivePlanType(state.library, p)) {
       // 旧版快照可缺失 type（无法从 library 推导时按历史数据兼容放行，非法显式 type 已在上方拒绝）
     }
+    const planType = p.type ?? derivePlanType(state.library, p);
+    if (!isStudySubjectForType(p.subject, planType)) {
+      return { valid: false, message: `plans[${i}].subject「${p.subject}」不是有效科目` };
+    }
     for (const field of ['plannedMinutes', 'targetMinutes', 'actualMinutes', 'accumulatedMs', 'timerStart']) {
       if (p[field] !== undefined && !isNonNegativeNumber(p[field])) {
         return { valid: false, message: `plans[${i}].${field} 必须为有限非负数字` };
@@ -383,7 +387,7 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
     if (typeof r.date !== 'string' || !DATE_RE.test(r.date)) {
       return { valid: false, message: `records[${i}].date「${r.date}」必须为 YYYY-MM-DD 格式` };
     }
-    if (typeof r.subject !== 'string' || !VALID_SUBJECTS.has(r.subject)) {
+    if (!isStudySubjectForType(r.subject, r.type)) {
       return { valid: false, message: `records[${i}].subject「${r.subject}」不是有效科目` };
     }
     if (!isNonNegativeNumber(r.minutes)) {

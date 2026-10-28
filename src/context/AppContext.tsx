@@ -11,7 +11,7 @@ import {
   Plan,
   StudyRecord,
   WrongRecord,
-  Subject,
+  StudySubject,
   Profile,
   MutationResult,
   CompletionInput,
@@ -80,6 +80,7 @@ import {
   applyPauseTimer,
   applyCompletePlan,
   applyAddPlan,
+  applyAddCustomPlan,
   applyQuickAddPlan,
   applyDeletePlan,
   applyAddBook,
@@ -128,6 +129,7 @@ export interface AppContextType {
 
   // Plans & Timers
   addPlan: (libraryId: string, plannedMinutes?: number, plannedLessons?: number) => Promise<MutationResult<Plan>>;
+  addCustomPlan: (name: string, subject: StudySubject, plannedMinutes: number) => Promise<MutationResult<Plan>>;
   quickAddPlan: (libraryId: string) => Promise<MutationResult<Plan>>;
   startTimer: (planId: string) => Promise<MutationResult<void>>;
   pauseTimer: (planId: string) => Promise<MutationResult<void>>;
@@ -163,7 +165,7 @@ export interface AppContextType {
   deleteCourse: (id: string) => Promise<MutationResult<void>>;
 
   // Library
-  addCustomItem: (name: string, subject: Subject, defaultMinutes: number) => Promise<MutationResult<LibraryItem>>;
+  addCustomItem: (name: string, subject: StudySubject, defaultMinutes: number) => Promise<MutationResult<LibraryItem>>;
   updateLibraryMinutes: (id: string, defaultMinutes: number) => Promise<MutationResult<void>>;
   deleteCustomItem: (id: string) => Promise<MutationResult<void>>;
 
@@ -1212,6 +1214,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', foreground); };
   }, [authPhase, executeMutation, isLoading, preview, state.plans]);
 
+  const addCustomPlan = useCallback(
+    async (name: string, subject: StudySubject, plannedMinutes: number): Promise<MutationResult<Plan>> => {
+      return executeMutation(draft => applyAddCustomPlan(draft, name, subject, activeDate, plannedMinutes), 'add_custom_plan');
+    },
+    [activeDate, executeMutation]
+  );
+
   const quickAddPlan = useCallback(
     async (libraryId: string): Promise<MutationResult<Plan>> => {
       return executeMutation(draft => applyQuickAddPlan(draft, libraryId, activeDate), 'quick_add_plan');
@@ -1319,7 +1328,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   );
 
   const addCustomItem = useCallback(
-    async (name: string, subject: Subject, defaultMinutes: number): Promise<MutationResult<LibraryItem>> => {
+    async (name: string, subject: StudySubject, defaultMinutes: number): Promise<MutationResult<LibraryItem>> => {
       return executeMutation(draft => applyAddCustomItem(draft, name, subject, defaultMinutes), 'add_custom_item');
     },
     [executeMutation]
@@ -2313,6 +2322,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         updateCountdown,
         addPlan,
         quickAddPlan,
+        addCustomPlan,
         addTodo,
         toggleTodo,
         deleteTodo,

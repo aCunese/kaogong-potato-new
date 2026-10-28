@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
-import { SUBJECTS, Subject, AnalysisSubTab, StudyRecord } from '../../types';
+import { SUBJECTS, STUDY_SUBJECTS, StudySubject, AnalysisSubTab, StudyRecord } from '../../types';
 import { filterAnalysisRecords } from '../../utils/workflowPresentation';
 import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
 
-const SUBJECT_COLORS: Record<Subject, string> = {
+const SUBJECT_COLORS: Record<StudySubject, string> = {
   '资料分析': '#1F77B4',
   '判断推理': '#FF7F0E',
   '言语理解': '#2CA02C',
@@ -17,11 +17,12 @@ const SUBJECT_COLORS: Record<Subject, string> = {
   '常识判断': '#8C564B',
   '申论': '#C43C8F',
   '面试': '#087F8C',
+  '其他': '#8E9685',
 };
 
 const TimeBreakdown: React.FC<{ records: StudyRecord[] }> = ({ records }) => <Card className="p-4 space-y-2">
   <h3 className="text-sm font-bold">学习用时明细</h3>
-  {([['book', '刷题用时'], ['course', '网课用时'], ['custom', '其他学习用时']] as const).map(([type, label]) => <div className="flex justify-between text-xs text-ink-muted" key={type}><span>{label}</span><span className="font-mono text-ink-main">{records.filter(r => r.type === type).reduce((sum, r) => sum + r.minutes, 0)} 分钟</span></div>)}
+  {([['book', '刷题用时'], ['course', '网课用时'], ['custom', '自定义学习用时']] as const).map(([type, label]) => <div className="flex justify-between text-xs text-ink-muted" key={type}><span>{label}</span><span className="font-mono text-ink-main">{records.filter(r => r.type === type).reduce((sum, r) => sum + r.minutes, 0)} 分钟</span></div>)}
   <div className="flex justify-between border-t border-line pt-2 text-xs font-bold"><span>总学习用时</span><span>{records.reduce((sum, r) => sum + r.minutes, 0)} 分钟</span></div>
 </Card>;
 
@@ -57,7 +58,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   const overallTotalMinutes = overallRecords.reduce((sum, r) => sum + r.minutes, 0);
 
   // Calculate subject minutes for overall
-  const subjectTimeDistribution = SUBJECTS.map(s => {
+  const subjectTimeDistribution = STUDY_SUBJECTS.map(s => {
     const mins = overallRecords.filter(r => r.subject === s).reduce((sum, r) => sum + r.minutes, 0);
     const pct = overallTotalMinutes > 0 ? (mins / overallTotalMinutes) * 100 : 0;
     return {
@@ -69,7 +70,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   });
 
   // Unique dates in records with questions for line chart
-  const dateMap: Record<string, Record<Subject, { q: number; e: number }>> = {};
+  const dateMap: Record<string, Record<StudySubject, { q: number; e: number }>> = {};
   overallRecords.filter(r => r.type === 'book' && r.questions > 0).forEach(r => {
     if (!dateMap[r.date]) {
       dateMap[r.date] = {} as any;
@@ -90,7 +91,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   const monthErrors = monthlyRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.errors, 0);
   const monthAccuracy = monthQuestions > 0 ? Math.round(((monthQuestions - monthErrors) / monthQuestions) * 100) : 0;
 
-  const monthlySubjectStats = SUBJECTS.map(s => {
+  const monthlySubjectStats = STUDY_SUBJECTS.map(s => {
     const sRecords = monthlyRecords.filter(r => r.subject === s);
     const q = sRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.questions, 0);
     const e = sRecords.filter(r => r.type === 'book').reduce((sum, r) => sum + r.errors, 0);
@@ -337,7 +338,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
           {/* 八大模块正确率与用时明细 */}
           <Card className="p-4 bg-paper border-line space-y-3">
             <div className="flex items-center justify-between border-b border-line pb-2">
-              <h3 className="text-sm font-bold text-ink-main">八科正确率与用时分布</h3>
+              <h3 className="text-sm font-bold text-ink-main">各科正确率与用时</h3>
               <span className="text-xs text-ink-muted font-mono">{selectedMonth}</span>
             </div>
 

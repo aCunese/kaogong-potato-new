@@ -1,17 +1,19 @@
 import { parseIntegerDraft } from '../../utils/numericDraft';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
-import { SUBJECTS, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
+import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff } from 'lucide-react';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   const [errorMsg, setErrorMsg] = useState('');
   const save = async (action: () => Promise<MutationResult<unknown>>, message: string) => {
-    if (isSaving) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setIsSaving(true);
     setErrorMsg('');
     try {
@@ -22,6 +24,7 @@ function useSaveMutation(onClose: () => void, onToast: (message: string) => void
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : '保存失败，请重试');
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -39,11 +42,13 @@ export const AddPlanModal: React.FC<{
   isOpen: boolean; onClose: () => void; onToast: (msg: string) => void;
   onOpenCustomAdd?: () => void; initialLibraryId?: string;
 }> = ({ isOpen, onClose, onToast, onOpenCustomAdd, initialLibraryId }) => {
-  const { state, addPlan } = useApp();
+  const { state, addPlan, addCustomPlan } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const initial = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
   const [type, setType] = useState(initial?.type ?? 'book');
   const [subject, setSubject] = useState('all');
+  const [customName, setCustomName] = useState(initial?.type === 'custom' ? initial.name : '');
+  const [customSubject, setCustomSubject] = useState<StudySubject>(initial?.type === 'custom' ? initial.subject : '其他');
   const [selectedLibId, setSelectedLibId] = useState(initial?.id ?? '');
   const [minutes, setMinutes] = useState(String(initial?.defaultMinutes ?? 30));
   const [lessons, setLessons] = useState('1');
@@ -53,32 +58,49 @@ export const AddPlanModal: React.FC<{
   const items = state.library.filter(l => l.type === type && (subject === 'all' || subject === l.subject));
   const validMinutes = /^\d+$/.test(minutes) && Number.isSafeInteger(Number(minutes)) && Number(minutes) > 0;
   const validLessons = type !== 'course' || Boolean(course && /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0 && Number(lessons) <= remaining);
+  const validItem = type === 'custom'
+    ? customName.trim().length > 0 && customName.trim().length <= 200 && isStudySubjectForType(customSubject, 'custom')
+    : Boolean(selectedItem && selectedItem.type === type);
   const select = (id: string) => { setSelectedLibId(id); setMinutes(String(state.library.find(l => l.id === id)?.defaultMinutes ?? 30)); setLessons('1'); setErrorMsg(''); };
   useEffect(() => {
     if (!isOpen) return;
     const item = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
     setType(item?.type ?? 'book'); setSubject('all'); select(item?.id ?? '');
+    setCustomName(item?.type === 'custom' ? item.name : '');
+    setCustomSubject(item?.type === 'custom' ? item.subject : '其他');
   }, [isOpen, initialLibraryId]);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedItem || selectedItem.type !== type || !validMinutes || !validLessons) { setErrorMsg('请选择事项，填写大于0的分钟和不超过剩余数量的节数。'); return; }
-    void save(() => addPlan(selectedLibId, Number(minutes), type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
+    if (!validItem || !validMinutes || !validLessons) { setErrorMsg('请填写有效事项、大于0的整数分钟；网课节数不能超过剩余数量。'); return; }
+    void save(() => type === 'custom'
+      ? addCustomPlan(customName.trim(), customSubject, Number(minutes))
+      : addPlan(selectedLibId, Number(minutes), type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
   };
   return <Modal isOpen={isOpen} onClose={onClose} title="添加今日日程">
     <form onSubmit={handleSubmit} className="space-y-4">
       <FormError message={errorMsg} />
       <div role="group" aria-label="日程类型" className="grid grid-cols-3 rounded-xl bg-cream p-1 gap-1">
-        {([['book','题本'],['course','网课'],['custom','自定义']] as const).map(([value,label]) => <button key={value} type="button" aria-pressed={type === value} onClick={() => {setType(value);setSubject('all');select(state.library.find(l => l.type === value)?.id ?? '');}} className={`rounded-lg py-2 text-xs ${type === value ? 'bg-paper text-sage font-bold shadow-sm' : 'text-ink-muted'}`}>{label}</button>)}
+        {([['book','题本'],['course','网课'],['custom','自定义']] as const).map(([value,label]) => <button key={value} type="button" disabled={isSaving} aria-pressed={type === value} onClick={() => {
+          if (type === value) return;
+          setType(value); setSubject('all');
+          if (value === 'custom') { setMinutes('30'); setErrorMsg(''); }
+          else select(state.library.find(l => l.type === value)?.id ?? '');
+        }} className={`rounded-lg py-2 text-xs ${type === value ? 'bg-paper text-sage font-bold shadow-sm' : 'text-ink-muted'}`}>{label}</button>)}
       </div>
-      <label className="block text-xs text-ink-muted">所属科目<select aria-label="筛选日程科目" value={subject} onChange={e => { const next=e.target.value; setSubject(next);select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');}} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70"><option value="all">全部科目</option>{SUBJECTS.map(s => <option key={s}>{s}</option>)}</select></label>
-      <label className="block text-xs text-ink-muted">选择事项<select aria-label="选择事项" value={selectedLibId} onChange={e => select(e.target.value)} className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">
-        {!items.length && <option value="">该分类暂无内容，请先到学习库添加</option>}{items.map(l => <option key={l.id} value={l.id}>{l.name} · {l.subject}</option>)}
-      </select></label>
-      <label className="block text-xs text-ink-muted">今日计划用时（分钟）<input aria-label="今日计划用时" type="number" min="1" step="1" required value={minutes} onChange={e => setMinutes(e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-line rounded-xl bg-cream/70 font-mono text-sm" /></label>
+      {type === 'custom' ? <>
+        <label className="block text-xs text-ink-muted">所属科目<select aria-label="自定义事项所属科目" disabled={isSaving} value={customSubject} onChange={e => setCustomSubject(e.target.value as StudySubject)} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70">{STUDY_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
+        <label className="block text-xs text-ink-muted">事项名称<input aria-label="事项名称" type="text" required maxLength={200} disabled={isSaving} value={customName} onChange={e => setCustomName(e.target.value)} placeholder="例如：晨读时政、整理错题" className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></label>
+      </> : <>
+        <label className="block text-xs text-ink-muted">筛选科目<select aria-label="筛选日程科目" value={subject} onChange={e => { const next=e.target.value; setSubject(next);select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');}} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70"><option value="all">全部科目</option>{SUBJECTS.map(s => <option key={s}>{s}</option>)}</select></label>
+        <label className="block text-xs text-ink-muted">选择事项<select aria-label="选择事项" value={selectedLibId} onChange={e => select(e.target.value)} className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">
+          {!items.length && <option value="">该分类暂无内容，请先到学习库添加</option>}{items.map(l => <option key={l.id} value={l.id}>{l.name} · {l.subject}</option>)}
+        </select></label>
+      </>}
+      <label className="block text-xs text-ink-muted">今日计划用时（分钟）<input aria-label="今日计划用时" type="number" min="1" step="1" required disabled={isSaving} value={minutes} onChange={e => setMinutes(e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-line rounded-xl bg-cream/70 font-mono text-sm" /></label>
       {type === 'course' && <div><p className="text-xs text-ink-muted mb-2">剩余 {Math.max(0,remaining)} 节</p><label className="text-xs text-ink-muted">本次计划节数<input aria-label="本次计划节数" type="number" min="1" max={remaining} step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-line bg-cream/70 text-sm" /></label>{!validLessons && <p className="text-xs text-alarm mt-1">节数须大于0，且不能超过剩余 {Math.max(0,remaining)} 节。</p>}<p className="text-xs text-ink-muted mt-2">完成后确认实际节数，真实用时自动记录。</p></div>}
       {!validMinutes && <p className="text-xs text-alarm">时长须大于0，空白不能加入。</p>}
-      {onOpenCustomAdd && <button type="button" className="text-xs text-sage" onClick={() => {onClose();onOpenCustomAdd();}}>添加自定义学习事项</button>}
-      <Button type="submit" variant="primary" fullWidth disabled={isSaving || !selectedItem || selectedItem.type !== type || !validMinutes || !validLessons}>确认加入今日日程</Button>
+      {type !== 'custom' && onOpenCustomAdd && <button type="button" className="text-xs text-sage" onClick={() => {onClose();onOpenCustomAdd();}}>添加自定义学习事项</button>}
+      <Button type="submit" variant="primary" fullWidth disabled={isSaving || !validItem || !validMinutes || !validLessons}>确认加入今日日程</Button>
     </form>
   </Modal>;
 };
@@ -310,7 +332,7 @@ export const CustomAddModal: React.FC<{
   const { addCustomItem } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [name, setName] = useState('');
-  const [subject, setSubject] = useState<Subject>('申论');
+  const [subject, setSubject] = useState<StudySubject>('其他');
   const [defaultMinutes, setDefaultMinutes] = useState('30');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -327,6 +349,7 @@ export const CustomAddModal: React.FC<{
           <label className="block text-xs text-ink-muted font-medium mb-1">事项名称</label>
           <input
             type="text"
+            maxLength={200}
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="例如：每日晨读人民日报时评"
@@ -338,10 +361,10 @@ export const CustomAddModal: React.FC<{
           <label className="block text-xs text-ink-muted font-medium mb-1">归属科目</label>
           <select
             value={subject}
-            onChange={e => setSubject(e.target.value as Subject)}
+            onChange={e => setSubject(e.target.value as StudySubject)}
             className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
           >
-            {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            {STUDY_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
 
@@ -833,14 +856,14 @@ export const OverallLegendModal: React.FC<{
   const totalMin = displayedRecords.reduce((sum, r) => sum + r.minutes, 0);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="八科投入时间与图例详情">
+    <Modal isOpen={isOpen} onClose={onClose} title="科目投入时间与图例详情">
       <div className="space-y-3">
         <div className="text-xs text-ink-muted">
           {rangeLabel}已登记投入：<span className="font-bold text-ink-main font-mono">{totalMin}</span> 分钟
         </div>
 
         <div className="space-y-2 pt-1">
-          {SUBJECTS.map(subj => {
+          {STUDY_SUBJECTS.map(subj => {
             const mins = displayedRecords.filter(r => r.subject === subj).reduce((sum, r) => sum + r.minutes, 0);
             const pct = totalMin > 0 ? ((mins / totalMin) * 100).toFixed(1) : '0.0';
             return (

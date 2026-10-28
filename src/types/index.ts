@@ -10,6 +10,12 @@ export const SUBJECTS = [
 ] as const;
 
 export type Subject = typeof SUBJECTS[number];
+export const STUDY_SUBJECTS = [...SUBJECTS, '其他'] as const;
+export type StudySubject = typeof STUDY_SUBJECTS[number];
+
+export function isStudySubjectForType(subject: unknown, type: unknown): subject is StudySubject {
+  return typeof subject === 'string' && (SUBJECTS.some(s => s === subject) || (type === 'custom' && subject === '其他'));
+}
 
 export interface Countdown {
   id: string;
@@ -41,7 +47,7 @@ export interface Plan {
   name: string;
   type: PlanType;
   sourceId: string;
-  subject: Subject;
+  subject: StudySubject;
   plannedMinutes: number;
   actualMinutes: number;
   accumulatedMs?: number; // Exact elapsed milliseconds, prevents fractional pause inflation (Fixes A10)
@@ -85,7 +91,7 @@ export interface LibraryItem {
   type: PlanType;
   sourceId: string;
   name: string;
-  subject: Subject;
+  subject: StudySubject;
   defaultMinutes: number;
 }
 
@@ -95,7 +101,7 @@ export interface StudyRecord {
   date: string;
   type: PlanType;
   sourceId: string;
-  subject: Subject;
+  subject: StudySubject;
   minutes: number;
   questions: number;
   errors: number;
