@@ -940,7 +940,6 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'analysis' ? (
             <AnalysisView
-              onEditRecord={openRecordEditor}
               initialSubTab={analysisSubTab}
               selectedMonth={selectedMonth}
               onOpenMonthPicker={() => setMonthPickerOpen(true)}

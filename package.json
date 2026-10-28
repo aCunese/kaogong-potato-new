@@ -22,7 +22,9 @@
     "verify:apk": "./scripts/build-apk.sh --unsigned-verify",
     "verify:apk-old": "./scripts/build-apk.sh --verify-apk release/apk/kaogong-potato-v1.0.2.apk",
     "server:smtp": "node --env-file=.env.smtp.local --import tsx server/index.ts",
-    "verify:study-extensions": "node --import tsx scripts/study-extensions-e2e-audit.ts"
+    "verify:study-extensions": "node --import tsx scripts/study-extensions-e2e-audit.ts",
+    "verify:ux-preview": "node --import tsx scripts/ux-records-email-preview.ts",
+    "preview:ux": "node --import tsx scripts/preview-server.ts"
   },
   "dependencies": {
     "argon2": "^0.45.1",

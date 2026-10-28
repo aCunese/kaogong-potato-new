@@ -53,8 +53,35 @@ async function account(id:string) {
 }
 const pass=(label:string)=>{results.push(label);console.log('PASS '+label);};
 async function until(condition:()=>Promise<boolean>){for(let i=0;i<100;i++){if(await condition())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out waiting for persisted feature state');}
+async function scrollPageBottom(page:any){await page.evaluate(()=>{document.querySelectorAll<HTMLElement>('div').forEach(node=>{if(node.scrollHeight>node.clientHeight+40&&['auto','scroll'].includes(getComputedStyle(node).overflowY))node.scrollTop=node.scrollHeight;});});}
 try {
   const owner=await account('owner'), viewer=await account('viewer'), stranger=await account('stranger');
+  // The Today page now hosts the study-registration log (replaces the old inline 历史日程 dropdown).
+  await owner.page.getByRole('heading',{name:/学习登记记录/}).waitFor();
+  assert.equal(await owner.page.getByLabel('查看历史日程').count(),0);
+  for(const width of [360,393,412]){await owner.page.setViewportSize({width,height:915});await owner.page.clock.runFor(50);await scrollPageBottom(owner.page);await owner.page.screenshot({path:path.join(output,'today-records-'+width+'.png')});}
+  await owner.page.setViewportSize({width:393,height:915});
+  await owner.page.getByRole('button',{name:'查看全部',exact:true}).click();
+  const recordsDialog=owner.page.getByRole('dialog',{name:'学习登记记录'});
+  // Date-first view: one day at a time, today's plans and registrations together.
+  await recordsDialog.getByLabel('选择查看日期').waitFor();
+  assert.equal(await recordsDialog.getByText(/共 \d+ 条登记/).count(),0);
+  await recordsDialog.getByText('当天日程',{exact:true}).waitFor();
+  await recordsDialog.getByText('学习登记',{exact:true}).waitFor();
+  await recordsDialog.getByText('图形推理700题',{exact:true}).first().waitFor();
+  for(const width of [360,393,412]){await owner.page.setViewportSize({width,height:915});await owner.page.clock.runFor(50);assert.equal(await recordsDialog.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await recordsDialog.screenshot({path:path.join(output,'study-records-'+width+'.png')});}
+  await recordsDialog.getByRole('button',{name:'前一天'}).click();
+  await recordsDialog.getByText('这一天没有日程或登记',{exact:true}).waitFor();
+  await recordsDialog.getByRole('button',{name:'回到今天'}).click();
+  await recordsDialog.getByText('今天的日程与登记',{exact:true}).waitFor();
+  await recordsDialog.getByRole('button',{name:'关闭弹窗',exact:true}).click();
+  await owner.page.setViewportSize({width:393,height:915});
+  // Completed cards stay visible (line-through) but the compact list can be filtered to unfinished only.
+  await owner.page.getByRole('button',{name:'只看未完成',exact:true}).click();
+  await owner.page.getByText('今天没有未完成的日程了',{exact:true}).waitFor();
+  await owner.page.getByRole('button',{name:'显示全部日程',exact:true}).click();
+  assert.equal(await owner.page.getByRole('button',{name:'修改登记',exact:true}).count(),2);
+  pass('Today page shows the study log; dialog views one selected day; completed cards filter to unfinished only');
   await owner.page.getByRole('button',{name:'修改登记',exact:true}).first().click();
   let dialog=owner.page.getByRole('dialog',{name:'修改本次登记'});
   await dialog.getByLabel('修正本次错题数').fill('21');assert.equal(await dialog.getByRole('button',{name:'保存修改'}).isDisabled(),true);
@@ -100,12 +127,32 @@ try {
   pass('Primary features fit the first viewport; backup/update remain reachable and reset stays tucked away');
   await owner.page.getByRole('button',{name:'学习提醒',exact:true}).click();
   const mail=owner.page.getByRole('dialog',{name:'学习提醒'});
+  await mail.getByRole('heading',{name:'先绑定收件邮箱',exact:true}).waitFor();
+  // Binding is a one-time setup, not numbered steps repeated for every reminder.
+  assert.equal(await mail.getByText('绑邮箱',{exact:true}).count(),0);
+  assert.equal(await mail.getByText('到点收邮件',{exact:true}).count(),0);
+  for(const width of [360,393,412]){await owner.page.setViewportSize({width,height:873});await owner.page.clock.runFor(50);assert.equal(await mail.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await mail.screenshot({path:path.join(output,'email-bind-'+width+'.png')});}
   await mail.getByLabel('邮箱地址',{exact:true}).fill('recipient@example.test');await mail.getByRole('button',{name:'发送验证码',exact:true}).click();
   await mail.getByLabel('6 位验证码').waitFor();
   const verification=messages.find(message=>message.subject.includes('验证码'))!;assert.ok(verification);
   const code=verification.text.match(/\b\d{6}\b/)![0];await mail.getByLabel('6 位验证码').fill(code);await mail.getByRole('button',{name:'验证并绑定'}).click();
-  await mail.getByLabel('提醒标题').waitFor();assert.equal(await mail.getByLabel('新邮箱地址',{exact:true}).count(),0);
-  await mail.getByRole('button',{name:'更换邮箱',exact:true}).click();await mail.getByLabel('新邮箱地址',{exact:true}).waitFor();await mail.getByRole('button',{name:'取消更换',exact:true}).click();assert.equal(await mail.getByLabel('新邮箱地址',{exact:true}).count(),0);
+  await mail.getByLabel('提醒标题').waitFor();
+  assert.equal(await mail.getByText('r***@example.test',{exact:true}).count(),1);
+  assert.equal(await mail.getByLabel('新邮箱地址',{exact:true}).count(),0);
+  // While composing, the reminder list is hidden so the dialog stays focused.
+  assert.equal(await mail.getByRole('tab',{name:/^待发送/}).count(),0);
+  // Mailbox management lives in its own second-level dialog, not inline on the main surface.
+  await mail.getByRole('button',{name:'邮箱管理',exact:true}).click();
+  const manager=owner.page.getByRole('dialog',{name:'邮箱管理'});
+  await manager.getByRole('button',{name:'更换邮箱',exact:true}).waitFor();
+  assert.equal(await manager.getByRole('button',{name:'解绑邮箱',exact:true}).count(),1);
+  await manager.screenshot({path:path.join(output,'email-manager.png')});
+  await manager.getByRole('button',{name:'更换邮箱',exact:true}).click();
+  await manager.getByLabel('新邮箱地址',{exact:true}).waitFor();
+  await manager.getByRole('button',{name:'取消更换',exact:true}).click();
+  assert.equal(await manager.getByLabel('新邮箱地址',{exact:true}).count(),0);
+  await manager.getByRole('button',{name:'关闭弹窗',exact:true}).click();
+  assert.equal(await owner.page.getByRole('dialog',{name:'邮箱管理'}).count(),0);
   await mail.getByLabel('提醒标题').fill('晚间错题复盘');await mail.getByLabel('提醒正文').fill('复盘图形推理错题');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:02');
   for(const width of [360,393,412]) {
     await owner.page.setViewportSize({width,height:873});await owner.page.clock.runFor(50);
@@ -120,10 +167,14 @@ try {
   assert.equal((db.prepare("SELECT status FROM email_reminders WHERE user_id='owner'").get() as any).status,'sent');
   await mail.getByRole('button',{name:'关闭弹窗',exact:true}).click();await owner.page.getByRole('button',{name:'学习提醒',exact:true}).click();
   await mail.getByRole('tab',{name:/^历史记录/}).click();await mail.getByText('晚间错题复盘（已改）',{exact:true}).waitFor();
+  // History is date-grouped and has status filters; long histories load incrementally.
+  await mail.getByRole('button',{name:'已发送 1',exact:true}).click();await mail.getByText('晚间错题复盘（已改）',{exact:true}).waitFor();
+  await mail.getByRole('button',{name:'已取消 0',exact:true}).click();await mail.getByText('还没有已取消的记录',{exact:true}).waitFor();
+  await mail.getByRole('button',{name:'全部 1',exact:true}).click();
   await owner.page.clock.runFor(3500);
   for(const width of [360,393,412]){await owner.page.setViewportSize({width,height:915});assert.equal(await mail.evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await mail.screenshot({path:path.join(output,'email-reminders-'+width+'.png')});}
   await mail.getByRole('button',{name:'新建提醒',exact:true}).click();await mail.getByLabel('提醒标题').fill('取消测试');await mail.getByLabel('提醒发送时间').fill('2026-10-28T10:03');await mail.getByRole('button',{name:'保存提醒'}).click();await mail.getByRole('button',{name:'取消提醒',exact:true}).click();await mail.getByText('已取消',{exact:true}).waitFor();
-  pass('Verified recipient binding, reminder creation/editing and one-shot worker delivery work through real UI with isolated fake SMTP');
+  pass('Verified recipient binding, second-level mailbox management, focused composer, grouped/filterable history and one-shot worker delivery work through real UI with isolated fake SMTP');
   await mail.getByRole('button',{name:'关闭弹窗',exact:true}).click();
 
   await owner.page.getByRole('button',{name:'学习伙伴',exact:true}).click();const sharing=owner.page.getByRole('dialog',{name:'学习伙伴'});

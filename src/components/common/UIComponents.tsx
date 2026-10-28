@@ -158,7 +158,7 @@ export const Segment: React.FC<{
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
+            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap ${
               active
                 ? 'bg-paper text-ink-main shadow-sm font-semibold'
                 : 'text-ink-muted hover:text-ink-main'

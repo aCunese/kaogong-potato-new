@@ -1,13 +1,15 @@
 import { StandaloneTimerModal } from './StandaloneTimerModal';
+import { StudyRecordsModal } from './StudyRecordsModal';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
-import { Card, Button, Tag, Modal } from '../common/UIComponents';
-import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles } from 'lucide-react';
+import { StudyRecordItem } from '../common/StudyRecordItem';
+import { Card, Button, Tag } from '../common/UIComponents';
+import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList } from 'lucide-react';
 import { Plan, StudyRecord, MutationResult, TimerMode } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
-import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs } from '../../utils/workflowPresentation';
+import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs, getStudyRecordName, studyDateLabel } from '../../utils/workflowPresentation';
 
 interface TodayViewProps {
   forcedMode?: 'normal' | 'empty' | 'multi';
@@ -36,7 +38,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser } = useApp();
   const [, setTick] = useState(0);
-  const [historyDate, setHistoryDate] = useState('');
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [recordsDate, setRecordsDate] = useState<string | undefined>(undefined);
+  const [onlyUnfinished, setOnlyUnfinished] = useState(false);
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
@@ -54,7 +58,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }, [state.plans]);
 
   const relevantPlans = state.plans.filter(p => p.date === activeDate);
-  const historyDates = [...new Set(state.plans.filter(p => p.date < activeDate).map(p => p.date))].sort().reverse();
+  const recentRecords = [...state.records]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    .slice(0, 3);
+  const pendingHistoryDates = [...new Set(state.plans.filter(plan => plan.date < activeDate && !plan.done).map(plan => plan.date))].sort().reverse();
+  const pendingHistoryCount = state.plans.filter(plan => plan.date < activeDate && !plan.done).length;
+  const openRecordLog = (date?: string) => { setRecordsDate(date); setRecordsOpen(true); };
+  const deleteHistoryPlan = (plan: Plan) => {
+    if (onOpenDeleteConfirm) onOpenDeleteConfirm(plan);
+    else void runTimerAction(() => deletePlan(plan.id));
+  };
 
   // Determine display list based on forcedMode
   let displayedPlans = relevantPlans;
@@ -74,6 +87,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }
 
   const doneCount = displayedPlans.filter(p => p.done).length;
+  const visiblePlans = onlyUnfinished ? displayedPlans.filter(plan => !plan.done) : displayedPlans;
   const totalElapsedMs = displayedPlans.reduce((sum, p) => {
     const elapsed = getPlanElapsedMs(p);
     return sum + elapsed;
@@ -204,12 +218,22 @@ export const TodayView: React.FC<TodayViewProps> = ({
       </div>
 
       {/* 3. 待执行日程列表头部 */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <h2 className="text-base font-bold text-ink-main flex items-center gap-1.5">
           <span>今日日程</span>
-          <span className="text-xs font-normal text-ink-muted">({displayedPlans.length})</span>
+          <span className="text-xs font-normal text-ink-muted">({visiblePlans.length})</span>
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {doneCount > 0 && (
+            <button
+              type="button"
+              aria-pressed={onlyUnfinished}
+              onClick={() => setOnlyUnfinished(value => !value)}
+              className={`inline-flex h-8 items-center rounded-full border px-2.5 text-[11px] transition-colors ${onlyUnfinished ? 'border-sage bg-sage-light font-medium text-sage-dark' : 'border-line bg-paper text-ink-muted'}`}
+            >
+              只看未完成
+            </button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => setPomodoroOpen(true)}><Clock size={14} />番茄钟</Button>
           <Button variant="primary" size="sm" onClick={onOpenAddPlan}><Plus size={14} />添加日程</Button>
         </div>
@@ -230,147 +254,166 @@ export const TodayView: React.FC<TodayViewProps> = ({
             挑选今日事项
           </Button>
         </Card>
+      ) : onlyUnfinished && visiblePlans.length === 0 ? (
+        <Card className="py-8 text-center bg-paper/80 border-dashed border-line">
+          <CheckCircle2 size={30} className="mx-auto mb-2 text-sage" />
+          <p className="text-sm font-bold text-ink-main">今天没有未完成的日程了</p>
+          <p className="mt-1 text-xs text-ink-muted">已完成的 {doneCount} 项日程都还在。</p>
+          <Button variant="light" size="sm" onClick={() => setOnlyUnfinished(false)} className="mt-3">显示全部日程</Button>
+        </Card>
       ) : (
-        <div className="space-y-3.5">
-          {displayedPlans.map(plan => {
+        <div className="space-y-2.5">
+          {visiblePlans.map(plan => {
             const isRunning = isPlanRunning(plan);
-            return (
-              <Card
-                key={plan.id}
-                className={`p-4 border transition-all rounded-[20px] ${
-                  plan.done
-                    ? 'bg-[#F8FAF5] border-sage-light opacity-90'
-                    : isRunning
-                    ? 'border-sage shadow-md bg-paper ring-1 ring-sage/30'
-                    : 'bg-paper border-line'
-                }`}
-              >
-                {/* 顶栏：标签 + 标题 + 右上角操作 */}
+            const elapsedMinutes = Math.floor(getPlanElapsedMs(plan) / 60000);
+            const record = getPlanCompletion(plan, state.records).record;
+            const removePlan = () => {
+              if (onOpenDeleteConfirm) {
+                onOpenDeleteConfirm(plan);
+              } else {
+                void runTimerAction(() => deletePlan(plan.id));
+              }
+            };
+            if (plan.done) return (
+              <Card key={plan.id} className="rounded-2xl border border-sage-light bg-[#F8FAF5] p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
                         {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
                       </Tag>
                       <Tag variant="gray">{plan.subject}</Tag>
-                      {plan.date !== activeDate && (
-                        <Tag variant="danger">跨日 · {plan.date}</Tag>
-                      )}
-                      {plan.done && <Tag variant="sage">已完成</Tag>}
+                      {plan.date !== activeDate && <Tag variant="danger">跨日 · {plan.date}</Tag>}
+                      <span className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] text-sage-dark"><CheckCircle2 size={11} />已完成</span>
                     </div>
-
-                    <h3
-                      onClick={() => !plan.done && onOpenFocus(plan)}
-                      className={`text-base font-bold truncate cursor-pointer hover:text-sage transition-colors ${
-                        plan.done ? 'line-through text-ink-muted' : 'text-ink-main'
-                      }`}
-                    >
+                    <h3 className="mt-1 truncate text-sm font-medium text-ink-muted line-through">{plan.name}</h3>
+                  </div>
+                  <button onClick={removePlan} className="shrink-0 rounded-lg p-1 text-ink-muted hover:bg-black/5 hover:text-alarm" title="移除日程" aria-label="移除日程">
+                    <MoreHorizontal size={16} />
+                  </button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-ink-muted">
+                  <span>已学 {elapsedMinutes} / 计划 {plan.plannedMinutes} 分钟</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <button onClick={() => onOpenComplete(plan)} className="text-sage underline decoration-sage/40 underline-offset-2">查看登记总结</button>
+                    {record && onEditRecord && canCorrectStudyRecord(state, record) && <button onClick={() => onEditRecord(record)} className="text-sage underline decoration-sage/40 underline-offset-2">修改登记</button>}
+                  </span>
+                </div>
+              </Card>
+            );
+            return (
+              <Card key={plan.id} className={`rounded-[20px] border p-3.5 transition-all ${isRunning ? 'border-sage bg-paper shadow-md ring-1 ring-sage/30' : 'border-line bg-paper'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                      <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
+                        {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
+                      </Tag>
+                      <Tag variant="gray">{plan.subject}</Tag>
+                      {plan.date !== activeDate && <Tag variant="danger">跨日 · {plan.date}</Tag>}
+                    </div>
+                    <h3 onClick={() => onOpenFocus(plan)} className="cursor-pointer truncate text-base font-bold text-ink-main transition-colors hover:text-sage">
                       {plan.name}
                     </h3>
                   </div>
-
-                  {/* 右上角更多操作按钮 */}
-                  <button
-                    onClick={() => {
-                      if (onOpenDeleteConfirm) {
-                        onOpenDeleteConfirm(plan);
-                      } else {
-                        deletePlan(plan.id);
-                      }
-                    }}
-                    className="p-1.5 text-ink-muted hover:text-alarm rounded-lg hover:bg-black/5 shrink-0"
-                    title="移除日程"
-                  >
+                  <button onClick={removePlan} className="shrink-0 rounded-lg p-1.5 text-ink-muted hover:bg-black/5 hover:text-alarm" title="移除日程" aria-label="移除日程">
                     <MoreHorizontal size={18} />
                   </button>
                 </div>
 
-                {/* 次行：计划与累计指标 */}
-                <div className="text-xs text-ink-muted mt-1.5 flex items-center gap-2">
+                <div className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
                   <span>计划 {plan.plannedMinutes} 分钟{plan.type === 'course' && plan.plannedLessons ? ` · ${plan.plannedLessons}节` : ''}</span>
                   <span>·</span>
-                  <span>已累计 {Math.floor(getPlanElapsedMs(plan) / 60000)} 分钟</span>
+                  <span>已累计 {elapsedMinutes} 分钟</span>
                 </div>
 
-                {/* 正在计时状态：原版大数字行展示 (Fixes A08) */}
                 {isRunning && (
-                  <div
-                    onClick={() => !plan.done && onOpenFocus(plan)}
-                    className="mt-3 p-2.5 bg-sage-light/70 rounded-xl flex items-center justify-between cursor-pointer hover:bg-sage-light transition-colors"
-                  >
+                  <div onClick={() => onOpenFocus(plan)} className="mt-2 flex cursor-pointer items-center justify-between rounded-xl bg-sage-light/70 p-2.5 transition-colors hover:bg-sage-light">
                     <div className="flex items-center gap-2 text-xs font-bold text-sage-dark">
-                      <span className="w-2.5 h-2.5 rounded-full bg-sage animate-ping" />
+                      <span className="h-2.5 w-2.5 animate-ping rounded-full bg-sage" />
                       <span>{plan.timerPhase === 'rest' ? '正在休息 · 不计学习时长' : '正在专注进行中'}</span>
                     </div>
-                    <div className="text-xl font-mono font-extrabold text-sage-dark tracking-tight">
+                    <div className="font-mono text-xl font-extrabold tracking-tight text-sage-dark">
                       {formatTimer(0, getPlanElapsedMs(plan))}
                     </div>
                   </div>
                 )}
 
-                {/* 底部操作区：原版 1:1 双大按钮铺满卡片底部 (Fixes A08) */}
-                {!plan.done ? (
-                  <div className="grid grid-cols-2 gap-2.5 mt-3.5 pt-2 border-t border-line/50">
-                    {isRunning ? (
-                      <Button
-                        variant="secondary"
-                        size="md"
-                        fullWidth
-                        onClick={() => runTimerAction(() => pauseTimer(plan.id))}
-                      >
-                        <Pause size={16} className="text-sage" />
-                        暂停计时
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="md"
-                        fullWidth
-                        onClick={() => onOpenFocus(plan)}
-                      >
-                        <Play size={16} className="text-sage" />
-                        开始计时
-                      </Button>
-                    )}
-
-                    <Button
-                      variant="primary"
-                      size="md"
-                      fullWidth
-                      onClick={() => onOpenComplete(plan)}
-                    >
-                      <CheckCircle2 size={16} />
-                      完成登记
+                <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-line/50 pt-2">
+                  {isRunning ? (
+                    <Button variant="secondary" size="md" fullWidth onClick={() => runTimerAction(() => pauseTimer(plan.id))}>
+                      <Pause size={16} className="text-sage" />
+                      暂停计时
                     </Button>
-                  </div>
-                ) : (
-                  <div className="mt-3 pt-2 border-t border-line/40 flex items-center justify-between text-xs text-sage font-medium">
-                    <span className="flex items-center gap-1">
-                      <CheckCircle2 size={14} />
-                      今日学习目标已达成
-                    </span>
-                    <button
-                      onClick={() => onOpenComplete(plan)}
-                      className="text-ink-muted hover:text-ink-main underline text-[11px]"
-                    >
-                      查看登记总结
-                    </button>
-                    {onEditRecord && (() => { const record = getPlanCompletion(plan, state.records).record; return record && canCorrectStudyRecord(state, record) ? <button className="text-sage underline text-[11px]" onClick={() => onEditRecord(record)}>修改登记</button> : null; })()}
-                  </div>
-                )}
+                  ) : (
+                    <Button variant="secondary" size="md" fullWidth onClick={() => onOpenFocus(plan)}>
+                      <Play size={16} className="text-sage" />
+                      开始计时
+                    </Button>
+                  )}
+                  <Button variant="primary" size="md" fullWidth onClick={() => onOpenComplete(plan)}>
+                    <CheckCircle2 size={16} />
+                    完成登记
+                  </Button>
+                </div>
               </Card>
             );
           })}
         </div>
       )}
-      <section className="pt-3 border-t border-line space-y-3">
-        <label className="text-sm font-bold text-ink-main" htmlFor="history-date">历史日程</label>
-        <select id="history-date" aria-label="查看历史日程" value={historyDate} onChange={e => setHistoryDate(e.target.value)} className="w-full p-2.5 bg-paper border border-line rounded-xl text-sm"><option value="">选择日期查看或补登记</option>{historyDates.map(date => <option key={date} value={date}>{date}</option>)}</select>
-        {historyDate && state.plans.filter(p => p.date === historyDate).map(p => <Card key={p.id} className="p-3 space-y-2">
-          <p className="text-sm font-bold">{p.name}</p><p className="text-xs text-ink-muted">{p.date} · {Math.floor(getPlanElapsedMs(p) / 60000)}分钟 · {p.done ? '已登记' : '待补登记'}</p>
-          <div className="flex justify-between gap-2 flex-wrap"><button className="text-xs text-sage" onClick={() => onOpenComplete(p)}>{p.done ? '查看登记总结' : '补登记'}</button>{p.done && onEditRecord && (() => { const record = getPlanCompletion(p, state.records).record; return record && canCorrectStudyRecord(state, record) ? <button className="text-xs text-sage underline" onClick={() => onEditRecord(record)}>修改登记</button> : null; })()}<button className="text-xs text-alarm" onClick={() => onOpenDeleteConfirm ? onOpenDeleteConfirm(p) : void runTimerAction(() => deletePlan(p.id))}>删除并撤销登记</button></div>
-        </Card>)}
+      <section className="pt-3 border-t border-line space-y-3" aria-label="学习登记记录">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-baseline gap-1.5 text-sm font-bold text-ink-main">
+            学习登记记录
+            <span className="text-xs font-normal text-ink-muted">{state.records.length} 条</span>
+          </h2>
+          <button
+            type="button"
+            onClick={() => openRecordLog()}
+            className="flex shrink-0 items-center gap-0.5 rounded-lg px-1 py-1 text-xs text-sage active:opacity-70"
+          >
+            查看全部<ChevronRight size={13} />
+          </button>
+        </div>
+
+        {recentRecords.length > 0 ? (
+          <div className="overflow-hidden rounded-2xl border border-line bg-paper">
+            <div className="divide-y divide-line/60">
+              {recentRecords.map(record => <StudyRecordItem
+                key={record.id}
+                record={record}
+                name={getStudyRecordName(state, record)}
+                dateLabel={studyDateLabel(record.date, activeDate)}
+                onEdit={onEditRecord && canCorrectStudyRecord(state, record) ? () => onEditRecord(record) : undefined}
+              />)}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-line bg-cream/35 px-4 py-6 text-center">
+            <ClipboardList size={24} className="mx-auto mb-2 text-sage" />
+            <p className="text-xs leading-relaxed text-ink-muted">完成日程并登记后，学习记录会显示在这里。</p>
+          </div>
+        )}
+
+        {pendingHistoryCount > 0 && (
+          <button
+            type="button"
+            onClick={() => openRecordLog(pendingHistoryDates[0])}
+            className="flex w-full items-center justify-between gap-2 rounded-xl border border-potato/40 bg-potato-light/20 px-3.5 py-2.5 text-left active:scale-[0.99]"
+          >
+            <span className="text-xs text-ink-main">有 {pendingHistoryCount} 项历史日程还没登记</span>
+            <span className="flex shrink-0 items-center gap-0.5 text-xs text-sage">去补登记<ChevronRight size={13} /></span>
+          </button>
+        )}
       </section>
+      <StudyRecordsModal
+        isOpen={recordsOpen}
+        onClose={() => setRecordsOpen(false)}
+        initialDate={recordsDate}
+        onEditRecord={onEditRecord}
+        onOpenComplete={onOpenComplete}
+        onDeletePlan={deleteHistoryPlan}
+      />
       <StandaloneTimerModal key={currentUser?.id ?? 'preview'} isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} />
     </div>
   );

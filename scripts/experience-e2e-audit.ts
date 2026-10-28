@@ -152,7 +152,16 @@ try {
   data.plans.push({ id: 'old-running', date: '2026-10-26', libraryId: `lib-book-${book.id}`, name: 'Yesterday timer', sourceId: book.id, subject: book.subject, type: 'book', plannedMinutes: 30, actualMinutes: 0, accumulatedMs: 0, done: false, timerStart: new Date('2026-10-26T23:50:00+09:00').getTime() });
   await inject(data); await page.reload(); await page.getByRole('button', { name: '添加日程', exact: true }).waitFor();
   snapshot = await until(s => s.state.plans.find((p: any) => p.id === 'old-running')?.archived); const old = snapshot.state.plans.find((p: any) => p.id === 'old-running'); assert.equal(old.actualMinutes, 10); assert.equal(snapshot.state.records.length, 1);
-  assert.equal(await page.getByText('Yesterday timer', { exact: true }).count(), 0); await page.getByLabel('查看历史日程').selectOption('2026-10-26'); await page.getByText('Yesterday timer', { exact: true }).waitFor(); record('real persisted midnight cap and history without changing records');
+  await page.getByRole('heading', { name: /学习登记记录/ }).waitFor();
+  assert.equal(await page.getByLabel('查看历史日程').count(), 0);
+  await page.getByRole('button', { name: '查看全部', exact: true }).click();
+  const logDialog = page.getByRole('dialog', { name: '学习登记记录' });
+  await logDialog.getByLabel('选择查看日期').waitFor();
+  await logDialog.getByText('今天的日程与登记', { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(temp, 'study-records.png') });
+  await logDialog.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  record('today page lists study registrations and the log views one selected day');
+  assert.equal(await page.getByText('Yesterday timer', { exact: true }).count(), 0); await page.getByRole('button', { name: /历史日程还没登记/ }).click(); await logDialog.getByText('Yesterday timer', { exact: true }).waitFor(); await logDialog.getByRole('button', { name: '关闭弹窗', exact: true }).click(); record('real persisted midnight cap and history without changing records');
   await tab('错题'); assert.equal(await page.getByRole('button', { name: '查看详情', exact: true }).count(), 0);
   await page.getByRole('button', { name: new RegExp(book.name) }).click(); assert.equal(await page.getByRole('button', { name: '查看详情', exact: true }).count(), 12); await tab('再显示 3 条'); assert.equal(await page.getByRole('button', { name: '查看详情', exact: true }).count(), 15);
   await page.getByLabel('搜索复盘原因和思路').fill('公式'); assert.equal(await page.getByRole('button', { name: '查看详情', exact: true }).count(), 2); await page.getByLabel('错题开始日期').fill('2026-10-27'); assert.equal(await page.getByRole('button', { name: '查看详情', exact: true }).count(), 1); record('folded photos, incremental rendering, note search, unlinked notes and date filter');
