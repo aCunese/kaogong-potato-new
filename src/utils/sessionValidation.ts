@@ -1,4 +1,5 @@
 /** Shared validation for cloud sync and portable backups. */
+import { isStudySubjectForType } from '../types';
 export function validateTimerSessions(state: any): string | null {
   const plans = Array.isArray(state.plans) ? state.plans : [];
   const records = Array.isArray(state.records) ? state.records : [];
@@ -23,6 +24,7 @@ export function validateTimerSessions(state: any): string | null {
     if (['pending', 'registered', 'voided'].includes(s.status) && (s.endedAt < last || !s.endedAt)) return '计时结束时间无效。';
     if (['paused', 'running'].includes(s.status)) unfinished++;
     if (s.planId !== undefined && (typeof s.planId !== 'string' || !s.planId || s.planId.length > 128)) return '计时关联日程无效。';
+    if (s.subject !== undefined && (typeof s.subject !== 'string' || !isStudySubjectForType(s.subject, 'custom'))) return '计时学习类别无效。';
     if (s.status === 'registered' && !plans.some((p: any) => p.id === s.planId && p.sessionId === s.id)) return '计时关联日程不存在。';
   }
   if (unfinished > 1) return '只能保留一个尚未结束的独立计时。';

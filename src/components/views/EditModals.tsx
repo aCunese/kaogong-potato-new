@@ -396,47 +396,89 @@ export const CustomAddModal: React.FC<{
    ========================================================================= */
 export const CountdownModal: React.FC<{
   isOpen: boolean;
-  cdIndex: number;
+  mode?: 'create' | 'edit';
+  countdownId?: string;
   onClose: () => void;
   onToast: (msg: string) => void;
-}> = ({ isOpen, cdIndex, onClose, onToast }) => {
-  const { state, updateCountdown } = useApp();
-  const { save, isSaving, errorMsg } = useSaveMutation(onClose, onToast);
-  const cd = state.countdowns[cdIndex];
+}> = ({ isOpen, mode = 'edit', countdownId, onClose, onToast }) => {
+  const { state, addCountdown, updateCountdown, deleteCountdown } = useApp();
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
+  const cd = countdownId ? state.countdowns.find(c => c.id === countdownId) : undefined;
+  const isCreate = mode === 'create' || !cd;
+  const [name, setName] = useState('');
   const [date, setDate] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [localError, setLocalError] = useState('');
 
   useEffect(() => {
-    if (cd) setDate(cd.date);
-  }, [cd, isOpen]);
+    if (!isOpen) return;
+    setName(cd?.name ?? '');
+    setDate(cd?.date ?? '');
+    setConfirmDelete(false);
+    setLocalError('');
+    setErrorMsg('');
+  }, [isOpen, cd?.id]);
 
-  if (!cd) return null;
+  if (isOpen && !isCreate && !cd) return null;
 
+  const trimmed = name.trim();
+  const valid = trimmed.length > 0 && trimmed.length <= 20 && (date === '' || /^\d{4}-\d{2}-\d{2}$/.test(date));
   const handleSave = () => {
-    void save(() => updateCountdown(cd.id, date), `已更新${cd.name}考试日期！`);
+    if (!valid) { setLocalError('请填写 1 至 20 字的名称；日期可留空或选择有效日期。'); return; }
+    setLocalError('');
+    if (isCreate) void save(() => addCountdown(trimmed, date), '已添加倒数日！');
+    else if (cd) void save(() => updateCountdown(cd.id, date, trimmed), '已更新倒数日！');
+  };
+  const handleDelete = () => {
+    if (!cd) return;
+    void save(() => deleteCountdown(cd.id), '已删除倒数日');
   };
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`设置${cd.name}考试日期`}>
-      <div className="space-y-4">
-        <FormError message={errorMsg} />
-        <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">考试日期</label>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-          />
-        </div>
-        <p className="text-xs text-ink-muted leading-relaxed">
-          考试类型固定为「国考、省考、事业编」三大考程，修改后首页即时展示剩余备考天数。
-        </p>
-        <Button variant="primary" size="md" fullWidth onClick={handleSave} disabled={isSaving}>
-          保存考试日期
-        </Button>
+  return <Modal isOpen={isOpen} onClose={onClose} title={isCreate ? '添加倒数日' : '编辑倒数日'}>
+    <div className="space-y-4">
+      <FormError message={localError || errorMsg} />
+      <div>
+        <label className="block text-xs text-ink-muted font-medium mb-1">名称</label>
+        <input
+          aria-label="倒数日名称"
+          type="text"
+          maxLength={20}
+          value={name}
+          onChange={e => { setName(e.target.value); setLocalError(''); }}
+          placeholder="例如：国考、省考、考研面试"
+          className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
+        />
       </div>
-    </Modal>
-  );
+      <div>
+        <label className="block text-xs text-ink-muted font-medium mb-1">目标日期</label>
+        <input
+          aria-label="倒数日目标日期"
+          type="date"
+          value={date}
+          onChange={e => { setDate(e.target.value); setLocalError(''); }}
+          className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
+        />
+        <p className="text-[11px] text-ink-muted mt-1 leading-relaxed">
+          日期可留空（首页显示“设置日期”）；过期后显示“已结束”。首页最多展示 6 个倒数日，可左右滑动查看。
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="primary" disabled={isSaving || !valid} onClick={handleSave}>{isSaving ? '保存中…' : isCreate ? '添加' : '保存'}</Button>
+        <Button variant="secondary" disabled={isSaving} onClick={onClose}>取消</Button>
+      </div>
+      {!isCreate && (confirmDelete ? (
+        <div className="space-y-2 rounded-xl border border-alarm/30 bg-alarm-light/50 p-3">
+          <p className="text-xs text-alarm">删除后首页不再显示这个倒数日，确定删除「{cd?.name}」？</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="danger" size="sm" disabled={isSaving} onClick={handleDelete}>{isSaving ? '删除中…' : '确认删除'}</Button>
+            <Button variant="secondary" size="sm" disabled={isSaving} onClick={() => setConfirmDelete(false)}>取消</Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="danger" size="sm" fullWidth disabled={isSaving} onClick={() => setConfirmDelete(true)}>删除倒数日</Button>
+      ))}
+    </div>
+  </Modal>;
 };
 
 /* =========================================================================

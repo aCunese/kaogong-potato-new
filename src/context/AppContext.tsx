@@ -1,5 +1,5 @@
-import { applyCreateSession, applySessionAction, applySessionConfig, applyRegisterSession, maintainSessionTimers } from '../utils/timerSessions';
-import type { TimerSession, SessionRegistration } from '../types';
+import { applyCreateSession, applySessionAction, applySessionConfig, applyRegisterSession, applyFinishAndAutoRegister, applySessionSubject, maintainSessionTimers } from '../utils/timerSessions';
+import type { TimerSession, SessionRegistration, Countdown } from '../types';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
   AppState,
@@ -96,6 +96,8 @@ import {
   applyDeleteWrongRecord,
   applyUpdateProfile,
   applyUpdateCountdown,
+  applyAddCountdown,
+  applyDeleteCountdown,
   MutatorReturn,
 } from '../utils/workflowMutators';
 
@@ -125,7 +127,9 @@ export interface AppContextType {
   clearCorruptedRaw: () => void;
 
   // Countdowns
-  updateCountdown: (id: string, date: string) => Promise<MutationResult<void>>;
+  addCountdown: (name: string, date: string) => Promise<MutationResult<Countdown>>;
+  updateCountdown: (id: string, date: string, name?: string) => Promise<MutationResult<void>>;
+  deleteCountdown: (id: string) => Promise<MutationResult<void>>;
 
   // Plans & Timers
   addPlan: (libraryId: string, plannedMinutes?: number, plannedLessons?: number) => Promise<MutationResult<Plan>>;
@@ -141,9 +145,12 @@ export interface AppContextType {
   configureTimer: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
   switchTimerPhase: (id: string, phase: 'focus' | 'rest') => Promise<MutationResult<void>>;
 
-  beginTimerSession: (config: TimerConfig, phase: 'focus' | 'rest') => Promise<MutationResult<TimerSession>>;
+  beginTimerSession: (config: TimerConfig, phase: 'focus' | 'rest', subject?: StudySubject) => Promise<MutationResult<TimerSession>>;
   sessionAction: (id: string, action: 'focus' | 'rest' | 'pause' | 'finish') => Promise<MutationResult<void>>;
   configureSession: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
+  setSessionSubject: (id: string, subject: StudySubject) => Promise<MutationResult<void>>;
+  /** 番茄钟结束：已选类别时原子完成「结束 + 自动登记」，返回登记生成的日程 ID。 */
+  finishSession: (id: string) => Promise<MutationResult<string>>;
   registerSession: (id: string, input: SessionRegistration) => Promise<MutationResult<string>>;
 
   // Unified Atomic Completion
@@ -1146,9 +1153,23 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   // ----------------------------------------------------------------------
   // Countdowns / Plans / Timers / Completion
   // ----------------------------------------------------------------------
+  const addCountdown = useCallback(
+    async (name: string, date: string): Promise<MutationResult<Countdown>> => {
+      return executeMutation(draft => applyAddCountdown(draft, name, date), 'add_countdown');
+    },
+    [executeMutation]
+  );
+
   const updateCountdown = useCallback(
-    async (id: string, date: string): Promise<MutationResult<void>> => {
-      return executeMutation(draft => applyUpdateCountdown(draft, id, date), 'update_countdown');
+    async (id: string, date: string, name?: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyUpdateCountdown(draft, id, date, name), 'update_countdown');
+    },
+    [executeMutation]
+  );
+
+  const deleteCountdown = useCallback(
+    async (id: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyDeleteCountdown(draft, id), 'delete_countdown');
     },
     [executeMutation]
   );
@@ -1166,12 +1187,14 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const configureTimer = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applyConfigureTimer(draft, id, config), 'configure_timer'), [executeMutation]);
   const switchTimerPhase = useCallback((id: string, phase: 'focus' | 'rest') => executeMutation(draft => applySwitchTimerPhase(draft, id, phase), 'timer_phase'), [executeMutation]);
 
-  const beginTimerSession = useCallback((config: TimerConfig, phase: 'focus' | 'rest') => executeMutation(draft => {
-    const created = applyCreateSession(draft, config);
+  const beginTimerSession = useCallback((config: TimerConfig, phase: 'focus' | 'rest', subject?: StudySubject) => executeMutation(draft => {
+    const created = applyCreateSession(draft, config, Date.now(), subject);
     if ('error' in created) return created;
     const changed = applySessionAction(draft, created.value.id, phase);
     return 'error' in changed ? changed : { nextState: draft, value: created.value };
   }, 'begin_session'), [executeMutation]);
+  const setSessionSubject = useCallback((id: string, subject: StudySubject) => executeMutation(draft => applySessionSubject(draft, id, subject), 'session_subject'), [executeMutation]);
+  const finishSession = useCallback((id: string) => executeMutation(draft => applyFinishAndAutoRegister(draft, id), 'finish_session'), [executeMutation]);
   const sessionAction = useCallback((id: string, action: 'focus' | 'rest' | 'pause' | 'finish') => executeMutation(draft => applySessionAction(draft, id, action), 'session_action'), [executeMutation]);
   const configureSession = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applySessionConfig(draft, id, config), 'configure_session'), [executeMutation]);
   const registerSession = useCallback((id: string, input: SessionRegistration) => executeMutation(draft => applyRegisterSession(draft, id, input), 'register_session'), [executeMutation]);
@@ -1748,13 +1771,14 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
     const books1to1 = libBookSources.length === state.books.length;
     const courses1to1 = libCourseSources.length === state.courses.length;
-    const cdOk = state.countdowns.length === 3;
+    const cdOk = (state.countdowns?.length ?? 0) <= 6 &&
+      state.countdowns.every(cd => Boolean(cd.id) && Boolean(cd.name?.trim()) && (cd.date === '' || /^\d{4}-\d{2}-\d{2}$/.test(cd.date)));
     const ok = books1to1 && courses1to1 && cdOk;
 
     const details = [
       `题本映射: ${libBookSources.length}/${state.books.length} 正常一对一`,
       `网课映射: ${libCourseSources.length}/${state.courses.length} 正常一对一`,
-      `倒计时: ${state.countdowns.length} 个考试配置正常`,
+      `倒数日: ${state.countdowns.length} 个配置正常（上限6个）`,
       `事项库总项数: ${state.library.length} 项`,
     ];
 
@@ -2319,7 +2343,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         isLoading,
         corruptedRaw,
         clearCorruptedRaw,
+        addCountdown,
         updateCountdown,
+        deleteCountdown,
         addPlan,
         quickAddPlan,
         addCustomPlan,
@@ -2329,6 +2355,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         configureTimer,
         beginTimerSession,
         sessionAction,
+        setSessionSubject,
+        finishSession,
         configureSession,
         registerSession,
         switchTimerPhase,

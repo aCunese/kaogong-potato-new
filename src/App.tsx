@@ -119,7 +119,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [bookModalState, setBookModalState] = useState<{ open: boolean; book?: Book }>({ open: false });
   const [courseModalState, setCourseModalState] = useState<{ open: boolean; course?: Course }>({ open: false });
   const [customAddOpen, setCustomAddOpen] = useState(false);
-  const [countdownIndex, setCountdownIndex] = useState<number | null>(null);
+  const [countdownModal, setCountdownModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: string } | null>(null);
   const [photoImportOpen, setPhotoImportOpen] = useState(false);
   const [photoImportTarget, setPhotoImportTarget] = useState<{ bookId: string; date: string } | undefined>(undefined);
   const [wrongDetailRecord, setWrongDetailRecord] = useState<WrongRecord | null>(null);
@@ -401,7 +401,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         setWrongDetailRecord(state.wrong[0] || null);
         break;
       case 'countdown':
-        setCountdownIndex(0);
+        setCountdownModal(state.countdowns[0] ? { mode: 'edit', id: state.countdowns[0].id } : { mode: 'create' });
         break;
       case 'login':
         setAuthModal({ open: true, mode: 'login' });
@@ -526,8 +526,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         setCustomAddOpen(false);
         return true;
       }
-      if (countdownIndex !== null) {
-        setCountdownIndex(null);
+      if (countdownModal !== null) {
+        setCountdownModal(null);
         return true;
       }
       if (photoImportOpen) {
@@ -605,7 +605,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     bookModalState.open,
     courseModalState.open,
     customAddOpen,
-    countdownIndex,
+    countdownModal,
     photoImportOpen,
     wrongDetailRecord,
     authModal.open,
@@ -867,7 +867,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                 setCompletePlan(plan);
                 setCompletionInitialSuccess(false);
               }}
-              onOpenCountdownEdit={idx => setCountdownIndex(idx)}
+              onOpenCountdownEdit={id => setCountdownModal({ mode: 'edit', id })}
+              onAddCountdown={() => setCountdownModal({ mode: 'create' })}
               onOpenDeleteConfirm={plan => {
                 setConfirmConfig({
                   open: true,
@@ -1078,11 +1079,12 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           onToast={showToast}
         />
 
-        {countdownIndex !== null && (
+        {countdownModal !== null && (
           <CountdownModal
             isOpen={true}
-            cdIndex={countdownIndex}
-            onClose={() => setCountdownIndex(null)}
+            mode={countdownModal.mode}
+            countdownId={countdownModal.mode === 'edit' ? countdownModal.id : undefined}
+            onClose={() => setCountdownModal(null)}
             onToast={showToast}
           />
         )}

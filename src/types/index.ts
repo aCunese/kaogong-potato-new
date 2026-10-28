@@ -332,6 +332,8 @@ declare global {
 
 export interface TimerSession extends TimerConfig {
   id: string;
+  /** 番茄钟开始前选择的学习类别（自定义学习口径）。旧版本会话可能缺失。 */
+  subject?: StudySubject;
   phase: 'focus' | 'rest';
   phaseMs: number;
   status: 'paused' | 'running' | 'pending' | 'registered' | 'voided';
@@ -341,4 +343,12 @@ export interface TimerSession extends TimerConfig {
   segments: { phase: 'focus' | 'rest'; start: number; end: number }[];
   planId?: string;
 }
-export interface SessionRegistration { libraryId: string; questions?: number; errors?: number; lessons?: number; }
+export interface SessionRegistration {
+  /** 旧版：关联学习库事项登记。 */
+  libraryId?: string;
+  /** 新版：番茄钟开始前已选类别，结束时自动按自定义学习登记。 */
+  subject?: StudySubject;
+  questions?: number;
+  errors?: number;
+  lessons?: number;
+}

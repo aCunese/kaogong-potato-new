@@ -189,19 +189,26 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     });
   }
 
-  // Validate & normalize countdowns (Stable IDs: exam-national, exam-provincial, exam-public-service)
-  const cdMap = new Map<string, Countdown>();
-  const extraCountdowns: Countdown[] = [];
-
+  // Validate & normalize countdowns
+  // 旧固定项（国考/省考/事业编）仅在命中旧 ID/旧名称时迁移为稳定 ID；用户自定义或已删除的项原样保留，
+  // 不再强制补齐三项，保证「自定义倒数日」增删改可以完整备份/恢复。
+  const finalCountdowns: Countdown[] = [];
+  const stableIndex = new Map<string, number>();
+  const usedIds = new Set<string>();
+  if (target.countdowns.length > 100) {
+    return { valid: false, error: '倒计时数量超过 100 个上限' };
+  }
   for (let i = 0; i < target.countdowns.length; i++) {
     const cd = target.countdowns[i];
-    const name = typeof cd.name === 'string' ? cd.name.trim() : `考试 ${i + 1}`;
-    const date = typeof cd.date === 'string' ? cd.date.trim() : '';
-
-    if (date !== '' && !isValidDateString(date)) {
-      return { valid: false, error: `倒计时 "${name}" 的考试日期格式无效: ${cd.date}` };
+    const rawName = typeof cd.name === 'string' ? cd.name.trim() : '';
+    const name = rawName || `考试 ${i + 1}`;
+    if (name.length > 40) {
+      return { valid: false, error: `倒计时 "${name.slice(0, 20)}…" 名称超过 40 个字符` };
     }
-
+    const date = typeof cd.date === 'string' ? cd.date.trim() : '';
+    if (date !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return { valid: false, error: `倒计时 "${name}" 的目标日期格式无效: ${cd.date}` };
+    }
     let stableId: string | null = null;
     if (cd.id === 'exam-national' || name.includes('国考') || cd.id === 'cd-1') {
       stableId = 'exam-national';
@@ -210,25 +217,27 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     } else if (cd.id === 'exam-public-service' || name.includes('事业编') || cd.id === 'cd-3') {
       stableId = 'exam-public-service';
     }
-
     if (stableId) {
-      cdMap.set(stableId, { id: stableId, name, date });
-    } else {
-      extraCountdowns.push({
-        id: typeof cd.id === 'string' && cd.id.trim() ? cd.id.trim() : `cd-custom-${i + 1}`,
-        name,
-        date,
-      });
+      const existing = stableIndex.get(stableId);
+      const entry: Countdown = { id: stableId, name, date };
+      if (existing !== undefined) {
+        finalCountdowns[existing] = entry;
+      } else {
+        stableIndex.set(stableId, finalCountdowns.length);
+        usedIds.add(stableId);
+        finalCountdowns.push(entry);
+      }
+      continue;
     }
+    let id = typeof cd.id === 'string' && cd.id.trim() ? cd.id.trim() : `cd-custom-${i + 1}`;
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-${n}`)) n += 1;
+      id = `${id}-${n}`;
+    }
+    usedIds.add(id);
+    finalCountdowns.push({ id, name, date });
   }
-
-  // Ensure all 3 stable countdowns exist
-  const finalCountdowns: Countdown[] = [
-    cdMap.get('exam-national') || { id: 'exam-national', name: '国考', date: '' },
-    cdMap.get('exam-provincial') || { id: 'exam-provincial', name: '省考', date: '' },
-    cdMap.get('exam-public-service') || { id: 'exam-public-service', name: '事业编', date: '' },
-    ...extraCountdowns,
-  ];
 
   // Validate & sanitize plans
   const plans: Plan[] = [];

@@ -1,6 +1,7 @@
-import type { AppState, TimerConfig, TimerSession, SessionRegistration } from '../types';
+import type { AppState, Plan, StudySubject, TimerConfig, TimerSession, SessionRegistration } from '../types';
+import { isStudySubjectForType } from '../types';
 import type { MutatorReturn } from './workflowMutators';
-import { applyAddPlan, applyCompletePlan } from './workflowMutators';
+import { applyAddCustomPlan, applyAddPlan, applyCompletePlan } from './workflowMutators';
 
 export function localDay(timestamp: number): string {
   const d = new Date(timestamp);
@@ -46,11 +47,13 @@ function settle(session: TimerSession, now: number) {
   session.phaseMs += end - session.runningSince;
   session.runningSince = 0; session.status = 'paused';
 }
-export function applyCreateSession(draft: AppState, config: TimerConfig, now = Date.now()): MutatorReturn<TimerSession> {
+export function applyCreateSession(draft: AppState, config: TimerConfig, now = Date.now(), subject?: StudySubject): MutatorReturn<TimerSession> {
   if (!validConfig(config)) return error('INVALID_TIMER', '专注与休息时长必须为大于0的整数分钟。');
+  if (subject !== undefined && !isStudySubjectForType(subject, 'custom')) return error('INVALID_SUBJECT', '请选择有效的学习类别。');
   const existing = draft.timerSessions?.find(s => s.status === 'running' || s.status === 'paused');
   if (existing) return { nextState: draft, value: existing };
   const session: TimerSession = { id: `session-${now}-${Math.random().toString(36).slice(2, 9)}`, ...config,
+    ...(subject !== undefined ? { subject } : {}),
     phase: 'focus', phaseMs: 0, status: 'paused', createdAt: now, endedAt: 0, runningSince: 0, segments: [] };
   draft.timerSessions = [...(draft.timerSessions ?? []), session]; draft.version = 5;
   return { nextState: draft, value: session };
@@ -62,6 +65,16 @@ export function applySessionConfig(draft: AppState, id: string, config: TimerCon
   Object.assign(session, config); draft.version = 5;
   return { nextState: draft, value: undefined };
 }
+/** 番茄钟开始前（暂停态）选择/修改学习类别；开始后由 UI 锁定。 */
+export function applySessionSubject(draft: AppState, id: string, subject: StudySubject): MutatorReturn<void> {
+  const session = draft.timerSessions?.find(s => s.id === id);
+  if (!session) return error('NOT_FOUND', '计时会话不存在。');
+  if (session.status !== 'paused') return error('TIMER_BUSY', '请先暂停计时，再选择学习类别。');
+  if (!isStudySubjectForType(subject, 'custom')) return error('INVALID_SUBJECT', '请选择有效的学习类别。');
+  session.subject = subject; draft.version = 5;
+  return { nextState: draft, value: undefined };
+}
+
 export function applySessionAction(draft: AppState, id: string, action: 'focus' | 'rest' | 'pause' | 'finish', now = Date.now()): MutatorReturn<void> {
   const session = draft.timerSessions?.find(s => s.id === id);
   if (!session) return error('NOT_FOUND', '计时会话不存在。');
@@ -96,12 +109,23 @@ export function applyRegisterSession(draft: AppState, id: string, input: Session
   if (session.status !== 'pending') return error('SESSION_NOT_ENDED', '请先结束计时，再关联学习事项。');
   const focusMs = sessionTotals(session).focusMs;
   if (focusMs <= 0) return error('EMPTY_SESSION', '本次仅记录了休息时间，暂无学习用时可登记。');
+  const autoSubject = input.subject;
+  if (autoSubject !== undefined && !isStudySubjectForType(autoSubject, 'custom')) return error('INVALID_SUBJECT', '请选择有效的学习类别。');
+  if (autoSubject === undefined && !input.libraryId) return error('INVALID_SOURCE', '请选择关联学习事项，或使用学习类别登记。');
   // Validate and complete on a copy: a bad source/lesson count cannot leave a half-created plan.
   const next = structuredClone(draft), copy = next.timerSessions!.find(s => s.id === id)!;
   const minutes = Math.max(1, Math.round(focusMs / 60000)), date = localDay(session.endedAt);
-  const added = applyAddPlan(next, input.libraryId, date, minutes, input.lessons);
-  if ('error' in added) return added;
-  const plan = added.value;
+  let plan: Plan;
+  if (autoSubject !== undefined) {
+    // 番茄钟：仅在开始前选择了类别，结束时按「自定义学习」直接登记，不关联题本/网课，不产生题量与节数。
+    const added = applyAddCustomPlan(next, `番茄钟 · ${autoSubject}`, autoSubject, date, minutes);
+    if ('error' in added) return added;
+    plan = added.value;
+  } else {
+    const added = applyAddPlan(next, input.libraryId!, date, minutes, input.lessons);
+    if ('error' in added) return added;
+    plan = added.value;
+  }
   const completion = plan.type === 'book' ? { type: 'book' as const, planId: plan.id, minutes, questions: input.questions ?? 0, errors: input.errors ?? 0 }
     : plan.type === 'course' ? { type: 'course' as const, planId: plan.id, minutes, lessons: input.lessons ?? 0 }
     : { type: 'custom' as const, planId: plan.id, minutes };
@@ -123,4 +147,22 @@ export function applyRegisterSession(draft: AppState, id: string, input: Session
   copy.status = 'registered'; copy.planId = plan.id; next.version = 5;
   Object.assign(draft, next);
   return { nextState: draft, value: plan.id };
+}
+
+/**
+ * 番茄钟结束：若会话在开始前已选类别，则一次原子操作完成「结束计时 + 自动登记」。
+ * 返回登记生成的日程 ID；重复调用不会产生第二条记录。
+ */
+export function applyFinishAndAutoRegister(draft: AppState, id: string, now = Date.now()): MutatorReturn<string> {
+  const session = draft.timerSessions?.find(s => s.id === id);
+  if (!session) return error('NOT_FOUND', '计时会话不存在。');
+  if (session.status === 'registered') return { nextState: draft, value: session.planId! };
+  if (session.status === 'voided') return error('SESSION_ENDED', '本次计时已作废。');
+  if (session.status === 'running' || session.status === 'paused') {
+    const finished = applySessionAction(draft, id, 'finish', now);
+    if ('error' in finished) return finished;
+  }
+  if (!session.subject) return error('SUBJECT_REQUIRED', '请先选择本次学习类别，再开始计时。');
+  if (sessionTotals(session).focusMs <= 0) return error('EMPTY_SESSION', '本次仅记录了休息时间，暂无学习用时可登记。');
+  return applyRegisterSession(draft, id, { subject: session.subject }, now);
 }

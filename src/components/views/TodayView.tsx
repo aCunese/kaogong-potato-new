@@ -14,7 +14,8 @@ interface TodayViewProps {
   onOpenAddPlan: () => void;
   onOpenFocus: (plan: Plan, mode?: TimerMode) => void;
   onOpenComplete: (plan: Plan) => void;
-  onOpenCountdownEdit: (index: number) => void;
+  onOpenCountdownEdit: (id: string) => void;
+  onAddCountdown: () => void;
   onOpenDeleteConfirm?: (plan: Plan) => void;
   onOpenProfile?: () => void;
   showProfileBar?: boolean;
@@ -26,6 +27,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onOpenFocus,
   onOpenComplete,
   onOpenCountdownEdit,
+  onAddCountdown,
   onOpenDeleteConfirm,
   onOpenProfile,
   showProfileBar = false,
@@ -76,14 +78,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }, 0);
   const totalMinutes = Math.floor(totalElapsedMs / 60000);
 
-  // Calculate days left for countdowns
-  const getDaysLeft = (targetDate: string) => {
-    if (!targetDate) return '--';
+  // 倒数日展示：未设置日期 / 今天 / N 天 / 已结束
+  const countdownState = (targetDate: string) => {
+    if (!targetDate) return { text: '--', ended: false, unset: true };
     const today = new Date(activeDate + 'T00:00:00');
     const target = new Date(targetDate + 'T00:00:00');
-    const diff = target.getTime() - today.getTime();
-    const days = Math.ceil(diff / (1000 * 3600 * 24));
-    return days >= 0 ? days : 0;
+    const days = Math.ceil((target.getTime() - today.getTime()) / (1000 * 3600 * 24));
+    if (days < 0) return { text: '已结束', ended: true, unset: false };
+    if (days === 0) return { text: '今天', ended: false, unset: false };
+    return { text: String(days), ended: false, unset: false };
   };
 
   const formatTimer = (start: number, accumulatedMs: number = 0) => {
@@ -143,26 +146,47 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       </div>
 
-      {/* 2. 原设计次序：倒计时轻量网格紧随大汇总卡下方 (Fixes A08) */}
-      <div className="bg-paper border border-line rounded-2xl p-2.5 shadow-sm grid grid-cols-3 divide-x divide-line/70">
-        {state.countdowns.map((cd, idx) => {
-          const days = getDaysLeft(cd.date);
-          return (
-            <div
-              key={cd.id}
-              onClick={() => onOpenCountdownEdit(idx)}
-              className="px-2 py-1 text-center cursor-pointer hover:bg-cream/50 rounded-xl transition-colors"
-            >
-              <div className="text-[11px] text-ink-muted font-medium">{cd.name}</div>
-              <div className="text-lg font-extrabold text-sage font-mono my-0.5">
-                {days} <span className="text-[11px] font-normal text-ink-muted">天</span>
-              </div>
-              <div className="text-[10px] text-ink-muted/80 truncate">
-                {cd.date || '设置日期'}
-              </div>
-            </div>
-          );
-        })}
+      {/* 2. 倒数日：用户自定义，最多 6 个，一行横向滑动 */}
+      <div className="bg-paper border border-line rounded-2xl p-2 shadow-sm" role="group" aria-label="倒数日">
+        {state.countdowns.length === 0 ? (
+          <button
+            onClick={onAddCountdown}
+            className="w-full flex items-center justify-center gap-1 py-3 rounded-xl text-xs text-sage hover:bg-cream/50 transition-colors"
+            aria-label="添加倒数日"
+          >
+            ＋ 添加倒数日（考试或目标日期）
+          </button>
+        ) : (
+          <div className="flex gap-2 overflow-x-auto">
+            {state.countdowns.map(cd => {
+              const info = countdownState(cd.date);
+              return (
+                <button
+                  key={cd.id}
+                  onClick={() => onOpenCountdownEdit(cd.id)}
+                  aria-label={`${cd.name} 倒数日`}
+                  className="shrink-0 w-[calc((100%-16px)/3)] min-w-[96px] px-2 py-1 text-center cursor-pointer hover:bg-cream/50 rounded-xl transition-colors"
+                >
+                  <div className="text-[11px] text-ink-muted font-medium truncate">{cd.name}</div>
+                  <div className={`font-mono my-0.5 ${info.ended ? 'text-[13px] font-bold text-ink-muted' : info.unset ? 'text-lg font-extrabold text-ink-muted/60' : 'text-lg font-extrabold text-sage'}`}>
+                    {info.text}
+                    {!info.ended && !info.unset && info.text !== '今天' && <span className="text-[11px] font-normal text-ink-muted"> 天</span>}
+                  </div>
+                  <div className="text-[10px] text-ink-muted/80 truncate">{cd.date || '设置日期'}</div>
+                </button>
+              );
+            })}
+            {state.countdowns.length < 6 && (
+              <button
+                onClick={onAddCountdown}
+                aria-label="添加倒数日"
+                className="shrink-0 w-[calc((100%-16px)/3)] min-w-[96px] my-0.5 rounded-xl border border-dashed border-line py-2.5 text-center text-xs text-sage hover:bg-cream/40"
+              >
+                ＋ 添加
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 3. 待执行日程列表头部 */}

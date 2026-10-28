@@ -13,6 +13,7 @@ import {
   MediaRecord,
   TodoItem,
   TimerConfig,
+  Countdown,
 } from '../types';
 import { learningElapsedMs, phaseElapsedMs, planDayEnd } from './studyTimers';
 import { buildLibraryFromSources } from '../constants/initialData';
@@ -483,13 +484,40 @@ export function applyUpdateProfile(
   return { nextState: draft, value: draft.profile };
 }
 
+export const COUNTDOWN_MAX = 6;
+export const COUNTDOWN_NAME_MAX = 20;
+const validCountdownDate = (date: string) => date === '' || /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+/** 新增自定义倒数日（名称＋目标日期，首页最多展示 6 个）。 */
+export function applyAddCountdown(
+  draft: AppState,
+  name: string,
+  date: string,
+  now = Date.now()
+): MutatorReturn<Countdown> {
+  const title = name.trim();
+  if (!title || title.length > COUNTDOWN_NAME_MAX) {
+    return { error: { code: 'INVALID_NAME', message: `倒数日名称需为1至${COUNTDOWN_NAME_MAX}个字符。` } };
+  }
+  if (!validCountdownDate(date)) {
+    return { error: { code: 'INVALID_DATE', message: '请选择有效的目标日期，或留空稍后设置。' } };
+  }
+  if ((draft.countdowns?.length ?? 0) >= COUNTDOWN_MAX) {
+    return { error: { code: 'COUNTDOWN_LIMIT', message: `最多保留 ${COUNTDOWN_MAX} 个倒数日，请先删除不再需要的。` } };
+  }
+  const countdown: Countdown = { id: `cd-${now}-${Math.random().toString(36).slice(2, 7)}`, name: title, date };
+  draft.countdowns = [...(draft.countdowns ?? []), countdown];
+  return { nextState: draft, value: countdown };
+}
+
 /**
- * Updates countdown date.
+ * Updates a countdown name/date (both editable; date may be empty).
  */
 export function applyUpdateCountdown(
   draft: AppState,
   id: string,
-  date: string
+  date: string,
+  name?: string
 ): MutatorReturn<void> {
   if (!id) {
     return { error: { code: 'INVALID_ID', message: '倒计时 ID 不能为空' } };
@@ -498,7 +526,24 @@ export function applyUpdateCountdown(
   if (!exists) {
     return { error: { code: 'NOT_FOUND', message: `未找到 ID 为 ${id} 的倒计时` } };
   }
-  draft.countdowns = draft.countdowns.map(cd => (cd.id === id ? { ...cd, date } : cd));
+  if (!validCountdownDate(date)) {
+    return { error: { code: 'INVALID_DATE', message: '请选择有效的目标日期，或留空稍后设置。' } };
+  }
+  const trimmed = name === undefined ? undefined : name.trim();
+  if (trimmed !== undefined && (!trimmed || trimmed.length > COUNTDOWN_NAME_MAX)) {
+    return { error: { code: 'INVALID_NAME', message: `倒数日名称需为1至${COUNTDOWN_NAME_MAX}个字符。` } };
+  }
+  draft.countdowns = draft.countdowns.map(cd =>
+    cd.id === id ? { ...cd, date, ...(trimmed !== undefined ? { name: trimmed } : {}) } : cd);
+  return { nextState: draft, value: undefined };
+}
+
+/** 删除倒数日（含旧的国考/省考/事业编默认项）。 */
+export function applyDeleteCountdown(draft: AppState, id: string): MutatorReturn<void> {
+  if (!draft.countdowns.some(cd => cd.id === id)) {
+    return { error: { code: 'NOT_FOUND', message: '该倒数日不存在或已被删除。' } };
+  }
+  draft.countdowns = draft.countdowns.filter(cd => cd.id !== id);
   return { nextState: draft, value: undefined };
 }
 
