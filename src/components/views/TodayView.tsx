@@ -146,7 +146,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       </div>
 
-      {/* 2. 倒数日：用户自定义，最多 6 个，一行横向滑动 */}
+      {/* 2. 倒数日：用户自定义，最多 6 个，上下纵向排列 */}
       <div className="bg-paper border border-line rounded-2xl p-2 shadow-sm" role="group" aria-label="倒数日">
         {state.countdowns.length === 0 ? (
           <button
@@ -157,7 +157,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             ＋ 添加倒数日（考试或目标日期）
           </button>
         ) : (
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="divide-y divide-line/60">
             {state.countdowns.map(cd => {
               const info = countdownState(cd.date);
               return (
@@ -165,14 +165,26 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   key={cd.id}
                   onClick={() => onOpenCountdownEdit(cd.id)}
                   aria-label={`${cd.name} 倒数日`}
-                  className="shrink-0 w-[calc((100%-16px)/3)] min-w-[96px] px-2 py-1 text-center cursor-pointer hover:bg-cream/50 rounded-xl transition-colors"
+                  className="w-full flex items-center justify-between gap-2 px-1.5 py-2 hover:bg-cream/50 rounded-lg transition-colors"
                 >
-                  <div className="text-[11px] text-ink-muted font-medium truncate">{cd.name}</div>
-                  <div className={`font-mono my-0.5 ${info.ended ? 'text-[13px] font-bold text-ink-muted' : info.unset ? 'text-lg font-extrabold text-ink-muted/60' : 'text-lg font-extrabold text-sage'}`}>
-                    {info.text}
-                    {!info.ended && !info.unset && info.text !== '今天' && <span className="text-[11px] font-normal text-ink-muted"> 天</span>}
-                  </div>
-                  <div className="text-[10px] text-ink-muted/80 truncate">{cd.date || '设置日期'}</div>
+                  <span className="flex min-w-0 flex-col items-start">
+                    <span className="text-xs font-medium text-ink-main truncate max-w-[10rem]">{cd.name}</span>
+                    <span className="text-[10px] text-ink-muted/80 font-mono">{cd.date || '设置日期'}</span>
+                  </span>
+                  <span className="flex items-baseline gap-1 shrink-0 pr-1">
+                    {info.ended ? (
+                      <span className="text-xs font-bold text-ink-muted">已结束</span>
+                    ) : info.unset ? (
+                      <span className="text-sm font-bold text-ink-muted/60">--</span>
+                    ) : info.text === '今天' ? (
+                      <span className="text-sm font-extrabold text-sage">今天</span>
+                    ) : (
+                      <>
+                        <span className="text-base font-extrabold text-sage font-mono">{info.text}</span>
+                        <span className="text-[10px] text-ink-muted">天</span>
+                      </>
+                    )}
+                  </span>
                 </button>
               );
             })}
@@ -180,9 +192,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
               <button
                 onClick={onAddCountdown}
                 aria-label="添加倒数日"
-                className="shrink-0 w-[calc((100%-16px)/3)] min-w-[96px] my-0.5 rounded-xl border border-dashed border-line py-2.5 text-center text-xs text-sage hover:bg-cream/40"
+                className="w-full py-2 text-center text-xs text-sage hover:bg-cream/40 rounded-lg"
               >
-                ＋ 添加
+                ＋ 添加倒数日
               </button>
             )}
           </div>

@@ -171,9 +171,11 @@ try {
   await page.reload();
   await page.getByRole('button', { name: '考研面试 倒数日', exact: true }).waitFor();
   await page.getByRole('button', { name: '国考 倒数日', exact: true }).getByText('已结束').waitFor();
-  const stripEl = page.getByRole('group', { name: '倒数日', exact: true }).locator('div').first();
-  assert.equal(await stripEl.evaluate(el => el.scrollWidth > el.clientWidth), true, 'countdown strip must scroll horizontally when more than three items');
-  record('custom countdowns persist after reload and the strip scrolls horizontally');
+  assert.equal(await page.getByRole('group', { name: '倒数日', exact: true }).getByText('已结束', { exact: true }).count(), 1);
+  const firstCard = await page.getByRole('button', { name: '省考 倒数日', exact: true }).boundingBox();
+  const secondCard = await page.getByRole('button', { name: '事业编 倒数日', exact: true }).boundingBox();
+  assert.ok(firstCard && secondCard && secondCard.y > firstCard.y + 10 && Math.abs(secondCard.x - firstCard.x) < 2, 'countdown cards must stack vertically');
+  record('custom countdowns persist after reload and the list stacks vertically');
 
   // ===== 4. 三档手机宽度截图与溢出检查 =====
   for (const [width, height] of [[360, 800], [393, 873], [412, 915]] as const) {

@@ -190,7 +190,8 @@ describe('倒数日：自定义名称与日期、增删改、上限与兼容', (
     expect(html).toContain('已结束');
     expect(html).toContain('设置日期');
     expect(html).toContain('添加倒数日');
-    expect(html).toContain('overflow-x-auto');
+    expect(html).not.toContain('overflow-x-auto');
+    expect(html).toContain('divide-y');
 
     const full = fresh();
     full.countdowns = Array.from({ length: COUNTDOWN_MAX }, (_, i) => ({ id: `cd-${i}`, name: `目标${i}`, date: '' }));
