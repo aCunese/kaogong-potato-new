@@ -113,17 +113,28 @@ try {
     }
     await page.getByRole('button', { name: '开始计时', exact: true }).last().click();
     const timer = page.getByRole('dialog', { name: '专注计时' });
-    await timer.getByRole('button', { name: item.mode, exact: true }).click();
-    const saveSettings = timer.getByRole('button', { name: '保存计时设置', exact: true });
-    if (await saveSettings.count()) await saveSettings.click();
+    await timer.getByRole('button', { name: '开始计时', exact: true }).waitFor();
+    // 计时模式只能在暂停（未开始）时设置：切模式 → 应用设置 → 确认按钮消失后再开始。
+    if (item.mode !== '正计时') {
+      await timer.getByRole('button', { name: item.mode, exact: true }).click();
+      const applySettings = timer.getByRole('button', { name: '应用计时设置', exact: true });
+      await applySettings.waitFor();
+      await applySettings.click();
+      await applySettings.waitFor({ state: 'hidden' });
+    }
     await timer.getByRole('button', { name: '开始计时', exact: true }).click();
     await timer.getByRole('button', { name: '暂停', exact: true }).waitFor();
     await page.clock.fastForward(item.minutes * 60000);
     if (index === 2) {
+      // 番茄钟：专注 15 分钟后进入 5 分钟休息，休息不得计入学习用时。
       await timer.getByRole('button', { name: '进入休息', exact: true }).click();
+      await timer.getByText('休息阶段 · 不计学习用时').waitFor();
       await page.clock.fastForward(5 * 60000);
+      await timer.getByText('休息结束，点击开始下一轮专注').waitFor();
     } else {
+      // 先等暂停真正落库，再快进 2 分钟，验证暂停期间不计入学习用时。
       await timer.getByRole('button', { name: '暂停', exact: true }).click();
+      await timer.getByRole('button', { name: '开始计时', exact: true }).waitFor();
       await page.clock.fastForward(2 * 60000);
     }
     await timer.getByRole('button', { name: '完成登记', exact: true }).click();

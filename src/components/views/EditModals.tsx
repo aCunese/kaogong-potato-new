@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag } from '../common/UIComponents';
 import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
+import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff } from 'lucide-react';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
@@ -349,7 +350,7 @@ export const CustomAddModal: React.FC<{
           <label className="block text-xs text-ink-muted font-medium mb-1">事项名称</label>
           <input
             type="text"
-            maxLength={200}
+            maxLength={120}
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="例如：每日晨读人民日报时评"
@@ -868,7 +869,10 @@ export const OverallLegendModal: React.FC<{
             const pct = totalMin > 0 ? ((mins / totalMin) * 100).toFixed(1) : '0.0';
             return (
               <div key={subj} className="flex items-center justify-between p-2.5 bg-cream/40 rounded-xl border border-line/60 text-xs">
-                <span className="font-medium text-ink-main">{subj}</span>
+                <span className="flex items-center gap-1.5 font-medium text-ink-main">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: SUBJECT_COLORS[STUDY_SUBJECTS.indexOf(subj)] }} />
+                  {subj}
+                </span>
                 <div className="flex items-center gap-3">
                   <span className="text-ink-muted font-mono">{pct}%</span>
                   <span className="font-bold text-sage font-mono min-w-[50px] text-right">{mins} 分钟</span>

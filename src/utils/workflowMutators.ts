@@ -393,7 +393,7 @@ export function applyAddCustomItem(
   subject: StudySubject,
   defaultMinutes: number
 ): MutatorReturn<LibraryItem> {
-  if (!name.trim() || name.trim().length > 200 || !isStudySubjectForType(subject, 'custom')) return { error: { code: 'INVALID_INPUT', message: '请填写200字以内的事项名称，并选择有效科目。' } };
+  if (!name.trim() || name.trim().length > 120 || !isStudySubjectForType(subject, 'custom')) return { error: { code: 'INVALID_INPUT', message: '请填写120字以内的事项名称，并选择有效科目。' } };
   if (!Number.isSafeInteger(defaultMinutes) || defaultMinutes <= 0) return { error: { code: 'INVALID_MINUTES', message: '默认时长必须为大于0的整数分钟。' } };
   const id = `lib-custom-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const newItem: LibraryItem = {

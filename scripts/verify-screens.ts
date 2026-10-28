@@ -131,7 +131,7 @@ const SCREEN_TEXT: Record<string, string | RegExp> = {
   'confirm-course': '删除网课确认', 'confirm-photo': '删除错题照片确认', 'confirm-reset': '恢复初始数据危险确认',
   'confirm-import': '导入备份覆盖确认', 'confirm-upload': '上传本机数据覆盖云端',
   'confirm-pull': '从云端拉取覆盖本机', 'confirm-logout': '退出账号登录确认',
-  'download-apk': 'Android 安装包', 'month-picker': '选择分析月份', 'overall-legend': '八科投入时间与图例详情',
+  'download-apk': 'Android 安装包', 'month-picker': '选择分析月份', 'overall-legend': '科目投入时间与图例详情',
   'focus-course': '听网课', 'focus-custom': '自定义事项',
 };
 

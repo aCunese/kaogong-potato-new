@@ -357,7 +357,9 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
       // 旧版快照可缺失 type（无法从 library 推导时按历史数据兼容放行，非法显式 type 已在上方拒绝）
     }
     const planType = p.type ?? derivePlanType(state.library, p);
-    if (!isStudySubjectForType(p.subject, planType)) {
+    // 旧版快照可缺失 subject（与 name/type 缺失同样按历史数据兼容放行）；显式提供时必须合法，
+    // 且「其他」仅允许自定义日程使用（null 等非法显式值一律拒绝）。
+    if (p.subject !== undefined && !isStudySubjectForType(p.subject, planType)) {
       return { valid: false, message: `plans[${i}].subject「${p.subject}」不是有效科目` };
     }
     for (const field of ['plannedMinutes', 'targetMinutes', 'actualMinutes', 'accumulatedMs', 'timerStart']) {

@@ -19,8 +19,8 @@ export const ALL_50_SCREENS: ScreenDef[] = [
   { id: 'books', nodeId: '12:271', name: '题本进度', category: 'core', desc: '题本列表、做题进度条、正确率、平均题速、修改与删除', hasRefScreenshot: true, refScreenshotFile: '03-books.png' },
   { id: 'courses', nodeId: '12:564', name: '网课进度', category: 'core', desc: '课程列表、已听节数、累计时长、课程外链唤起', hasRefScreenshot: true, refScreenshotFile: '04-courses.png' },
   { id: 'wrong', nodeId: '12:833', name: '错题复盘', category: 'core', desc: '按题本分组错题照片、大图查看、相册上传导入、原因笔记', hasRefScreenshot: true, refScreenshotFile: '05-wrong.png' },
-  { id: 'overall', nodeId: '12:1075', name: '总体分析', category: 'core', desc: '时间范围切换、八科时间分布扇形图、各科每日正确率曲线', hasRefScreenshot: true, refScreenshotFile: '06-overall.png' },
-  { id: 'monthly', nodeId: '12:1315', name: '每月分析', category: 'core', desc: '年月选择、四大指标、八科正确率与用时分布', hasRefScreenshot: true, refScreenshotFile: '07-monthly.png' },
+  { id: 'overall', nodeId: '12:1075', name: '总体分析', category: 'core', desc: '时间范围切换、网课/题本/自定义用时分布扇形图、各科每日正确率曲线', hasRefScreenshot: true, refScreenshotFile: '06-overall.png' },
+  { id: 'monthly', nodeId: '12:1315', name: '每月分析', category: 'core', desc: '年月选择、四大指标、各科正确率与用时（含其他）', hasRefScreenshot: true, refScreenshotFile: '07-monthly.png' },
   { id: 'settings', nodeId: '12:1579', name: '我的工作台', category: 'core', desc: 'APK下载入口、云端多用户同步、JSON备份导入导出、数据自检', hasRefScreenshot: true, refScreenshotFile: '08-settings.png' },
 
   // 9-20 Flow
@@ -73,7 +73,7 @@ export const ALL_50_SCREENS: ScreenDef[] = [
   // 46-50 Remaining screens
   { id: 'download-apk', nodeId: '13:3730', name: 'APK 下载页面', category: 'extra', desc: '专属安卓安装包介绍与下载', hasRefScreenshot: true, refScreenshotFile: '46-download-apk.png' },
   { id: 'month-picker', nodeId: '13:3828', name: '月度选择器', category: 'extra', desc: '月度切换弹窗', hasRefScreenshot: true, refScreenshotFile: '47-month-picker.png' },
-  { id: 'overall-legend', nodeId: '13:3931', name: '总体分析图例详情', category: 'extra', desc: '八科投入分钟明细表', hasRefScreenshot: true, refScreenshotFile: '48-overall-legend.png' },
+  { id: 'overall-legend', nodeId: '13:3931', name: '总体分析图例详情', category: 'extra', desc: '科目投入分钟明细表（含其他与固定颜色图例）', hasRefScreenshot: true, refScreenshotFile: '48-overall-legend.png' },
   { id: 'focus-course', nodeId: '13:4135', name: '网课专注计时', category: 'extra', desc: '网课听课专注计时变体', hasRefScreenshot: true, refScreenshotFile: '49-focus-course.png' },
   { id: 'focus-custom', nodeId: '13:4220', name: '自定义专注计时', category: 'extra', desc: '自定义事项专注计时变体', hasRefScreenshot: true, refScreenshotFile: '50-focus-custom.png' },
 ];
