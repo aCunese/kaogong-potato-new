@@ -83,16 +83,13 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex flex-col justify-end animate-fadeIn"
+      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fadeIn"
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-paper border-t border-line rounded-t-[28px] p-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3 shadow-2xl max-w-lg mx-auto w-full animate-slideUp">
-        {/* 顶部把手指示条 */}
-        <div className="w-10 h-1 bg-ink-muted/20 rounded-full mx-auto" />
-
-        {/* 顶部标题栏 */}
+      <div className="bg-paper border border-line rounded-[28px] p-5 space-y-3.5 shadow-2xl max-w-sm w-full mx-auto">
+        {/* 顶部标题栏与清除/关闭操作 */}
         <div className="flex items-center justify-between pb-1 pt-0.5 border-b border-line">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-ink-main">{title}</h3>
@@ -110,7 +107,7 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
                 className="inline-flex items-center gap-0.5 text-xs text-alarm hover:underline font-medium px-2 py-1 rounded-md hover:bg-alarm/10 transition"
               >
                 <Trash2 size={13} />
-                <span>清空此日期</span>
+                <span>清除</span>
               </button>
             )}
             <button
@@ -172,8 +169,12 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
           <span>六</span>
         </div>
 
-        {/* 日期网格：点击任意日期立即完成选择并自动收起，零声音、免设置确认 */}
-        <div className="grid grid-cols-7 gap-y-1 text-center text-xs">
+        {/* 日期网格：
+            - 有错题记录的日期：深色加粗，可点击
+            - 无错题记录的日期：浅灰淡化，不可点击
+            - 今天/选中日期：实体墨绿圆底
+            - 单击即选即关，免确认免按键音，无绿色小圆点 */}
+        <div className="grid grid-cols-7 gap-y-1.5 text-center text-xs">
           {Array.from({ length: firstDayIndex }).map((_, i) => (
             <div key={`pad-${i}`} className="h-10 w-10 mx-auto" />
           ))}
@@ -183,39 +184,39 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
             const dayString = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
             const isSelected = value === dayString;
             const isToday = activeDate === dayString;
-            const hasHighlight = highlightDates?.has(dayString);
+            const hasData = highlightDates ? highlightDates.has(dayString) : true;
+            const isClickable = hasData || isToday || isSelected;
+
+            if (!isClickable) {
+              return (
+                <div
+                  key={dayString}
+                  className="h-10 w-10 mx-auto flex items-center justify-center text-ink-muted/20 select-none cursor-default text-xs font-normal"
+                >
+                  {dayNum}
+                </div>
+              );
+            }
 
             return (
               <button
                 key={dayString}
                 type="button"
                 onClick={() => handleSelect(dayString)}
-                className={`h-10 w-10 mx-auto rounded-full flex flex-col items-center justify-center relative transition-all active:scale-95 ${
-                  isSelected
+                className={`h-10 w-10 mx-auto rounded-full flex items-center justify-center text-xs transition-all active:scale-95 ${
+                  isSelected || (isToday && !value)
                     ? 'bg-sage text-white font-bold shadow-sm'
                     : isToday
                     ? 'border border-sage/50 text-sage font-bold bg-sage/10 hover:bg-sage/20'
-                    : 'text-ink-main font-semibold hover:bg-black/5'
+                    : 'text-ink-main font-bold hover:bg-black/5 cursor-pointer'
                 }`}
-                title={`${dayString}${isToday ? ' (今天)' : ''}${hasHighlight ? ' (有错题照片)' : ''}`}
+                title={`${dayString}${isToday ? ' (今天)' : ''}${hasData ? ' (有错题记录)' : ''}`}
               >
-                <span className="leading-none text-xs">{dayNum}</span>
-                {/* 错题等足迹微标记小圆点 */}
-                {hasHighlight && (
-                  <span
-                    className={`w-1 h-1 rounded-full mt-0.5 ${
-                      isSelected ? 'bg-white' : 'bg-sage'
-                    }`}
-                  />
-                )}
+                {dayNum}
               </button>
             );
           })}
         </div>
-
-        <p className="text-[11px] text-ink-muted text-center pt-1 pb-0.5">
-          💡 点击任意日期直接选中并关闭，绿色小圆点标示有错题记录的日期
-        </p>
       </div>
     </div>
   );

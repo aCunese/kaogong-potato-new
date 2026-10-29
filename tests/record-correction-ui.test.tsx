@@ -51,7 +51,7 @@ it('WrongView uses FloatingDatePicker triggers without native green datepicker o
   expect(html).not.toContain('type="date"');
 });
 
-it('FloatingDatePicker renders clean floating drawer with highlight dot and zero system dialog', () => {
+it('FloatingDatePicker renders centered modal with clickable highlighted days, dimmed non-highlighted days and zero green dots', () => {
   const highlightDates = new Set(['2026-10-28']);
   const html = provider(
     <FloatingDatePicker
@@ -61,12 +61,20 @@ it('FloatingDatePicker renders clean floating drawer with highlight dot and zero
       value="2026-10-28"
       onChange={noop}
       highlightDates={highlightDates}
-      activeDate="2026-10-28"
+      activeDate="2026-10-29"
     />
   );
+  expect(html).toContain('items-center justify-center');
   expect(html).toContain('选择开始日期');
-  expect(html).toContain('清空此日期');
+  expect(html).toContain('清除');
   expect(html).toContain('2026年 10月');
-  expect(html).toContain('有错题照片');
+  expect(html).toContain('有错题记录');
+  // Day 28 (with wrong questions) is interactive button
+  expect(html).toContain('title="2026-10-28 (有错题记录)"');
+  // Day 27 (without wrong questions) is non-clickable text
+  expect(html).toContain('text-ink-muted/20 select-none cursor-default');
+  // No green dots
+  expect(html).not.toContain('rounded-full mt-0.5');
+  // Zero native type="date"
   expect(html).not.toContain('type="date"');
 });

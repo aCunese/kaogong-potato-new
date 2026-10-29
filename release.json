@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.1.1",
-  "webBuild": "20261030.01",
+  "webVersion": "1.1.2",
+  "webBuild": "20261030.02",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-29T15:40:00Z",
-  "summary": "错题照片复盘开始与结束日期自研悬浮日历重构（去除原生绿色弹窗与点击音效，单点日期即选即关免设置，支持错题日期小圆点标记与清空快捷操作）。"
+  "deployedAt": "2026-10-29T16:15:00Z",
+  "summary": "错题照片复盘筛选重构为居中浮动日历卡片，去除小圆点标记；仅有错题的日期加粗可点击，无错题日期置灰淡化不可点击；单点即选即关免确认，消除系统弹窗与按键音效。"
 }
