@@ -984,41 +984,54 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           )}
         </div>
 
-        {/* 底部固定 5 大入口导航栏：flex-none sticky bottom-0 z-30 */}
-        <nav aria-label="主导航" className="flex-none sticky bottom-0 z-30 bg-paper/95 backdrop-blur-md border-t border-line px-2 py-2 flex items-center justify-around shadow-sheet pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {[
-            { id: 'today', label: '今日', icon: Calendar },
-            { id: 'learning', label: '学习', icon: BookOpen },
-            { id: 'wrong', label: '错题', icon: Camera },
-            { id: 'analysis', label: '分析', icon: BarChart3 },
-            { id: 'settings', label: '我的', icon: User },
-          ].map(tab => {
-            const active = activeTab === tab.id && !showStatesPreview && !showConfirmModalsView;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                disabled={isLoading}
-                onClick={() => {
-                  setShowStatesPreview(false);
-                  setShowConfirmModalsView(false);
-                  setTodayForcedMode('normal');
-                  setForcedGuestMode(false);
-                  setActiveTab(tab.id as MainTab);
-                }}
-                className={`relative flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
-                  active ? 'text-sage font-bold scale-105' : 'text-ink-muted hover:text-ink-main'
-                }`}
-              >
-                <Icon size={20} className={active ? 'stroke-[2.5]' : 'stroke-[1.8]'} />
-                <span className="text-[11px] mt-1">{tab.label}</span>
-                {tab.id === 'settings' && isConflictDeferred && (
-                  <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                )}
-              </button>
-            );
-          })}
-        </nav>
+        {/* 底部悬浮胶囊主导航栏（参考设计图 3 & 4：圆角胶囊、微阴影、选中上方小圆点） */}
+        <div className="flex-none px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-1 z-30">
+          <nav
+            aria-label="主导航"
+            className="bg-white/98 backdrop-blur-md border border-line/60 rounded-[26px] shadow-[0_4px_24px_rgba(52,60,47,0.07)] px-2 py-2 flex items-center justify-around"
+          >
+            {[
+              { id: 'today', label: '今日', icon: Calendar },
+              { id: 'learning', label: '学习', icon: BookOpen },
+              { id: 'wrong', label: '错题', icon: Camera },
+              { id: 'analysis', label: '分析', icon: BarChart3 },
+              { id: 'settings', label: '我的', icon: User },
+            ].map(tab => {
+              const active = activeTab === tab.id && !showStatesPreview && !showConfirmModalsView;
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  disabled={isLoading}
+                  onClick={() => {
+                    setShowStatesPreview(false);
+                    setShowConfirmModalsView(false);
+                    setTodayForcedMode('normal');
+                    setForcedGuestMode(false);
+                    setActiveTab(tab.id as MainTab);
+                  }}
+                  className={`relative flex flex-col items-center justify-center py-0.5 px-3 rounded-xl transition-all ${
+                    active ? 'text-sage font-bold' : 'text-ink-muted hover:text-ink-main'
+                  }`}
+                >
+                  {/* 选中项上方居中精致小圆点 */}
+                  <div className="h-1.5 flex items-center justify-center mb-0.5">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full bg-sage transition-all duration-200 ${
+                        active ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+                      }`}
+                    />
+                  </div>
+                  <Icon size={20} className={active ? 'stroke-[2.2]' : 'stroke-[1.8]'} />
+                  <span className="text-[11px] mt-1">{tab.label}</span>
+                  {tab.id === 'settings' && isConflictDeferred && (
+                    <span className="absolute top-1 right-2.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
 
         {timerNotice && !focusPlan && <div role="status" aria-live="polite" className="fixed bottom-24 left-4 right-4 mx-auto max-w-sm z-40 bg-paper border border-sage rounded-xl p-3 shadow-lg text-xs">
           <p>{timerNotice.message}</p><div className="flex justify-end gap-4 mt-2"><button aria-label="关闭到点提醒" onClick={() => setTimerNotice(null)}>关闭</button><button className="text-sage font-bold" onClick={() => { const plan = state.plans.find(p => p.id === timerNotice.id); if (plan) { setFocusVariantOverride('normal'); setFocusPlan(plan); } setTimerNotice(null); }}>查看计时</button></div>

@@ -5,6 +5,7 @@ import { AppContext } from '../src/context/AppContext';
 import { BLANK_STATE } from '../src/constants/initialData';
 import { TodayView } from '../src/components/views/TodayView';
 import { StudyRecordEditModal } from '../src/components/views/StudyRecordEditModal';
+import { StudyRecordsView } from '../src/components/views/StudyRecordsView';
 
 const noop = () => {};
 const state = structuredClone(BLANK_STATE);
@@ -25,4 +26,16 @@ it('offers editable quantities and duration for study records', () => {
   expect(html).toContain('aria-label="修正实际学习用时"');
   expect(html).toContain('value="30"');
   expect(html).toContain('关联资料已删除');
+});
+
+it('StudyRecordsView renders WeChat/Todo style calendar grid without native input[type=date] or click sound', () => {
+  const html = provider(<StudyRecordsView onBack={noop} initialDate="2026-10-28" />);
+  expect(html).toContain('学习登记记录');
+  expect(html).toContain('返回今日');
+  expect(html).toContain('2026年 10月');
+  expect(html).toContain('💡 点击有记录的日期');
+  // Strict assertion: zero input[type=date] to eliminate Android system sounds & confirmation steps
+  expect(html).not.toContain('type="date"');
+  // Day 28 has record so it should be rendered as an interactive button
+  expect(html).toContain('2026-10-28');
 });

@@ -1,5 +1,5 @@
 import { StandaloneTimerModal } from './StandaloneTimerModal';
-import { StudyRecordsModal } from './StudyRecordsModal';
+import { StudyRecordsView } from './StudyRecordsView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
@@ -38,8 +38,20 @@ export const TodayView: React.FC<TodayViewProps> = ({
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser } = useApp();
   const [, setTick] = useState(0);
-  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [subView, setSubView] = useState<'main' | 'study-records'>('main');
   const [recordsDate, setRecordsDate] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (subView !== 'study-records') return;
+    const prevHandle = window.handleBack;
+    window.handleBack = () => {
+      setSubView('main');
+      return true;
+    };
+    return () => {
+      window.handleBack = prevHandle;
+    };
+  }, [subView]);
   const [onlyUnfinished, setOnlyUnfinished] = useState(() => {
     try {
       return typeof window !== 'undefined' && localStorage.getItem('kaogong_today_only_unfinished') === 'true';
@@ -81,13 +93,28 @@ export const TodayView: React.FC<TodayViewProps> = ({
     .slice(0, 3);
   const pendingHistoryDates = [...new Set(state.plans.filter(plan => plan.date < activeDate && !plan.done).map(plan => plan.date))].sort().reverse();
   const pendingHistoryCount = state.plans.filter(plan => plan.date < activeDate && !plan.done).length;
-  const openRecordLog = (date?: string) => { setRecordsDate(date); setRecordsOpen(true); };
+  const openRecordLog = (date?: string) => { setRecordsDate(date); setSubView('study-records'); };
   const deleteHistoryPlan = (plan: Plan) => {
     if (onOpenDeleteConfirm) onOpenDeleteConfirm(plan);
     else void runTimerAction(() => deletePlan(plan.id));
   };
 
   // Determine display list based on forcedMode
+  if (subView === 'study-records') {
+    return (
+      <div className="space-y-4 pb-12">
+        <StudyRecordsView
+          onBack={() => setSubView('main')}
+          initialDate={recordsDate}
+          onEditRecord={onEditRecord}
+          onOpenComplete={onOpenComplete}
+          onDeletePlan={deleteHistoryPlan}
+        />
+        <StandaloneTimerModal key={currentUser?.id ?? 'preview'} isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} />
+      </div>
+    );
+  }
+
   let displayedPlans = relevantPlans;
   if (forcedMode === 'empty') {
     displayedPlans = [];
@@ -424,14 +451,6 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </button>
         )}
       </section>
-      <StudyRecordsModal
-        isOpen={recordsOpen}
-        onClose={() => setRecordsOpen(false)}
-        initialDate={recordsDate}
-        onEditRecord={onEditRecord}
-        onOpenComplete={onOpenComplete}
-        onDeletePlan={deleteHistoryPlan}
-      />
       <StandaloneTimerModal key={currentUser?.id ?? 'preview'} isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} />
     </div>
   );
