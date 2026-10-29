@@ -179,6 +179,35 @@ function conflictResultFromRecord(record: SyncConflictRecord): SyncResult {
 const LOCAL_STATE_UNRESOLVED_MESSAGE =
   '检测到本机仍有未解决的本地修改或待确认的版本冲突，已暂停自动覆盖。请确认要保留的内容后处理冲突。';
 
+/**
+ * A normal (non-conflict) local edit landed while a pull was already in flight
+ * (e.g. the user completes a task right after the app regains focus). This is not
+ * a fork: the queued edit just needs to be pushed with the normal CAS revision
+ * guard, so return a retryable result instead of persisting a conflict record.
+ * Opening a conflict here used to block every following save until the user
+ * manually picked a side.
+ */
+const LOCAL_EDITS_DURING_PULL = 'LOCAL_EDITS_DURING_PULL';
+
+function localEditsDuringPullResult(pendingCount = 0): SyncResult {
+  return {
+    ok: false,
+    status: 'waiting',
+    waitingReason: 'backoff',
+    retryAt: new Date(Date.now() + 150).toISOString(),
+    code: LOCAL_EDITS_DURING_PULL,
+    message: '检测到本机刚有新的修改，正在转为自动上传',
+    pendingCount,
+  };
+}
+
+/** A conflict created by this race is safe to auto-heal: retry the normal CAS push. */
+function isAutoHealableConflict(conflict: SyncConflictRecord, unresolved: Awaited<ReturnType<typeof getUnresolvedLocalChanges>>): boolean {
+  return conflict.code === 'LOCAL_UNRESOLVED' &&
+    unresolved.quarantined.length === 0 &&
+    unresolved.total > 0;
+}
+
 export interface SyncOptions {
   /** Called after async steps to ensure the same user/auth epoch is still current. */
   guard?: () => boolean;
@@ -206,6 +235,7 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
   }
 
+  const unresolvedAtPullStart = await getUnresolvedLocalChanges(userId);
   const outboxStatus = await ensureSnapshotHasOutbox(userId, { context: options?.context });
   if (outboxStatus === 'conflict') {
     const conflict = await getConflictRecord(userId);
@@ -215,6 +245,11 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       code: conflict?.code || 'DIRTY_SNAPSHOT_CONFLICT',
       message: conflict?.message || '本机存在未同步修改且缺少可信基线，已暂停自动覆盖',
     };
+  }
+  if (outboxStatus === 'queued' && unresolvedAtPullStart.total === 0) {
+    // The dirty snapshot was just protected with a fresh outbox task. Switch to the
+    // push path next round instead of treating our own recovery task as a conflict.
+    return localEditsDuringPullResult(1);
   }
 
   const server = await fetchServerSnapshot(userId, options?.signal || options?.context?.abortSignal || options?.scope?.signal);
@@ -259,7 +294,14 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
 
   const unresolvedCheck = await getUnresolvedLocalChanges(userId);
   if (unresolvedCheck.hasUnsynced || unresolvedCheck.conflict) {
-    return buildConflictResult(userId, server, 'LOCAL_UNRESOLVED', LOCAL_STATE_UNRESOLVED_MESSAGE);
+    const appearedDuringPull = unresolvedAtPullStart.total === 0;
+    if (!appearedDuringPull || unresolvedCheck.conflict || unresolvedCheck.quarantined.length > 0) {
+      return buildConflictResult(userId, server, 'LOCAL_UNRESOLVED', LOCAL_STATE_UNRESOLVED_MESSAGE);
+    }
+    // The queue was empty when this pull started, so these are edits committed while
+    // the request was in flight. They are not a divergence: push them next round using
+    // the normal CAS revision guard instead of raising a blocking conflict dialog.
+    return localEditsDuringPullResult(unresolvedCheck.total);
   }
 
   const serverHashMatchesConfirmed = Boolean(server.contentHash) && server.contentHash === localConfirmedHash;
@@ -290,6 +332,10 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     if (!installed.ok) {
       if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(options)) {
         return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+      }
+      if ((installed.code === 'LOCAL_UNRESOLVED' || installed.code === 'LOCAL_MUTATED') && unresolvedAtPullStart.total === 0) {
+        // Merged by the push path with the normal generation guard next round.
+        return localEditsDuringPullResult();
       }
       return buildConflictResult(
         userId,
@@ -336,6 +382,10 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
       if (installed.code === 'AUTH_EPOCH_CHANGED' || isSyncCancelled(options)) {
         return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
       }
+      if ((installed.code === 'LOCAL_UNRESOLVED' || installed.code === 'LOCAL_MUTATED') && unresolvedAtPullStart.total === 0) {
+        // Merged by the push path with the normal CAS revision guard next round.
+        return localEditsDuringPullResult();
+      }
       return buildConflictResult(userId, server, 'LOCAL_UNRESOLVED', LOCAL_STATE_UNRESOLVED_MESSAGE);
     }
     if (isSyncCancelled(options)) {
@@ -368,6 +418,14 @@ async function pullPath(userId: string, options?: SyncOptions, lockScope?: LockS
     }
     if (isSyncCancelled(options)) {
       return { ok: false, status: 'failed', code: 'AUTH_EPOCH_CHANGED', message: '账号状态已变化，已取消本次同步' };
+    }
+    // `snapshot` was read before the request returned; make sure no local edit landed
+    // while we were comparing, otherwise recording the baseline here would mark stale
+    // content as confirmed and skip the follow-up push.
+    const latestSnapshot = await loadSnapshot(userId);
+    if (unresolvedAtPullStart.total === 0 && latestSnapshot &&
+        (latestSnapshot.revision !== snapshot?.revision || latestSnapshot.contentHash !== snapshot?.contentHash)) {
+      return localEditsDuringPullResult();
     }
     await saveSyncBaseline({
       userId,
@@ -796,7 +854,14 @@ export async function syncWithLockScope(
   const conflict = await getConflictRecord(userId);
   if (conflict) {
     const unresolved = await getUnresolvedLocalChanges(userId);
-    return { ...conflictResultFromRecord(conflict), pendingCount: unresolved.total };
+    if (!isAutoHealableConflict(conflict, unresolved)) {
+      return { ...conflictResultFromRecord(conflict), pendingCount: unresolved.total };
+    }
+    // A local edit that raced an in-flight pull used to persist a LOCAL_UNRESOLVED
+    // conflict even though the cloud had not been changed by another writer. Retrying
+    // the normal CAS push is safe: the server rejects it with a real 409 if the cloud
+    // actually moved, in which case the fresh conflict is surfaced again.
+    await clearConflictRecord(userId);
   }
   const unresolved = await getUnresolvedLocalChanges(userId);
   if (unresolved.quarantined.length > 0) {
@@ -897,15 +962,22 @@ export async function initialHydrateInternal(
   const outboxStatus = await ensureSnapshotHasOutbox(userId, { context: options?.context });
   if (outboxStatus === 'conflict') {
     const conflict = await getConflictRecord(userId);
-    const local = await loadLatestState(userId);
-    return {
-      ok: false,
-      status: 'conflict',
-      code: conflict?.code || 'DIRTY_SNAPSHOT_CONFLICT',
-      message: conflict?.message || '本机存在未同步修改且缺少可信基线，已暂停自动覆盖',
-      localState: local.state,
-      localRevision: local.revision,
-    };
+    const unresolved = await getUnresolvedLocalChanges(userId);
+    if (conflict && isAutoHealableConflict(conflict, unresolved)) {
+      // Heal a conflict left behind by a local edit that raced an in-flight pull;
+      // the queued edits are then pushed by the normal CAS path below.
+      await clearConflictRecord(userId);
+    } else {
+      const local = await loadLatestState(userId);
+      return {
+        ok: false,
+        status: 'conflict',
+        code: conflict?.code || 'DIRTY_SNAPSHOT_CONFLICT',
+        message: conflict?.message || '本机存在未同步修改且缺少可信基线，已暂停自动覆盖',
+        localState: local.state,
+        localRevision: local.revision,
+      };
+    }
   }
 
   const local = await loadLatestState(userId);

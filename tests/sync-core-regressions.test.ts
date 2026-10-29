@@ -34,6 +34,8 @@ interface ServerState {
   authValid: boolean;
   postedBodies: any[];
   postedRawBodies: string[];
+  /** Artificial latency for GET /api/workspace, used to reproduce pull/commit races. */
+  getDelayMs?: number;
 }
 
 const initialState = () => structuredClone(BLANK_STATE);
@@ -100,6 +102,7 @@ async function handleApi(req: Request): Promise<Response> {
   }
 
   if (url.pathname === '/api/workspace' && req.method === 'GET') {
+    if (serverState.getDelayMs) await new Promise(r => setTimeout(r, serverState.getDelayMs));
     return jsonResponse({
       ok: true,
       hasCloudData: serverState.hasCloudData,
@@ -1083,3 +1086,86 @@ describe('S03: protect old dirty local snapshot with empty queue', () => {
   });
 });
 
+
+
+describe('pull/commit race: a save made during an in-flight pull must not open a blocked conflict', () => {
+  const RACE_USER = 'u_sync_test';
+
+  async function commitLocalEdit(page: Page, name: string) {
+    return page.evaluate(async (nextName) => {
+      const h = (window as any).h;
+      return h.commitMutation((draft: AppState) => {
+        draft.profile.name = nextName;
+        return { nextState: draft, value: undefined };
+      }, {
+        userId: 'u_sync_test',
+        outboxBuilder: (nextState: AppState, meta: any) => ({
+          id: `outbox_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          userId: 'u_sync_test',
+          requestId: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          state: nextState,
+          expectedRevision: meta.confirmedRevision,
+          generationId: meta.generationId,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        }),
+      });
+    }, name);
+  }
+
+  async function readConflict(page: Page) {
+    return page.evaluate(async () => (window as any).h.getConflictRecord('u_sync_test'));
+  }
+
+  it('turns the racing save into an automatic retry instead of a persisted conflict', async () => {
+    const cloud = structuredClone(DEMO_STATE);
+    setCloud(cloud, 1);
+    const h = stateHash(cloud);
+    await seedLocalSnapshot(pageA, cloud, { revision: 5, confirmedRevision: 1, generationId: 'gen_1', confirmedContentHash: h });
+    // Simulate a slow foreground pull (server round trip).
+    serverState.getDelayMs = 300;
+    const pullPromise = call(pageA, async h2 => h2.syncNormal(RACE_USER, 'csrf-valid'));
+    await pageA.waitForTimeout(100);
+    const committed = await commitLocalEdit(pageA, '并发保存');
+    expect(committed.ok).toBe(true);
+    const first = await pullPromise;
+    expect(first.status).not.toBe('conflict');
+    expect(first.code).toBe('LOCAL_EDITS_DURING_PULL');
+    // The race must not persist a conflict record that would block every later save.
+    expect(await readConflict(pageA)).toBeNull();
+    serverState.getDelayMs = undefined;
+    const second = await call(pageA, async h2 => h2.syncNormal(RACE_USER, 'csrf-valid'));
+    expect(second.status).toBe('synced');
+    expect(serverState.revision).toBe(2);
+    expect(serverState.state?.profile.name).toBe('并发保存');
+  });
+
+  it('auto-heals a benign LOCAL_UNRESOLVED conflict and uploads the queued edit', async () => {
+    const cloud = structuredClone(DEMO_STATE);
+    setCloud(cloud, 1);
+    const h = stateHash(cloud);
+    await seedLocalSnapshot(pageA, cloud, { revision: 5, confirmedRevision: 1, generationId: 'gen_1', confirmedContentHash: h });
+    const committed = await commitLocalEdit(pageA, '自动修复');
+    expect(committed.ok).toBe(true);
+    // A stale conflict record created by the old racing behavior.
+    await pageA.evaluate(async ({ cloudHash, cloudState }) => {
+      const h2 = (window as any).h;
+      await h2.saveConflictRecord({
+        userId: 'u_sync_test',
+        code: 'LOCAL_UNRESOLVED',
+        message: 'race conflict',
+        serverRevision: 1,
+        serverGenerationId: 'gen_1',
+        serverContentHash: cloudHash,
+        serverState: cloudState,
+        detectedAt: new Date().toISOString(),
+      });
+    }, { cloudHash: h, cloudState: cloud });
+
+    const result = await call(pageA, async h2 => h2.syncNormal(RACE_USER, 'csrf-valid'));
+    expect(result.status).toBe('synced');
+    expect(await readConflict(pageA)).toBeNull();
+    expect(serverState.revision).toBe(2);
+    expect(serverState.state?.profile.name).toBe('自动修复');
+  });
+});
