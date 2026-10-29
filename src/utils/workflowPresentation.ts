@@ -45,7 +45,7 @@ export function getStudyRecordName(state: AppState, record: StudyRecord): string
 }
 
 export function canCorrectStudyRecord(state: AppState, record: StudyRecord): boolean {
-  return (record.type === 'book' || record.type === 'course') && (!record.sessionId ||
+  return (!record.sessionId ||
     state.plans.some(p => p.sessionId === record.sessionId && p.recordId === record.id));
 }
 

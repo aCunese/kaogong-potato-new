@@ -67,7 +67,7 @@ it('integrates course-only metrics and grouped progress into overall analysis', 
   expect(html).not.toContain('网课分析'); expect(html).toContain('本期听课用时'); expect(html).toContain('网课节数进度'); expect(html).toContain('aria-expanded="false"');
 });
 
-it('supports moving overdue todos to today and renders calendar folding', async () => {
+it('supports moving overdue todos to today and renders history calendar entry', async () => {
   const { applyMoveTodosToDate } = await import('../src/utils/workflowMutators');
   const draft: any = {
     version: 4,
@@ -82,6 +82,20 @@ it('supports moving overdue todos to today and renders calendar folding', async 
 
   const { TodoView } = await import('../src/components/views/TodoView');
   const html = render(React.createElement(TodoView));
-  expect(html).toContain('打卡月历与历史待办');
+  expect(html).toContain('历史月历');
   expect(html).toContain('今天');
+  expect(html).toContain('移到今天');
+});
+
+it('supports editing study record duration for custom, book and course records', async () => {
+  const { applyStudyRecordCorrection } = await import('../src/utils/workflowMutators');
+  const { canCorrectStudyRecord } = await import('../src/utils/workflowPresentation');
+  const customRecord: any = { id: 'r-custom', planId: 'p-custom', date: '2026-10-27', type: 'custom', sourceId: 'custom-1', subject: '常识判断', minutes: 23, questions: 0, errors: 0 };
+  const state: any = { records: [customRecord], plans: [{ id: 'p-custom', recordId: 'r-custom', actualMinutes: 23, accumulatedMs: 1380000 }] };
+  expect(canCorrectStudyRecord(state, customRecord)).toBe(true);
+
+  const res = applyStudyRecordCorrection(state, { recordId: 'r-custom', type: 'custom', minutes: 35 });
+  expect('error' in res).toBe(false);
+  expect(customRecord.minutes).toBe(35);
+  expect(state.plans[0].actualMinutes).toBe(35);
 });

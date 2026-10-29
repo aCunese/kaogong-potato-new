@@ -122,8 +122,9 @@ export interface WrongRecord {
 }
 
 export type StudyRecordCorrectionInput =
-  | { recordId: string; type: 'book'; questions: number; errors: number; expected: { questions: number; errors: number } }
-  | { recordId: string; type: 'course'; lessons: number; expected: { lessons: number } };
+  | { recordId: string; type: 'book'; questions: number; errors: number; minutes?: number; expected: { questions: number; errors: number; minutes?: number } }
+  | { recordId: string; type: 'course'; lessons: number; minutes?: number; expected: { lessons: number; minutes?: number } }
+  | { recordId: string; type: 'custom'; minutes: number; expected?: { minutes?: number } };
 
 export interface Profile {
   name: string;

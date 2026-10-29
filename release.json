@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.0.13",
-  "webBuild": "20261029.03",
+  "webVersion": "1.0.14",
+  "webBuild": "20261029.04",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-29T10:10:00Z",
-  "summary": "待办模块全面升级：引入今日聚焦视图、昨日未完成智能顺延提示，以及仿微信「按日期查找」的打卡历史月历。"
+  "deployedAt": "2026-10-29T10:35:00Z",
+  "summary": "待办独立两级导航重构（今天右侧月历入口、未完成条下移、按日期查找与历史补录）与全类型日程时长修改支持；持久化记住今日只看未完成设置。"
 }

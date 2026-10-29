@@ -72,6 +72,7 @@ import { mergeSeedIntoState } from '../utils/seedMerge';
 import { buildGuestMigration, executeGuestMigration, GuestMigrationPreview } from '../utils/guestMigration';
 import {
   applyStartTimer,
+  applyAddTodo,
   applyAddTodayTodo,
   applyToggleTodo,
   applyDeleteTodo,
@@ -142,7 +143,7 @@ export interface AppContextType {
   pauseTimer: (planId: string) => Promise<MutationResult<void>>;
   deletePlan: (planId: string) => Promise<MutationResult<void>>;
 
-  addTodo: (text: string) => Promise<MutationResult<TodoItem>>;
+  addTodo: (text: string, date?: string) => Promise<MutationResult<TodoItem>>;
   toggleTodo: (id: string) => Promise<MutationResult<void>>;
   deleteTodo: (id: string) => Promise<MutationResult<void>>;
   moveTodosToDate: (ids: string[], targetDate: string) => Promise<MutationResult<void>>;
@@ -1186,7 +1187,11 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     [activeDate, executeMutation]
   );
 
-  const addTodo = useCallback((text: string) => executeMutation(draft => applyAddTodayTodo(draft, text), 'add_todo'), [executeMutation]);
+  const addTodo = useCallback(
+    (text: string, date?: string) =>
+      executeMutation(draft => applyAddTodo(draft, text, date || activeDate), 'add_todo'),
+    [activeDate, executeMutation]
+  );
   const toggleTodo = useCallback((id: string) => executeMutation(draft => applyToggleTodo(draft, id), 'toggle_todo'), [executeMutation]);
   const deleteTodo = useCallback((id: string) => executeMutation(draft => applyDeleteTodo(draft, id), 'delete_todo'), [executeMutation]);
   const moveTodosToDate = useCallback((ids: string[], targetDate: string) => executeMutation(draft => applyMoveTodosToDate(draft, ids, targetDate), 'move_todos'), [executeMutation]);

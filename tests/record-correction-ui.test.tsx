@@ -17,11 +17,12 @@ it('exposes correction for historical registrations without a surviving plan on 
   expect(html).toContain('完成 20 题');
   expect(html).not.toContain('历史日程</label>');
 });
-it('offers editable quantities while keeping recorded duration as text', () => {
+it('offers editable quantities and duration for study records', () => {
   const html = provider(<StudyRecordEditModal record={state.records[0]} onClose={noop} onToast={noop}/>);
   expect(html).toContain('aria-label="修正本次错题数"');
   expect(html).toContain('value="12"');
   expect(html).toContain('30 分钟');
-  expect(html).not.toMatch(/<input[^>]+(?:minutes|用时)/);
+  expect(html).toContain('aria-label="修正实际学习用时"');
+  expect(html).toContain('value="30"');
   expect(html).toContain('关联资料已删除');
 });

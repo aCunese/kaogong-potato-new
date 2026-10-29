@@ -31,6 +31,29 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
   if (record.sessionId && !draft.plans.some(p => p.sessionId === record.sessionId && p.recordId === record.id)) {
     return { error: { code: 'TIME_ONLY_RECORD', message: '这是跨日用时分段，请修改该次学习结束日期的登记。' } };
   }
+
+  // 校验学习用时（若传入）
+  if (input.minutes !== undefined) {
+    if (!Number.isSafeInteger(input.minutes) || input.minutes <= 0) {
+      return { error: { code: 'INVALID_MINUTES', message: '学习用时须为大于0的整数分钟。' } };
+    }
+  }
+
+  if (input.type === 'custom') {
+    const newMinutes = input.minutes;
+    if (!Number.isSafeInteger(newMinutes) || newMinutes <= 0) {
+      return { error: { code: 'INVALID_MINUTES', message: '学习用时须为大于0的整数分钟。' } };
+    }
+    record.minutes = newMinutes;
+    const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
+    if (plan) {
+      plan.actualMinutes = newMinutes;
+      plan.accumulatedMs = newMinutes * 60000;
+    }
+    draft.version = Math.max(draft.version, 4) as AppState['version'];
+    return { nextState: draft, value: record };
+  }
+
   if (input.type === 'book') {
     if (!Number.isSafeInteger(input.questions) || input.questions <= 0 || !Number.isSafeInteger(input.errors) || input.errors < 0 || input.errors > input.questions) {
       return { error: { code: 'INVALID_COUNTS', message: '做题数须为正整数，错题数须为不超过做题数的非负整数。' } };
@@ -49,9 +72,21 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
       }
       book.done = done;
       book.errors = errors;
+      if (input.minutes !== undefined) {
+        const diffMinutes = input.minutes - record.minutes;
+        book.minutes = Math.max(0, (book.minutes ?? 0) + diffMinutes);
+      }
     }
     record.questions = input.questions;
     record.errors = input.errors;
+    if (input.minutes !== undefined) {
+      record.minutes = input.minutes;
+      const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
+      if (plan) {
+        plan.actualMinutes = input.minutes;
+        plan.accumulatedMs = input.minutes * 60000;
+      }
+    }
   } else {
     if (!Number.isSafeInteger(input.lessons) || input.lessons <= 0) return { error: { code: 'INVALID_LESSONS', message: '完成节数须为正整数。' } };
     const oldLessons = record.lessons ?? 0;
@@ -63,9 +98,22 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
         return { error: { code: 'COUNTER_INCONSISTENT', message: '修正后的累计节数须在总节数范围内，请检查课程累计数据。' } };
       }
       course.completedLessons = completed;
+      if (input.minutes !== undefined) {
+        const diffMinutes = input.minutes - record.minutes;
+        course.minutes = Math.max(0, (course.minutes ?? 0) + diffMinutes);
+      }
     }
     record.lessons = input.lessons;
+    if (input.minutes !== undefined) {
+      record.minutes = input.minutes;
+      const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
+      if (plan) {
+        plan.actualMinutes = input.minutes;
+        plan.accumulatedMs = input.minutes * 60000;
+      }
+    }
   }
+  draft.version = Math.max(draft.version, 4) as AppState['version'];
   return { nextState: draft, value: record };
 }
 

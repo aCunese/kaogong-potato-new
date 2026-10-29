@@ -1,24 +1,37 @@
 import React, { useState, useMemo } from 'react';
-import { Check, Plus, Trash2, Calendar, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertCircle, ArrowRight } from 'lucide-react';
+import {
+  Check,
+  Plus,
+  Trash2,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  ArrowRight,
+} from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { TodoItem } from '../../types';
 import { Button, Card } from '../common/UIComponents';
 
+type TodoNavView = 'main' | 'calendar' | 'detail';
+
 export const TodoView: React.FC = () => {
   const { state, activeDate, addTodo, toggleTodo, deleteTodo, moveTodosToDate } = useApp();
+  const [navView, setNavView] = useState<TodoNavView>('main');
+  const [detailDate, setDetailDate] = useState<string>('');
+
   const [text, setText] = useState('');
+  const [detailText, setDetailText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState('');
   const [ignoredOverdue, setIgnoredOverdue] = useState(false);
-  const [showCalendar, setShowCalendar] = useState(false);
 
-  // 默认月历定位到 activeDate 所在的年月
+  // 月历定位（默认 activeDate 年月）
   const initialYear = Number(activeDate?.slice(0, 4)) || new Date().getFullYear();
   const initialMonth = Number(activeDate?.slice(5, 7)) || (new Date().getMonth() + 1);
   const [viewYear, setViewYear] = useState(initialYear);
   const [viewMonth, setViewMonth] = useState(initialMonth);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const todos = state.todos ?? [];
 
@@ -46,11 +59,15 @@ export const TodoView: React.FC = () => {
   const overdueTodos = todos.filter(t => t.date < activeDate && !t.done).sort((a, b) => a.date.localeCompare(b.date));
   const latestOverdueDate = overdueTodos.length > 0 ? overdueTodos[overdueTodos.length - 1].date : '';
 
-  // 统计有待办的日期集合
-  const datesWithTodos = useMemo(() => new Set(todos.map(t => t.date)), [todos]);
-  const recordedDaysCount = datesWithTodos.size;
+  // 选中的历史日期待办
+  const detailTodos = todos.filter(t => t.date === detailDate).sort((a, b) => a.createdAt - b.createdAt);
+  const detailDoneCount = detailTodos.filter(t => t.done).length;
+  const detailTotalCount = detailTodos.length;
 
-  // 月历网格计算
+  // 有待办的日期集合
+  const datesWithTodos = useMemo(() => new Set(todos.map(t => t.date)), [todos]);
+
+  // 月历计算
   const firstDayIndex = new Date(viewYear, viewMonth - 1, 1).getDay();
   const totalDaysInMonth = new Date(viewYear, viewMonth, 0).getDate();
 
@@ -117,6 +134,193 @@ export const TodoView: React.FC = () => {
     </div>
   );
 
+  // --------------------------------------------------------------------------
+  // 视图 2：独立按日期查找月历页
+  // --------------------------------------------------------------------------
+  if (navView === 'calendar') {
+    return (
+      <div className="space-y-4 animate-fadeIn">
+        <div className="flex items-center justify-between pb-2 border-b border-line">
+          <button
+            type="button"
+            onClick={() => setNavView('main')}
+            className="inline-flex items-center gap-1 text-xs text-sage hover:underline font-medium"
+          >
+            <ChevronLeft size={16} />
+            <span>返回今日待办</span>
+          </button>
+          <h2 className="text-sm font-bold text-ink-main">按日期查找</h2>
+          <div className="w-16" />
+        </div>
+
+        <Card className="p-3 space-y-3">
+          {/* 年月切换 */}
+          <div className="flex items-center justify-between px-1">
+            <button
+              type="button"
+              onClick={handleMonthPrev}
+              className="p-1 rounded-lg hover:bg-black/5 text-ink-muted"
+              aria-label="上个月"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-ink-main">
+                {viewYear}年 {viewMonth}月
+              </span>
+              {(viewYear !== initialYear || viewMonth !== initialMonth) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewYear(initialYear);
+                    setViewMonth(initialMonth);
+                  }}
+                  className="text-xs text-sage hover:underline"
+                >
+                  回到本月
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleMonthNext}
+              className="p-1 rounded-lg hover:bg-black/5 text-ink-muted"
+              aria-label="下个月"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+
+          {/* 星期表头 */}
+          <div className="grid grid-cols-7 text-center text-xs text-ink-muted py-1 font-medium">
+            <span>日</span>
+            <span>一</span>
+            <span>二</span>
+            <span>三</span>
+            <span>四</span>
+            <span>五</span>
+            <span>六</span>
+          </div>
+
+          {/* 微信风格日期网格 */}
+          <div className="grid grid-cols-7 gap-y-1.5 text-center text-xs">
+            {Array.from({ length: firstDayIndex }).map((_, i) => (
+              <div key={`pad-${i}`} className="h-9 w-9 mx-auto" />
+            ))}
+
+            {Array.from({ length: totalDaysInMonth }).map((_, i) => {
+              const dayNum = i + 1;
+              const dayString = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+              const hasData = datesWithTodos.has(dayString);
+              const isToday = dayString === activeDate;
+
+              if (!hasData && !isToday) {
+                return (
+                  <div
+                    key={dayString}
+                    className="h-9 w-9 mx-auto flex items-center justify-center text-ink-muted/30 select-none"
+                  >
+                    {dayNum}
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={dayString}
+                  type="button"
+                  onClick={() => {
+                    setDetailDate(dayString);
+                    setNavView('detail');
+                  }}
+                  className={`h-9 w-9 mx-auto rounded-full flex items-center justify-center transition-all ${
+                    isToday
+                      ? 'bg-sage text-white font-bold shadow-sm'
+                      : 'text-ink-main font-semibold hover:bg-black/5 cursor-pointer'
+                  }`}
+                  title={`${dayString}${isToday ? ' (今天)' : ''}${hasData ? ' (点击查看待办)' : ''}`}
+                >
+                  {dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        <p className="text-xs text-ink-muted text-center py-2">
+          💡 点击亮起有记录的日期，进入独立界面查看或补记当天待办
+        </p>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // 视图 3：独立单日待办详情与补记页
+  // --------------------------------------------------------------------------
+  if (navView === 'detail') {
+    return (
+      <div className="space-y-4 animate-fadeIn">
+        <div className="flex items-center justify-between pb-2 border-b border-line">
+          <button
+            type="button"
+            onClick={() => setNavView('calendar')}
+            className="inline-flex items-center gap-1 text-xs text-sage hover:underline font-medium"
+          >
+            <ChevronLeft size={16} />
+            <span>返回月历</span>
+          </button>
+          <h2 className="text-sm font-bold text-ink-main">
+            {detailDate} · 待办记录 ({detailDoneCount}/{detailTotalCount})
+          </h2>
+          <div className="w-16" />
+        </div>
+
+        {/* 为该历史日期补记待办表单 */}
+        <form
+          className="flex items-center gap-2"
+          onSubmit={e => {
+            e.preventDefault();
+            void run(() => addTodo(detailText, detailDate), () => setDetailText(''));
+          }}
+        >
+          <input
+            value={detailText}
+            onChange={e => setDetailText(e.target.value)}
+            maxLength={200}
+            placeholder={`为 ${detailDate} 补记一条待办...`}
+            className="min-w-0 flex-1 px-3 py-2 rounded-xl border border-line bg-paper text-xs"
+          />
+          <Button type="submit" disabled={busy || !detailText.trim()} size="sm">
+            <Plus size={14} />
+            补记
+          </Button>
+        </form>
+
+        {error && (
+          <p role="alert" className="text-xs text-alarm">
+            {error}
+          </p>
+        )}
+
+        {/* 当天待办清单 */}
+        <section className="space-y-2">
+          {detailTodos.length === 0 ? (
+            <Card className="text-xs text-ink-muted text-center py-8">
+              该日暂无待办记录，可在上方补记
+            </Card>
+          ) : (
+            <Card className="divide-y divide-line p-0 overflow-hidden">
+              {detailTodos.map(todo => renderTodoItem(todo))}
+            </Card>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // 视图 1：主页面（今日聚焦）
+  // --------------------------------------------------------------------------
   return (
     <div className="space-y-4">
       <p className="text-xs text-ink-muted">按日期记录生活与学习待办，勾选完成。待办不计入学习时长。</p>
@@ -126,7 +330,7 @@ export const TodoView: React.FC = () => {
         className="space-y-2"
         onSubmit={e => {
           e.preventDefault();
-          void run(() => addTodo(text), () => setText(''));
+          void run(() => addTodo(text, activeDate), () => setText(''));
         }}
       >
         <label className="block text-xs text-ink-muted" htmlFor="todo-text">
@@ -161,7 +365,38 @@ export const TodoView: React.FC = () => {
         </p>
       )}
 
-      {/* 逾期未完成待办智能提示条 */}
+      {/* 今日聚焦卡片（标题右侧放历史月历胶囊入口） */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between pt-1">
+          <h3 className="flex items-center gap-2 text-sm font-bold text-ink-main">
+            <span>{activeDate} · 今天</span>
+            <span className="font-normal text-xs text-ink-muted">
+              {todayDoneCount}/{todayTotalCount}
+            </span>
+          </h3>
+          <button
+            type="button"
+            onClick={() => setNavView('calendar')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-paper border border-line text-xs font-medium text-ink-main hover:bg-black/5 active:scale-95 transition shadow-sm"
+          >
+            <Calendar size={13} className="text-sage" />
+            <span>历史月历</span>
+            <ChevronRight size={13} className="text-ink-muted" />
+          </button>
+        </div>
+
+        {todayTodos.length === 0 ? (
+          <Card className="text-sm text-ink-muted text-center py-6">
+            还没有待办，写下今天的第一件事吧
+          </Card>
+        ) : (
+          <Card className="divide-y divide-line p-0 overflow-hidden">
+            {todayTodos.map(todo => renderTodoItem(todo))}
+          </Card>
+        )}
+      </section>
+
+      {/* 逾期未完成待办智能提示条（移到今天卡片下方） */}
       {overdueTodos.length > 0 && !ignoredOverdue && (
         <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-900 animate-fadeIn">
           <div className="flex items-center gap-2 min-w-0">
@@ -192,174 +427,6 @@ export const TodoView: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* 今日聚焦卡片 */}
-      <section className="space-y-2">
-        <h3 className="flex justify-between text-sm font-bold text-ink-main">
-          <span>{activeDate} · 今天</span>
-          <span className="font-normal text-ink-muted">
-            {todayDoneCount}/{todayTotalCount}
-          </span>
-        </h3>
-        {todayTodos.length === 0 ? (
-          <Card className="text-sm text-ink-muted text-center py-6">
-            还没有待办，写下今天的第一件事吧
-          </Card>
-        ) : (
-          <Card className="divide-y divide-line p-0 overflow-hidden">
-            {todayTodos.map(todo => renderTodoItem(todo))}
-          </Card>
-        )}
-      </section>
-
-      {/* 微信风格：打卡月历与历史待办（折叠面板） */}
-      <section className="space-y-2 pt-1">
-        <button
-          type="button"
-          onClick={() => setShowCalendar(prev => !prev)}
-          className="w-full flex items-center justify-between p-3 rounded-xl bg-paper border border-line text-xs text-ink-main hover:bg-black/5 transition"
-        >
-          <div className="flex items-center gap-2">
-            <Calendar size={14} className="text-sage" />
-            <span className="font-medium">打卡月历与历史待办</span>
-            <span className="text-ink-muted">（已记录 {recordedDaysCount} 天）</span>
-          </div>
-          <div className="text-ink-muted flex items-center gap-1">
-            <span>{showCalendar ? '收起' : '查看'}</span>
-            {showCalendar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </div>
-        </button>
-
-        {showCalendar && (
-          <Card className="p-3 space-y-3">
-            {/* 年月切换条 */}
-            <div className="flex items-center justify-between px-1">
-              <button
-                type="button"
-                onClick={handleMonthPrev}
-                className="p-1 rounded-lg hover:bg-black/5 text-ink-muted"
-                aria-label="上个月"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-ink-main">
-                  {viewYear}年 {viewMonth}月
-                </span>
-                {(viewYear !== initialYear || viewMonth !== initialMonth) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewYear(initialYear);
-                      setViewMonth(initialMonth);
-                    }}
-                    className="text-[11px] text-sage hover:underline"
-                  >
-                    回到本月
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleMonthNext}
-                className="p-1 rounded-lg hover:bg-black/5 text-ink-muted"
-                aria-label="下个月"
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-
-            {/* 星期表头 */}
-            <div className="grid grid-cols-7 text-center text-[11px] text-ink-muted font-medium">
-              <span>日</span>
-              <span>一</span>
-              <span>二</span>
-              <span>三</span>
-              <span>四</span>
-              <span>五</span>
-              <span>六</span>
-            </div>
-
-            {/* 日历网格（复刻微信“按日期查找”：有记录清晰亮起，无记录浅灰暗显，今天专属绿色徽标） */}
-            <div className="grid grid-cols-7 gap-y-1 text-center text-xs">
-              {Array.from({ length: firstDayIndex }).map((_, i) => (
-                <div key={`pad-${i}`} className="h-8 w-8 mx-auto" />
-              ))}
-
-              {Array.from({ length: totalDaysInMonth }).map((_, i) => {
-                const dayNum = i + 1;
-                const dayString = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                const hasData = datesWithTodos.has(dayString);
-                const isToday = dayString === activeDate;
-                const isSelected = dayString === selectedDate;
-
-                if (!hasData && !isToday) {
-                  return (
-                    <div
-                      key={dayString}
-                      className="h-8 w-8 mx-auto flex items-center justify-center text-ink-muted/30 select-none"
-                    >
-                      {dayNum}
-                    </div>
-                  );
-                }
-
-                return (
-                  <button
-                    key={dayString}
-                    type="button"
-                    onClick={() => setSelectedDate(prev => (prev === dayString ? null : dayString))}
-                    className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center transition-all ${
-                      isToday
-                        ? 'bg-sage text-white font-bold shadow-sm'
-                        : isSelected
-                        ? 'bg-sage/15 text-sage font-bold ring-2 ring-sage'
-                        : 'text-ink-main font-semibold hover:bg-black/5 cursor-pointer'
-                    }`}
-                    title={`${dayString}${isToday ? ' (今天)' : ''}${hasData ? ' (有待办记录)' : ''}`}
-                  >
-                    {dayNum}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* 选中某一天的待办清单 */}
-            {selectedDate && (
-              <div className="pt-3 border-t border-line space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-ink-main">
-                  <span>
-                    {selectedDate} · {selectedDate === activeDate ? '今天' : '历史待办'}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-ink-muted font-normal">
-                      {todos.filter(t => t.date === selectedDate && t.done).length}/
-                      {todos.filter(t => t.date === selectedDate).length}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDate(null)}
-                      className="text-ink-muted hover:text-ink-main text-[11px]"
-                    >
-                      关闭
-                    </button>
-                  </div>
-                </div>
-                {todos.filter(t => t.date === selectedDate).length === 0 ? (
-                  <p className="text-xs text-ink-muted py-2 text-center">该日无待办记录</p>
-                ) : (
-                  <div className="divide-y divide-line rounded-xl border border-line bg-white/40 overflow-hidden">
-                    {todos
-                      .filter(t => t.date === selectedDate)
-                      .sort((a, b) => a.createdAt - b.createdAt)
-                      .map(todo => renderTodoItem(todo))}
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-        )}
-      </section>
     </div>
   );
 };

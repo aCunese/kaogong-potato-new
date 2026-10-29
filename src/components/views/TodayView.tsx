@@ -40,7 +40,25 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [, setTick] = useState(0);
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [recordsDate, setRecordsDate] = useState<string | undefined>(undefined);
-  const [onlyUnfinished, setOnlyUnfinished] = useState(false);
+  const [onlyUnfinished, setOnlyUnfinished] = useState(() => {
+    try {
+      return typeof window !== 'undefined' && localStorage.getItem('kaogong_today_only_unfinished') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleOnlyUnfinished = () => {
+    setOnlyUnfinished(prev => {
+      const next = !prev;
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('kaogong_today_only_unfinished', String(next));
+        }
+      } catch {}
+      return next;
+    });
+  };
   const [pomodoroOpen, setPomodoroOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const runTimerAction = async (action: () => Promise<MutationResult<void>>) => {
@@ -228,7 +246,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <button
               type="button"
               aria-pressed={onlyUnfinished}
-              onClick={() => setOnlyUnfinished(value => !value)}
+              onClick={toggleOnlyUnfinished}
               className={`inline-flex h-8 items-center rounded-full border px-2.5 text-[11px] transition-colors ${onlyUnfinished ? 'border-sage bg-sage-light font-medium text-sage-dark' : 'border-line bg-paper text-ink-muted'}`}
             >
               只看未完成
