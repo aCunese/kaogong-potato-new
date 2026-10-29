@@ -6,6 +6,8 @@ import { BLANK_STATE } from '../src/constants/initialData';
 import { TodayView } from '../src/components/views/TodayView';
 import { StudyRecordEditModal } from '../src/components/views/StudyRecordEditModal';
 import { StudyRecordsView } from '../src/components/views/StudyRecordsView';
+import { WrongView } from '../src/components/views/WrongView';
+import { FloatingDatePicker } from '../src/components/common/FloatingDatePicker';
 
 const noop = () => {};
 const state = structuredClone(BLANK_STATE);
@@ -38,4 +40,33 @@ it('StudyRecordsView renders WeChat/Todo style calendar grid without native inpu
   expect(html).not.toContain('type="date"');
   // Day 28 has record so it should be rendered as an interactive button
   expect(html).toContain('2026-10-28');
+});
+
+it('WrongView uses FloatingDatePicker triggers without native green datepicker or sound', () => {
+  const html = provider(<WrongView onOpenImportModal={noop} onOpenDetailModal={noop} onOpenDeleteConfirm={noop} />);
+  expect(html).toContain('错题照片复盘');
+  expect(html).toContain('aria-label="错题开始日期"');
+  expect(html).toContain('aria-label="错题结束日期"');
+  // Strict assertion: zero input[type=date] in WrongView to eliminate Android system sounds & confirmation steps
+  expect(html).not.toContain('type="date"');
+});
+
+it('FloatingDatePicker renders clean floating drawer with highlight dot and zero system dialog', () => {
+  const highlightDates = new Set(['2026-10-28']);
+  const html = provider(
+    <FloatingDatePicker
+      isOpen={true}
+      onClose={noop}
+      title="选择开始日期"
+      value="2026-10-28"
+      onChange={noop}
+      highlightDates={highlightDates}
+      activeDate="2026-10-28"
+    />
+  );
+  expect(html).toContain('选择开始日期');
+  expect(html).toContain('清空此日期');
+  expect(html).toContain('2026年 10月');
+  expect(html).toContain('有错题照片');
+  expect(html).not.toContain('type="date"');
 });

@@ -3,6 +3,7 @@ import { Camera, Eye, Trash2, BookOpen, ChevronDown, ChevronRight, Search, Image
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Card, Tag } from '../common/UIComponents';
+import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { WrongRecord } from '../../types';
 interface WrongViewProps {
   onOpenImportModal: () => void;
@@ -11,12 +12,14 @@ interface WrongViewProps {
 }
 const PAGE_SIZE = 12;
 export const WrongView: React.FC<WrongViewProps> = ({ onOpenImportModal, onOpenDetailModal, onOpenDeleteConfirm }) => {
-  const { state } = useApp();
+  const { state, activeDate } = useApp();
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [pickerTarget, setPickerTarget] = useState<'from' | 'to' | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pages, setPages] = useState<Record<string, number>>({});
+  const datesWithWrong = useMemo(() => new Set(state.wrong.map(w => w.date)), [state.wrong]);
   const invalidRange = Boolean(from && to && from > to);
   const filtered = useMemo(() => state.wrong.filter(w => !invalidRange &&
     (!query.trim() || w.note.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) &&
@@ -32,7 +35,36 @@ export const WrongView: React.FC<WrongViewProps> = ({ onOpenImportModal, onOpenD
     <div className="flex items-center justify-between gap-2"><span className="text-xs text-ink-muted">已归档照片 ({state.wrong.length} 张)</span><Button size="sm" onClick={onOpenImportModal}><Camera size={14} />从相册上传错题</Button></div>
     <Card className="p-3 space-y-3">
       <label className="flex items-center gap-2"><Search size={16} className="shrink-0 text-sage" /><input aria-label="搜索复盘原因和思路" type="search" value={query} onChange={e => filter(() => setQuery(e.target.value))} placeholder="搜索复盘原因和思路" className="w-full min-w-0 bg-transparent text-sm py-1 outline-none" /></label>
-      <div className="grid grid-cols-2 gap-2"><label className="text-xs text-ink-muted min-w-0">开始日期<input aria-label="错题开始日期" type="date" value={from} onChange={e => filter(() => setFrom(e.target.value))} className="mt-1 w-full min-w-0 border border-line rounded-lg p-1.5 bg-paper" /></label><label className="text-xs text-ink-muted min-w-0">结束日期<input aria-label="错题结束日期" type="date" value={to} onChange={e => filter(() => setTo(e.target.value))} className="mt-1 w-full min-w-0 border border-line rounded-lg p-1.5 bg-paper" /></label></div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="min-w-0">
+          <span className="text-xs text-ink-muted">开始日期</span>
+          <button
+            type="button"
+            aria-label="错题开始日期"
+            onClick={() => setPickerTarget('from')}
+            className="mt-1 w-full flex items-center justify-between border border-line rounded-lg px-2.5 py-1.5 bg-paper text-xs text-left active:bg-cream transition"
+          >
+            <span className={from ? 'text-ink-main font-medium' : 'text-ink-muted/50'}>
+              {from || '选择开始日期'}
+            </span>
+            <ChevronDown size={14} className="text-ink-muted shrink-0" />
+          </button>
+        </div>
+        <div className="min-w-0">
+          <span className="text-xs text-ink-muted">结束日期</span>
+          <button
+            type="button"
+            aria-label="错题结束日期"
+            onClick={() => setPickerTarget('to')}
+            className="mt-1 w-full flex items-center justify-between border border-line rounded-lg px-2.5 py-1.5 bg-paper text-xs text-left active:bg-cream transition"
+          >
+            <span className={to ? 'text-ink-main font-medium' : 'text-ink-muted/50'}>
+              {to || '选择结束日期'}
+            </span>
+            <ChevronDown size={14} className="text-ink-muted shrink-0" />
+          </button>
+        </div>
+      </div>
       {invalidRange && <p role="alert" className="text-xs text-alarm">开始日期不能晚于结束日期。</p>}
       <div className="text-xs text-ink-muted flex justify-between"><span>匹配 {filtered.length} 条记录</span>{(query || from || to) && <button className="text-sage" onClick={() => filter(() => { setQuery(''); setFrom(''); setTo(''); })}>清除筛选</button>}</div>
     </Card>
@@ -53,5 +85,21 @@ export const WrongView: React.FC<WrongViewProps> = ({ onOpenImportModal, onOpenD
         </div>{visible < group.records.length && <Button variant="light" fullWidth size="sm" onClick={() => setPages(prev => ({ ...prev, [group.id]: (prev[group.id] ?? 1) + 1 }))}>再显示 {Math.min(PAGE_SIZE, group.records.length - visible)} 条</Button>}</>}
       </section>;
     })}
+    <FloatingDatePicker
+      isOpen={pickerTarget !== null}
+      onClose={() => setPickerTarget(null)}
+      title={pickerTarget === 'from' ? '选择开始日期' : '选择结束日期'}
+      value={pickerTarget === 'from' ? from : to}
+      onChange={date => {
+        if (pickerTarget === 'from') filter(() => setFrom(date));
+        else if (pickerTarget === 'to') filter(() => setTo(date));
+      }}
+      onClear={() => {
+        if (pickerTarget === 'from') filter(() => setFrom(''));
+        else if (pickerTarget === 'to') filter(() => setTo(''));
+      }}
+      highlightDates={datesWithWrong}
+      activeDate={activeDate}
+    />
   </div>;
 };

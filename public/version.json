@@ -1,6 +1,6 @@
 {
-  "version": "1.0.15",
-  "build": "20261029.05",
+  "version": "1.1.1",
+  "build": "20261030.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-29T15:05:00Z",
-  "summary": "学习登记记录独立界面重构（待办同款微信风格月历、数字直达、消除原生日期弹窗与系统点击声）与悬浮胶囊圆角主导航栏全新UI升级。"
+  "deployedAt": "2026-10-29T15:40:00Z",
+  "summary": "错题照片复盘开始与结束日期自研悬浮日历重构（去除原生绿色弹窗与点击音效，单点日期即选即关免设置，支持错题日期小圆点标记与清空快捷操作）。"
 }
