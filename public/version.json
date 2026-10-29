@@ -1,6 +1,6 @@
 {
-  "version": "1.0.12",
-  "build": "20261029.02",
+  "version": "1.0.13",
+  "build": "20261029.03",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-29T09:22:44Z",
-  "summary": "修复同步竞态：前台自动拉取与本地保存同时发生时，误报「数据版本冲突」并阻塞后续保存；现在自动转为补传本机修改，并自动修复历史遗留的此类误冲突。"
+  "deployedAt": "2026-10-29T10:10:00Z",
+  "summary": "待办模块全面升级：引入今日聚焦视图、昨日未完成智能顺延提示，以及仿微信「按日期查找」的打卡历史月历。"
 }

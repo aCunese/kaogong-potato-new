@@ -66,3 +66,22 @@ it('integrates course-only metrics and grouped progress into overall analysis', 
   const html = render(React.createElement(AnalysisView, { onOpenMonthPicker: noop, onOpenLegendDetail: noop }));
   expect(html).not.toContain('网课分析'); expect(html).toContain('本期听课用时'); expect(html).toContain('网课节数进度'); expect(html).toContain('aria-expanded="false"');
 });
+
+it('supports moving overdue todos to today and renders calendar folding', async () => {
+  const { applyMoveTodosToDate } = await import('../src/utils/workflowMutators');
+  const draft: any = {
+    version: 4,
+    todos: [
+      { id: 't1', text: 'Past unfinished', date: '2026-10-25', done: false, createdAt: 1, completedAt: 0 },
+      { id: 't2', text: 'Today task', date: '2026-10-27', done: false, createdAt: 2, completedAt: 0 },
+    ],
+  };
+  const res = applyMoveTodosToDate(draft, ['t1'], '2026-10-27');
+  expect('error' in res).toBe(false);
+  expect(draft.todos[0].date).toBe('2026-10-27');
+
+  const { TodoView } = await import('../src/components/views/TodoView');
+  const html = render(React.createElement(TodoView));
+  expect(html).toContain('打卡月历与历史待办');
+  expect(html).toContain('今天');
+});

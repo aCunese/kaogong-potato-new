@@ -613,6 +613,19 @@ export function applyDeleteTodo(draft: AppState, id: string): MutatorReturn<void
   draft.todos = (draft.todos ?? []).filter(t => t.id !== id); draft.version = Math.max(draft.version, 4) as AppState['version'];
   return { nextState: draft, value: undefined };
 }
+export function applyMoveTodosToDate(draft: AppState, ids: string[], targetDate: string): MutatorReturn<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return { error: { code: 'INVALID_DATE', message: '请选择有效日期。' } };
+  const idSet = new Set(ids);
+  let changed = false;
+  for (const todo of draft.todos ?? []) {
+    if (idSet.has(todo.id) && todo.date !== targetDate) {
+      todo.date = targetDate;
+      changed = true;
+    }
+  }
+  if (changed) draft.version = Math.max(draft.version, 4) as AppState['version'];
+  return { nextState: draft, value: undefined };
+}
 export function applyConfigureTimer(draft: AppState, id: string, config: TimerConfig): MutatorReturn<void> {
   const plan = draft.plans.find(p => p.id === id);
   if (!plan || plan.done || plan.timerStart > 0 || (plan.restStart ?? 0) > 0) return { error: { code: 'TIMER_BUSY', message: '请先暂停计时再设置模式。' } };

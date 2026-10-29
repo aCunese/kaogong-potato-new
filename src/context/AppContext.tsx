@@ -75,6 +75,7 @@ import {
   applyAddTodayTodo,
   applyToggleTodo,
   applyDeleteTodo,
+  applyMoveTodosToDate,
   applyConfigureTimer,
   applySwitchTimerPhase,
   applyMaintainTimers,
@@ -144,6 +145,7 @@ export interface AppContextType {
   addTodo: (text: string) => Promise<MutationResult<TodoItem>>;
   toggleTodo: (id: string) => Promise<MutationResult<void>>;
   deleteTodo: (id: string) => Promise<MutationResult<void>>;
+  moveTodosToDate: (ids: string[], targetDate: string) => Promise<MutationResult<void>>;
   configureTimer: (id: string, config: TimerConfig) => Promise<MutationResult<void>>;
   switchTimerPhase: (id: string, phase: 'focus' | 'rest') => Promise<MutationResult<void>>;
 
@@ -1187,6 +1189,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const addTodo = useCallback((text: string) => executeMutation(draft => applyAddTodayTodo(draft, text), 'add_todo'), [executeMutation]);
   const toggleTodo = useCallback((id: string) => executeMutation(draft => applyToggleTodo(draft, id), 'toggle_todo'), [executeMutation]);
   const deleteTodo = useCallback((id: string) => executeMutation(draft => applyDeleteTodo(draft, id), 'delete_todo'), [executeMutation]);
+  const moveTodosToDate = useCallback((ids: string[], targetDate: string) => executeMutation(draft => applyMoveTodosToDate(draft, ids, targetDate), 'move_todos'), [executeMutation]);
   const configureTimer = useCallback((id: string, config: TimerConfig) => executeMutation(draft => applyConfigureTimer(draft, id, config), 'configure_timer'), [executeMutation]);
   const switchTimerPhase = useCallback((id: string, phase: 'focus' | 'rest') => executeMutation(draft => applySwitchTimerPhase(draft, id, phase), 'timer_phase'), [executeMutation]);
 
@@ -2361,6 +2364,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         addTodo,
         toggleTodo,
         deleteTodo,
+        moveTodosToDate,
         configureTimer,
         beginTimerSession,
         sessionAction,
