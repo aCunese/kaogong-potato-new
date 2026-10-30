@@ -1,6 +1,6 @@
 {
-  "version": "1.1.3",
-  "build": "20261030.03",
+  "version": "1.1.4",
+  "build": "20261031.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-30T14:40:00Z",
-  "summary": "学习伙伴学情页重构：默认展示今日5项核心指标与当日打卡明细；仿待办设计重构日期栏与展开月历，仅高亮打卡日期可选；采用三标签页分栏，消除长列表冗长下拉。"
+  "deployedAt": "2026-10-31T00:30:00Z",
+  "summary": "学习伙伴学情收纳与体验升级：累计资料新增8大科目横滑胶囊筛选与紧凑小卡，彻底解决长列表下拉；全部统计学习状态引入连续打卡天数计算，历史打卡记录按日期手风琴折叠收纳。"
 }

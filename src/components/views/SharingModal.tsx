@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { SUBJECTS } from '../../types';
 import { Button, Modal } from '../common/UIComponents';
 import type {
   CreatedSharingCode,
@@ -408,7 +409,51 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
   );
 }
 
-function Totals({ totals }: { totals: SharedStudyTotals }) {
+export function calculatePartnerStreak(
+  studyDates: string[] | undefined,
+  todayStr: string
+): { type: 'streak' | 'break' | 'none'; text: string } {
+  if (!studyDates || studyDates.length === 0) {
+    return { type: 'none', text: '暂无打卡' };
+  }
+  const dateSet = new Set(studyDates);
+  const isTodayStudied = dateSet.has(todayStr);
+
+  if (isTodayStudied) {
+    let count = 1;
+    let curr = shiftDate(todayStr, -1);
+    while (dateSet.has(curr)) {
+      count++;
+      curr = shiftDate(curr, -1);
+    }
+    return {
+      type: 'streak',
+      text: count === 1 ? '打卡 1 天 🔥' : `连续打卡 ${count} 天 🔥`,
+    };
+  } else {
+    let missed = 1;
+    let curr = shiftDate(todayStr, -1);
+    const earliestDate = studyDates[0];
+    while (!dateSet.has(curr) && curr >= earliestDate) {
+      missed++;
+      curr = shiftDate(curr, -1);
+    }
+    return {
+      type: 'break',
+      text: missed === 1 ? '1天未打卡' : `连续 ${missed} 天未打卡 💤`,
+    };
+  }
+}
+
+function Totals({
+  totals,
+  streakText,
+  streakType,
+}: {
+  totals: SharedStudyTotals;
+  streakText?: string;
+  streakType?: 'streak' | 'break' | 'none';
+}) {
   const values = [
     ['学习分钟', formatNumber(totals.minutes)],
     ['完成题数', formatNumber(totals.questions)],
@@ -426,8 +471,10 @@ function Totals({ totals }: { totals: SharedStudyTotals }) {
       ))}
       <div className="min-w-0">
         <dt className="text-[10px] text-ink-muted">学习状态</dt>
-        <dd className="mt-0.5 text-xs font-bold text-sage">
-          {totals.minutes > 0 || totals.questions > 0 ? '已打卡 🔥' : '未打卡'}
+        <dd className={`mt-0.5 text-xs font-bold ${
+          streakType === 'break' ? 'text-amber-800' : 'text-sage'
+        }`}>
+          {streakText || (totals.minutes > 0 || totals.questions > 0 ? '已打卡 🔥' : '未打卡')}
         </dd>
       </div>
     </dl>
@@ -469,6 +516,111 @@ function SharedOverview({
 }) {
   const studyDatesSet = useMemo(() => new Set(overview.studyDates ?? []), [overview.studyDates]);
   const pageCount = Math.max(1, Math.ceil(overview.records.total / overview.records.pageSize));
+  const streak = useMemo(() => calculatePartnerStreak(overview.studyDates, todayStr), [overview.studyDates, todayStr]);
+
+  // Library subject filter state
+  const [selectedSubject, setSelectedSubject] = useState<'ALL' | string>('ALL');
+
+  // Compute available subjects for library tab
+  const availableSubjects = useMemo(() => {
+    const counts: Record<string, { books: number; courses: number; total: number }> = {};
+    overview.books.forEach(b => {
+      const sub = b.subject || '其他';
+      if (!counts[sub]) counts[sub] = { books: 0, courses: 0, total: 0 };
+      counts[sub].books++;
+      counts[sub].total++;
+    });
+    overview.courses.forEach(c => {
+      const sub = c.subject || '其他';
+      if (!counts[sub]) counts[sub] = { books: 0, courses: 0, total: 0 };
+      counts[sub].courses++;
+      counts[sub].total++;
+    });
+    const ordered = SUBJECTS.filter(s => counts[s]);
+    Object.keys(counts).forEach(s => {
+      if (!ordered.includes(s as any)) ordered.push(s as any);
+    });
+    return ordered.map(subject => ({
+      subject,
+      count: counts[subject].total,
+      booksCount: counts[subject].books,
+      coursesCount: counts[subject].courses,
+    }));
+  }, [overview.books, overview.courses]);
+
+  const totalResources = overview.books.length + overview.courses.length;
+
+  const filteredBooks = useMemo(() => {
+    if (selectedSubject === 'ALL') return overview.books;
+    return overview.books.filter(b => b.subject === selectedSubject);
+  }, [overview.books, selectedSubject]);
+
+  const filteredCourses = useMemo(() => {
+    if (selectedSubject === 'ALL') return overview.courses;
+    return overview.courses.filter(c => c.subject === selectedSubject);
+  }, [overview.courses, selectedSubject]);
+
+  // Group historical records by date for all tab
+  const dateGroups = useMemo(() => {
+    const groups: {
+      date: string;
+      items: typeof overview.records.items;
+      totalMinutes: number;
+      totalQuestions: number;
+      totalErrors: number;
+      totalLessons: number;
+    }[] = [];
+    const map = new Map<string, typeof groups[0]>();
+
+    for (const item of overview.records.items) {
+      let group = map.get(item.date);
+      if (!group) {
+        group = {
+          date: item.date,
+          items: [],
+          totalMinutes: 0,
+          totalQuestions: 0,
+          totalErrors: 0,
+          totalLessons: 0,
+        };
+        map.set(item.date, group);
+        groups.push(group);
+      }
+      group.items.push(item);
+      group.totalMinutes += item.minutes || 0;
+      if (item.type === 'book') {
+        group.totalQuestions += item.quantity || 0;
+        group.totalErrors += item.errors || 0;
+      } else if (item.type === 'course') {
+        group.totalLessons += item.quantity || 0;
+      }
+    }
+    return groups;
+  }, [overview.records.items]);
+
+  // Expanded dates state: default expands first date
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(() => {
+    const initial = overview.records.items[0]?.date;
+    return initial ? new Set([initial]) : new Set();
+  });
+
+  useEffect(() => {
+    if (expandedDates.size === 0 && overview.records.items.length > 0) {
+      setExpandedDates(new Set([overview.records.items[0].date]));
+    }
+  }, [overview.records.items]);
+
+  const toggleDate = (date: string) => {
+    setExpandedDates(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  };
 
   // Calendar calculations
   const firstDayIndex = new Date(calYear, calMonth - 1, 1).getDay();
@@ -478,50 +630,164 @@ function SharedOverview({
   // 1. 【累计资料】分栏
   if (partnerTab === 'library') {
     return (
-      <div className="space-y-4" aria-label="累计资料进度">
-        <div>
-          <h4 className="text-sm font-bold text-ink-main">累计资料进度</h4>
-          <p className="mt-1 text-[11px] leading-5 text-ink-muted">题本与网课的累计进度，不随日期变化。</p>
+      <div className="space-y-3" aria-label="累计资料进度">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-bold text-ink-main">累计资料进度</h4>
+            <p className="mt-0.5 text-[11px] leading-4 text-ink-muted">按科目分类收纳，题本与网课进度不随日期变化。</p>
+          </div>
+          <span className="text-[11px] font-mono text-ink-muted shrink-0">
+            共 {overview.books.length}本 · {overview.courses.length}课
+          </span>
         </div>
-        {(['books', 'courses'] as const).map(type => (
-          <section key={type} className="space-y-2">
-            <h5 className="flex items-center gap-1.5 text-xs font-bold text-ink-main">
-              {type === 'books' ? <BookOpen size={14} className="text-sage" /> : <MonitorPlay size={14} className="text-course-text" />}
-              {type === 'books' ? '题本' : '网课'}
-              <span className="font-normal text-ink-muted">{overview[type].length}</span>
-            </h5>
-            {overview[type].length === 0 ? (
-              <p className="py-1 text-xs text-ink-muted">暂无{type === 'books' ? '题本' : '网课'}。</p>
-            ) : (
-              <ul className="divide-y divide-line">
-                {overview[type].map((source, index) => (
-                  <li key={`${type}-${index}`} className="py-3 first:pt-1">
-                    <div className="flex items-start justify-between gap-2 text-xs">
-                      <span className="min-w-0 break-words font-bold text-ink-main">{source.name}</span>
-                      <span className="shrink-0 text-ink-muted">{source.subject}</span>
-                    </div>
-                    <div
-                      role="progressbar"
-                      aria-label={`${source.name}累计进度`}
-                      aria-valuemin={0}
-                      aria-valuemax={source.total || 1}
-                      aria-valuenow={Math.min(source.done, source.total || 1)}
-                      className="my-2 h-1.5 overflow-hidden rounded-full bg-cream"
-                    >
-                      <div
-                        className={`h-full rounded-full ${type === 'books' ? 'bg-sage' : 'bg-course-text'}`}
-                        style={{ width: `${source.total ? Math.min(100, source.done / source.total * 100) : 0}%` }}
-                      />
-                    </div>
-                    <p className="text-[11px] leading-5 text-ink-muted">
-                      {formatNumber(source.done)} / {formatNumber(source.total)} {type === 'books' ? '题' : '节'} · {formatNumber(source.minutes)} 分钟{type === 'books' ? ` · 错 ${formatNumber(source.errors)} 题` : ''}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ))}
+
+        {/* 科目快速筛选胶囊栏 */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+          <button
+            type="button"
+            onClick={() => setSelectedSubject('ALL')}
+            className={`shrink-0 px-2.5 py-1 rounded-xl text-xs font-medium transition ${
+              selectedSubject === 'ALL'
+                ? 'bg-sage-dark text-white font-bold shadow-xs'
+                : 'bg-cream/80 text-ink-muted border border-line hover:text-ink-main'
+            }`}
+          >
+            全部 {totalResources}
+          </button>
+          {availableSubjects.map(({ subject, count }) => (
+            <button
+              key={subject}
+              type="button"
+              onClick={() => setSelectedSubject(subject)}
+              className={`shrink-0 px-2.5 py-1 rounded-xl text-xs font-medium transition ${
+                selectedSubject === subject
+                  ? 'bg-sage-dark text-white font-bold shadow-xs'
+                  : 'bg-cream/80 text-ink-muted border border-line hover:text-ink-main'
+              }`}
+            >
+              {subject} {count}
+            </button>
+          ))}
+        </div>
+
+        {/* 紧凑卡片列表 */}
+        <div className="space-y-3 pt-1">
+          {/* 题本分组 */}
+          {(selectedSubject === 'ALL' || filteredBooks.length > 0) && (
+            <section className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-bold text-ink-main">
+                <span className="flex items-center gap-1.5">
+                  <BookOpen size={13} className="text-sage" />
+                  题本进度
+                </span>
+                <span className="text-[10px] font-normal text-ink-muted">
+                  {filteredBooks.length} 本
+                </span>
+              </div>
+              {filteredBooks.length === 0 ? (
+                <p className="py-2 text-center text-xs text-ink-muted bg-cream/40 rounded-xl border border-line/60">
+                  {selectedSubject}暂无题本
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredBooks.map((source, index) => {
+                    const progressPct = source.total ? Math.min(100, Math.round((source.done / source.total) * 100)) : 0;
+                    return (
+                      <div key={`book-${index}`} className="p-2.5 rounded-2xl bg-cream/50 border border-line/80">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sage-light text-sage-dark font-medium shrink-0">
+                              {source.subject}
+                            </span>
+                            <span className="font-bold text-ink-main truncate text-xs">{source.name}</span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-sage-dark shrink-0">
+                            {formatNumber(source.done)} / {formatNumber(source.total)} 题
+                          </span>
+                        </div>
+                        <div
+                          role="progressbar"
+                          aria-label={`${source.name}累计进度`}
+                          aria-valuemin={0}
+                          aria-valuemax={source.total || 1}
+                          aria-valuenow={Math.min(source.done, source.total || 1)}
+                          className="my-1.5 h-1 overflow-hidden rounded-full bg-cream-dark/50"
+                        >
+                          <div
+                            className="h-full rounded-full bg-sage transition-all duration-300"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-ink-muted">
+                          <span>已学 {formatNumber(source.minutes)} 分钟{source.errors > 0 ? ` · 错 ${formatNumber(source.errors)} 题` : ''}</span>
+                          <span>进度 {progressPct}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* 网课分组 */}
+          {(selectedSubject === 'ALL' || filteredCourses.length > 0) && (
+            <section className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-bold text-ink-main">
+                <span className="flex items-center gap-1.5">
+                  <MonitorPlay size={13} className="text-course-text" />
+                  网课进度
+                </span>
+                <span className="text-[10px] font-normal text-ink-muted">
+                  {filteredCourses.length} 门
+                </span>
+              </div>
+              {filteredCourses.length === 0 ? (
+                <p className="py-2 text-center text-xs text-ink-muted bg-cream/40 rounded-xl border border-line/60">
+                  {selectedSubject}暂无网课
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {filteredCourses.map((source, index) => {
+                    const progressPct = source.total ? Math.min(100, Math.round((source.done / source.total) * 100)) : 0;
+                    return (
+                      <div key={`course-${index}`} className="p-2.5 rounded-2xl bg-cream/50 border border-line/80">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-course-bg text-course-text font-medium shrink-0">
+                              {source.subject}
+                            </span>
+                            <span className="font-bold text-ink-main truncate text-xs">{source.name}</span>
+                          </div>
+                          <span className="font-mono text-xs font-bold text-course-text shrink-0">
+                            {formatNumber(source.done)} / {formatNumber(source.total)} 节
+                          </span>
+                        </div>
+                        <div
+                          role="progressbar"
+                          aria-label={`${source.name}累计进度`}
+                          aria-valuemin={0}
+                          aria-valuemax={source.total || 1}
+                          aria-valuenow={Math.min(source.done, source.total || 1)}
+                          className="my-1.5 h-1 overflow-hidden rounded-full bg-cream-dark/50"
+                        >
+                          <div
+                            className="h-full rounded-full bg-course-text transition-all duration-300"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-ink-muted">
+                          <span>累计听课 {formatNumber(source.minutes)} 分钟</span>
+                          <span>进度 {progressPct}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
       </div>
     );
   }
@@ -529,31 +795,86 @@ function SharedOverview({
   // 2. 【全部统计】分栏
   if (partnerTab === 'all') {
     return (
-      <div className="space-y-5" aria-label="全部统计与历史记录">
+      <div className="space-y-4" aria-label="全部统计与历史记录">
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-ink-main">全部学习记录统计</h4>
             <span className="text-[11px] text-ink-muted">累计打卡 {studyDatesSet.size} 天</span>
           </div>
-          <Totals totals={overview.allTimeTotals} />
+          <Totals
+            totals={overview.allTimeTotals}
+            streakText={streak.text}
+            streakType={streak.type}
+          />
         </section>
 
-        <section className="space-y-3 border-t border-line pt-4">
-          <h5 className="text-sm font-bold text-ink-main">历史打卡记录 · 共 {overview.records.total} 条</h5>
-          {overview.records.items.length === 0 ? (
+        <section className="space-y-2.5 border-t border-line pt-3">
+          <div className="flex items-center justify-between">
+            <h5 className="text-xs font-bold text-ink-main">历史打卡记录 · 共 {overview.records.total} 条</h5>
+            <span className="text-[10px] text-ink-muted">按日期收纳折叠</span>
+          </div>
+          {dateGroups.length === 0 ? (
             <p className="text-xs text-ink-muted py-4 text-center">暂无打卡记录。</p>
           ) : (
-            <ul className="divide-y divide-line">
-              {overview.records.items.map((record, index) => (
-                <li key={`${record.date}-${index}`} className="space-y-1 py-2.5">
-                  <p className="text-[11px] text-ink-muted">{record.date} · {record.type === 'book' ? '刷题' : record.type === 'course' ? '网课' : '自定义学习'} · {record.subject}</p>
-                  <p className="break-words text-xs font-medium text-ink-main">{record.sourceName}</p>
-                  <p className="text-xs text-ink-muted">
-                    {formatNumber(record.minutes)} 分钟{record.type === 'book' ? ` · ${formatNumber(record.quantity)} 题 · 错 ${formatNumber(record.errors)} 题` : record.type === 'course' ? ` · ${formatNumber(record.quantity)} 节` : ''}
-                  </p>
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-2">
+              {dateGroups.map(group => {
+                const isExpanded = expandedDates.has(group.date);
+                return (
+                  <div key={group.date} className="rounded-2xl border border-line overflow-hidden bg-cream/40 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => toggleDate(group.date)}
+                      aria-expanded={isExpanded}
+                      className="w-full px-3 py-2 bg-cream/70 flex items-center justify-between text-left border-b border-line/60 hover:bg-cream transition"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-xs font-bold text-ink-main shrink-0">📅 {group.date}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage-dark font-medium shrink-0">
+                          {group.items.length}条打卡
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-ink-muted shrink-0">
+                        <span>
+                          {formatNumber(group.totalMinutes)}分钟
+                          {group.totalQuestions > 0 ? ` · ${formatNumber(group.totalQuestions)}题` : ''}
+                          {group.totalLessons > 0 ? ` · ${formatNumber(group.totalLessons)}节` : ''}
+                        </span>
+                        <ChevronRight
+                          size={13}
+                          className={`text-ink-muted transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                        />
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <ul className="divide-y divide-line/60 p-1.5 space-y-1">
+                        {group.items.map((record, rIdx) => (
+                          <li key={`${group.date}-${rIdx}`} className="px-2 py-1.5 flex items-center justify-between text-xs hover:bg-cream/60 rounded-xl transition">
+                            <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                              <span className={`text-[9px] px-1 py-0.2 rounded font-medium shrink-0 ${
+                                record.type === 'book'
+                                  ? 'bg-sage-light text-sage-dark'
+                                  : record.type === 'course'
+                                    ? 'bg-course-bg text-course-text'
+                                    : 'bg-potato-light text-potato-dark'
+                              }`}>
+                                {record.type === 'book' ? '刷题' : record.type === 'course' ? '网课' : '其他'}
+                              </span>
+                              <span className="text-[10px] text-ink-muted shrink-0">[{record.subject}]</span>
+                              <span className="font-medium text-ink-main truncate text-xs">{record.sourceName}</span>
+                            </div>
+                            <span className="text-[11px] font-mono text-ink-muted shrink-0">
+                              {formatNumber(record.minutes)}分
+                              {record.type === 'book' ? ` · ${formatNumber(record.quantity)}题${record.errors > 0 ? `(错${formatNumber(record.errors)})` : ''}` : ''}
+                              {record.type === 'course' ? ` · ${formatNumber(record.quantity)}节` : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
           {pageCount > 1 && (
             <div className="flex items-center justify-between gap-2 pt-2">
