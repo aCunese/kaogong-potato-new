@@ -1,6 +1,6 @@
 {
-  "version": "1.1.2",
-  "build": "20261030.02",
+  "version": "1.1.3",
+  "build": "20261030.03",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-29T16:15:00Z",
-  "summary": "错题照片复盘筛选重构为居中浮动日历卡片，去除小圆点标记；仅有错题的日期加粗可点击，无错题日期置灰淡化不可点击；单点即选即关免确认，消除系统弹窗与按键音效。"
+  "deployedAt": "2026-10-30T14:40:00Z",
+  "summary": "学习伙伴学情页重构：默认展示今日5项核心指标与当日打卡明细；仿待办设计重构日期栏与展开月历，仅高亮打卡日期可选；采用三标签页分栏，消除长列表冗长下拉。"
 }

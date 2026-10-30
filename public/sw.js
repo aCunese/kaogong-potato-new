@@ -9,8 +9,8 @@
 //   - 页面侧仍通过 /version.json?nonce=<一次性随机值> 服务端回显 nonce 做网络新鲜度证明（双保险）。
 // ==============================================================================
 
-const RELEASE_VERSION = '1.1.2';
-const RELEASE_BUILD = '20261030.02';
+const RELEASE_VERSION = '1.1.3';
+const RELEASE_BUILD = '20261030.03';
 const CACHE_NAME = `kaogong-shell-v5-${RELEASE_VERSION}-${RELEASE_BUILD}`;
 
 // 注意：这里绝对不能包含 /version.json（R16：版本响应不允许被缓存）

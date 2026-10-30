@@ -215,7 +215,9 @@ cd android
 安装包产物位于：`android/app/build/outputs/apk/release/app-release.apk`。
 
 ### 3. 密钥与签名保管
-- 严禁将签名密钥 `release.keystore` 提交进 Git 代码仓库；
+- 严禁将签名密钥 `release.keystore` 提交进公开 Git 代码仓库；
+- 生产签名密钥文件权限必须严格收紧为属主独占读写（`chmod 600 release/kaogong-release.keystore`），严禁组或全局可读；
+- 发布输出的正式 APK 与版本发布清单 `release.json` 必须开启只读保护权限（`chmod 444 release/apk/*.apk release.json`），杜绝部署产物被意外篡改或静默覆盖；
 - 推荐使用环境变量指定签名参数：
   ```bash
   export KEYSTORE_FILE="/path/to/private/release.keystore"

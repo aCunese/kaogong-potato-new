@@ -32,7 +32,7 @@ it('separates course and book minutes in analysis', () => {
 });
 it('offers note search and date filters and folds orphan photos by default', () => {
   const html = render(React.createElement(WrongView, { onOpenImportModal: noop, onOpenDetailModal: noop, onOpenDeleteConfirm: noop }));
-  expect(html).toContain('搜索复盘原因和思路'); expect(html).toContain('type="date"'); expect(html).toContain('aria-expanded="false"');
+  expect(html).toContain('搜索复盘原因和思路'); expect(html).toContain('aria-label="错题开始日期"'); expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain('formula review');
 });
 it('asks for planned lessons when a course is selected for today', () => {

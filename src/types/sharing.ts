@@ -69,4 +69,5 @@ export interface SharedStudyOverview {
     pageSize: number;
     total: number;
   };
+  studyDates?: string[];
 }

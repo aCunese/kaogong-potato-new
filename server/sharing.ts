@@ -181,6 +181,7 @@ export function getSharedStudyOverview(viewerId: string, grantId: string, query:
   const empty: SharedStudyOverview = {
     ownerNickname: displayName(owner.nickname, '备考伙伴', 64), updatedAt: null, range: { from, to },
     selectedTotals: summarize([]), allTimeTotals: summarize([]), books: [], courses: [], records: { items: [], page, pageSize, total: 0 },
+    studyDates: [],
   };
   if (!row) return empty;
   if (row.generation_id !== generation) throw new SharingError(403, 'SHARING_ACCESS_REVOKED', '云端数据代次已变化，请重新获取授权');
@@ -218,9 +219,11 @@ export function getSharedStudyOverview(viewerId: string, grantId: string, query:
     };
   }).sort((left, right) => right.date.localeCompare(left.date));
   const selected = records.filter(record => (!from || record.date >= from) && (!to || record.date <= to));
+  const studyDates = Array.from(new Set(records.map(record => record.date))).sort();
   return {
     ownerNickname: empty.ownerNickname, updatedAt: Number.isFinite(Date.parse(row.updated_at)) ? row.updated_at : null,
     range: { from, to }, selectedTotals: summarize(selected), allTimeTotals: summarize(records), books, courses,
     records: { items: selected.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: selected.length },
+    studyDates,
   };
 }

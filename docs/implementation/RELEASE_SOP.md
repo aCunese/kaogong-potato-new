@@ -209,7 +209,8 @@ curl --fail --silent "http://127.0.0.1:3000/api/version?nonce=$(date +%s)"
 当满足正式签名条件时：
 1. 使用原证书对 `1.0.5`（`versionCode: 6`）执行签名构建。
 2. 实测计算 APK SHA-256 与文件字节数，回填至 `release.json` 与 `public/version.json`，并将 `apkReleased` 设为 `true`。
-3. 在真实测试手机上从旧版覆盖安装，核验无感保留登录态、错题长图正常显示、SAF 文件导出成功。
+3. 严格设置发布产物安全权限：签名密钥库设为属主独享权限（`chmod 600 release/kaogong-release.keystore`）；输出的正式 APK 与发布清单必须设置为只读保护（`chmod 444 release/apk/*.apk release.json`）。
+4. 在真实测试手机上从旧版覆盖安装，核验无感保留登录态、错题长图正常显示、SAF 文件导出成功。
 
 ---
 

@@ -409,6 +409,9 @@ if [ ! -f "${KEYSTORE_FILE}" ]; then
     exit 1
 fi
 
+# 安全收紧签名密钥库文件权限 (chmod 600)
+chmod 600 "${KEYSTORE_FILE}" 2>/dev/null || true
+
 ACTUAL_CERT_SHA256="$("${KEYTOOL_BIN}" -list -v -keystore "${KEYSTORE_FILE}" -storepass "${KEYSTORE_PASS}" -alias "${KEY_ALIAS}" 2>/dev/null \
     | grep -i "SHA256:" | head -n 1 | awk '{print $2}' || true)"
 if [ -z "${ACTUAL_CERT_SHA256}" ] \
@@ -446,6 +449,15 @@ verify_apk_contents "${FINAL_APK}" "${WORK_DIR}/verify-signed" "正式签名包�
 echo "--> 10. 生成 SHA-256 校验文件..."
 APK_SHA256="$(shasum -a 256 "${FINAL_APK}" | cut -d' ' -f1)"
 echo "${APK_SHA256}  $(basename "${FINAL_APK}")" > "${FINAL_APK}.sha256"
+
+echo "--> 11. 收紧发布产物与清单只读保护权限 (chmod 444)..."
+chmod 444 "${FINAL_APK}" "${FINAL_APK}.sha256"
+if [ -f "${FINAL_APK}.idsig" ]; then
+    chmod 444 "${FINAL_APK}.idsig" 2>/dev/null || true
+fi
+if [ -f "${ROOT_DIR}/release.json" ]; then
+    chmod 444 "${ROOT_DIR}/release.json" 2>/dev/null || true
+fi
 
 echo "========================================================================"
 echo " [SUCCESS] Android Release 安装包构建完成！"
