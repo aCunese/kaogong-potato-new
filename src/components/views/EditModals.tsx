@@ -5,7 +5,8 @@ import { Modal, Button, Tag } from '../common/UIComponents';
 import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar } from 'lucide-react';
+import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
@@ -401,12 +402,13 @@ export const CountdownModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, mode = 'edit', countdownId, onClose, onToast }) => {
-  const { state, addCountdown, updateCountdown, deleteCountdown } = useApp();
+  const { state, activeDate, addCountdown, updateCountdown, deleteCountdown } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const cd = countdownId ? state.countdowns.find(c => c.id === countdownId) : undefined;
   const isCreate = mode === 'create' || !cd;
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [localError, setLocalError] = useState('');
 
@@ -414,6 +416,7 @@ export const CountdownModal: React.FC<{
     if (!isOpen) return;
     setName(cd?.name ?? '');
     setDate(cd?.date ?? '');
+    setIsPickerOpen(false);
     setConfirmDelete(false);
     setLocalError('');
     setErrorMsg('');
@@ -451,13 +454,35 @@ export const CountdownModal: React.FC<{
       </div>
       <div>
         <label className="block text-xs text-ink-muted font-medium mb-1">目标日期</label>
-        <input
-          aria-label="倒数日目标日期"
-          type="date"
-          value={date}
-          onChange={e => { setDate(e.target.value); setLocalError(''); }}
-          className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
-        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsPickerOpen(true)}
+            aria-label="选择倒数日目标日期"
+            className="flex-1 flex items-center justify-between px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm hover:border-sage transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Calendar size={16} className="text-sage shrink-0" />
+              <span className={`truncate ${date ? 'text-ink-main font-mono font-semibold' : 'text-ink-muted/70 font-sans'}`}>
+                {date || '点击选择目标日期'}
+              </span>
+            </div>
+            <span className="text-xs text-sage font-sans font-medium shrink-0">
+              {date ? '更改' : '选择'}
+            </span>
+          </button>
+          {date && (
+            <button
+              type="button"
+              onClick={() => { setDate(''); setLocalError(''); }}
+              className="px-2.5 py-2.5 text-xs text-alarm hover:bg-alarm-light/50 border border-alarm/20 rounded-xl transition-colors shrink-0 font-medium"
+              title="清除目标日期"
+              aria-label="清除目标日期"
+            >
+              清除
+            </button>
+          )}
+        </div>
         <p className="text-[11px] text-ink-muted mt-1 leading-relaxed">
           日期可留空（首页显示“设置日期”）；过期后显示“已结束”。首页最多展示 6 个倒数日，可左右滑动查看。
         </p>
@@ -478,6 +503,21 @@ export const CountdownModal: React.FC<{
         <Button variant="danger" size="sm" fullWidth disabled={isSaving} onClick={() => setConfirmDelete(true)}>删除倒数日</Button>
       ))}
     </div>
+    <FloatingDatePicker
+      isOpen={isPickerOpen}
+      onClose={() => setIsPickerOpen(false)}
+      title="选择目标日期"
+      value={date}
+      onChange={newDate => {
+        setDate(newDate);
+        setLocalError('');
+      }}
+      onClear={() => {
+        setDate('');
+        setLocalError('');
+      }}
+      activeDate={activeDate}
+    />
   </Modal>;
 };
 

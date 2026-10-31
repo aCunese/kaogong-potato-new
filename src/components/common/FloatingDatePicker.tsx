@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, X, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, Trash2 } from 'lucide-react';
 
 interface FloatingDatePickerProps {
   isOpen: boolean;
@@ -8,7 +8,7 @@ interface FloatingDatePickerProps {
   value: string; // "YYYY-MM-DD" or ""
   onChange: (date: string) => void;
   onClear?: () => void;
-  highlightDates?: Set<string>; // dates with wrong questions, etc.
+  highlightDates?: Set<string>; // dates with records, etc.
   activeDate?: string; // today date string, e.g. "2026-10-30"
 }
 
@@ -40,10 +40,27 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
     }
   }, [isOpen, value, activeDate]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const firstDayIndex = new Date(viewYear, viewMonth - 1, 1).getDay();
   const totalDaysInMonth = new Date(viewYear, viewMonth, 0).getDate();
+
+  const handleYearPrev = () => {
+    setViewYear(y => y - 1);
+  };
+
+  const handleYearNext = () => {
+    setViewYear(y => y + 1);
+  };
 
   const handleMonthPrev = () => {
     if (viewMonth === 1) {
@@ -83,7 +100,7 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fadeIn"
+      className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fadeIn"
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -121,16 +138,29 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
           </div>
         </div>
 
-        {/* 月份切换器 */}
+        {/* 年月份切换器（支持按年、按月及回到本月） */}
         <div className="flex items-center justify-between px-1 pt-1">
-          <button
-            type="button"
-            onClick={handleMonthPrev}
-            className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
-            aria-label="上个月"
-          >
-            <ChevronLeft size={18} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={handleYearPrev}
+              className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
+              aria-label="上一年"
+              title="上一年"
+            >
+              <ChevronsLeft size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={handleMonthPrev}
+              className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
+              aria-label="上个月"
+              title="上个月"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-ink-main">
               {viewYear}年 {viewMonth}月
@@ -148,14 +178,27 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
               </button>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleMonthNext}
-            className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
-            aria-label="下个月"
-          >
-            <ChevronRight size={18} />
-          </button>
+
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={handleMonthNext}
+              className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
+              aria-label="下个月"
+              title="下个月"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={handleYearNext}
+              className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted transition"
+              aria-label="下一年"
+              title="下一年"
+            >
+              <ChevronsRight size={16} />
+            </button>
+          </div>
         </div>
 
         {/* 星期表头 */}
@@ -210,7 +253,7 @@ export const FloatingDatePicker: React.FC<FloatingDatePickerProps> = ({
                     ? 'border border-sage/50 text-sage font-bold bg-sage/10 hover:bg-sage/20'
                     : 'text-ink-main font-bold hover:bg-black/5 cursor-pointer'
                 }`}
-                title={`${dayString}${isToday ? ' (今天)' : ''}${hasData ? ' (有错题记录)' : ''}`}
+                title={`${dayString}${isToday ? ' (今天)' : ''}${highlightDates && hasData ? ' (有错题记录)' : ''}`}
               >
                 {dayNum}
               </button>
