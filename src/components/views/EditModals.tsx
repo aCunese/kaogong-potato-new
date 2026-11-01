@@ -1,11 +1,11 @@
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Modal, Button, Tag, SubjectCapsuleGrid, CustomSelect } from '../common/UIComponents';
+import { Modal, Button, Tag, SubjectCapsuleGrid, CustomSelect, useModalBack } from '../common/UIComponents';
 import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 import {
@@ -842,9 +842,36 @@ export const WrongDetailModal: React.FC<{
 }> = ({ record, isOpen, onClose }) => {
   const { state } = useApp();
   const [activeIndex, setActiveIndex] = useState(0);
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const [zoomScale, setZoomScale] = useState(2);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const gestureRef = useRef<{
+    mode: 'none' | 'pan' | 'pinch' | 'edge';
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: number;
+    startDist: number;
+    startScale: number;
+  }>({
+    mode: 'none',
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+    moved: 0,
+    startDist: 0,
+    startScale: 2,
+  });
+
+  useModalBack(Boolean(isOpen && record && zoomOpen), () => setZoomOpen(false));
 
   useEffect(() => {
     setActiveIndex(0);
+    setZoomOpen(false);
+    setZoomScale(2);
+    setPanOffset({ x: 0, y: 0 });
   }, [record?.id, isOpen]);
 
   if (!isOpen || !record) return null;
@@ -856,13 +883,50 @@ export const WrongDetailModal: React.FC<{
   const book = state.books.find(b => b.id === record.bookId);
   const timeText = formatWrongRecordTime(record);
 
+  const clampPan = (x: number, y: number, scale: number) => {
+    if (scale <= 1) return { x: 0, y: 0 };
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 390;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 844;
+    const maxX = Math.max(vw * 0.5 * (scale - 1), 200 * (scale - 1));
+    const maxY = Math.max(vh * 0.45 * (scale - 1), 180 * (scale - 1));
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  };
+
+  const openZoomViewer = () => {
+    if (!activeImage) return;
+    setZoomScale(2);
+    setPanOffset({ x: 0, y: 0 });
+    setZoomOpen(true);
+  };
+
+  const applyScale = (nextScale: number) => {
+    const clamped = Math.max(1, Math.min(4, Number(nextScale.toFixed(2))));
+    setZoomScale(clamped);
+    setPanOffset(prev => clampPan(prev.x, prev.y, clamped));
+  };
+
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情">
       <div className="space-y-4">
         {/* 大图显示与多图左右切换 */}
         <div className="w-full bg-[#EAE8DD] rounded-2xl overflow-hidden border border-line flex items-center justify-center max-h-[52vh] relative">
           {activeImage ? (
-            <img src={activeImage} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
+            <button
+              type="button"
+              aria-label="点击放大查看错题图片"
+              onClick={openZoomViewer}
+              className="w-full h-full flex items-center justify-center relative group cursor-zoom-in focus:outline-none"
+            >
+              <img src={activeImage} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
+              <span className="absolute bottom-2 left-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-ink-main/75 text-white text-[11px] font-medium backdrop-blur-sm shadow-sm">
+                <ZoomIn size={12} />
+                <span>点击放大</span>
+              </span>
+            </button>
           ) : (
             <div className="py-16 text-center text-ink-muted text-xs">
               <ImageIcon size={36} className="mx-auto text-sage/40 mb-2" />
@@ -936,6 +1000,207 @@ export const WrongDetailModal: React.FC<{
         </Button>
       </div>
     </Modal>
+
+      {/* 全屏放大与左右/上下自由拖动预览层 */}
+      {zoomOpen && activeImage && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="错题图片全屏放大预览"
+          className="fixed inset-0 z-[80] bg-black/95 flex flex-col select-none touch-none"
+        >
+          {/* 顶部操作栏 */}
+          <div className="flex items-center justify-between gap-2 px-4 py-3 text-white z-10 bg-gradient-to-b from-black/80 to-transparent">
+            <div className="min-w-0">
+              <div className="text-xs font-bold truncate">
+                {subject}
+                {images.length > 1 ? ` · 图 ${safeIndex + 1}/${images.length}` : ''}
+              </div>
+              <div className="text-[11px] text-white/70">
+                单指左右/上下拖动查看 · 轻点画面或按返回退出
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="退出全屏放大"
+              onClick={() => setZoomOpen(false)}
+              className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm hover:bg-white/25 active:scale-95"
+            >
+              <X size={15} />
+              <span>退出放大</span>
+            </button>
+          </div>
+
+          {/* 中央可缩放与可拖动图片画布 */}
+          <div
+            className="flex-1 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing"
+            onTouchStart={e => {
+              if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                gestureRef.current = {
+                  ...gestureRef.current,
+                  mode: 'pinch',
+                  moved: 99,
+                  startDist: Math.hypot(dx, dy) || 1,
+                  startScale: zoomScale,
+                };
+                return;
+              }
+              if (e.touches.length === 1) {
+                const t = e.touches[0];
+                const vw = typeof window !== 'undefined' ? window.innerWidth : 390;
+                // 预留屏幕左右边缘 24px 安全区，不阻挡安卓系统边缘侧滑返回手势
+                if (t.clientX < 24 || t.clientX > vw - 24) {
+                  gestureRef.current.mode = 'edge';
+                  return;
+                }
+                gestureRef.current = {
+                  mode: 'pan',
+                  startX: t.clientX,
+                  startY: t.clientY,
+                  originX: panOffset.x,
+                  originY: panOffset.y,
+                  moved: 0,
+                  startDist: 0,
+                  startScale: zoomScale,
+                };
+              }
+            }}
+            onTouchMove={e => {
+              const g = gestureRef.current;
+              if (g.mode === 'edge') return;
+              if (e.touches.length === 2 && g.mode === 'pinch') {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.hypot(dx, dy) || 1;
+                const nextScale = Math.max(1, Math.min(4, g.startScale * (dist / g.startDist)));
+                setZoomScale(Number(nextScale.toFixed(2)));
+                setPanOffset(prev => clampPan(prev.x, prev.y, nextScale));
+                return;
+              }
+              if (e.touches.length === 1 && g.mode === 'pan') {
+                const t = e.touches[0];
+                const dx = t.clientX - g.startX;
+                const dy = t.clientY - g.startY;
+                g.moved = Math.max(g.moved, Math.hypot(dx, dy));
+                if (zoomScale > 1) {
+                  setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
+                }
+              }
+            }}
+            onTouchEnd={() => {
+              const g = gestureRef.current;
+              if (g.mode === 'pan' && g.moved < 8) {
+                setZoomOpen(false);
+              }
+              gestureRef.current.mode = 'none';
+            }}
+            onMouseDown={e => {
+              if (e.button !== 0) return;
+              gestureRef.current = {
+                mode: 'pan',
+                startX: e.clientX,
+                startY: e.clientY,
+                originX: panOffset.x,
+                originY: panOffset.y,
+                moved: 0,
+                startDist: 0,
+                startScale: zoomScale,
+              };
+            }}
+            onMouseMove={e => {
+              const g = gestureRef.current;
+              if (g.mode !== 'pan') return;
+              const dx = e.clientX - g.startX;
+              const dy = e.clientY - g.startY;
+              g.moved = Math.max(g.moved, Math.hypot(dx, dy));
+              if (zoomScale > 1) {
+                setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
+              }
+            }}
+            onMouseUp={() => {
+              const g = gestureRef.current;
+              if (g.mode === 'pan' && g.moved < 8) {
+                setZoomOpen(false);
+              }
+              gestureRef.current.mode = 'none';
+            }}
+          >
+            <img
+              src={activeImage}
+              alt="错题全屏放大图"
+              draggable={false}
+              style={{
+                transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${zoomScale})`,
+                transformOrigin: 'center center',
+              }}
+              className="max-w-full max-h-full object-contain transition-transform duration-75 ease-out pointer-events-none"
+            />
+          </div>
+
+          {/* 底部倍率切换与多图翻页控制栏 */}
+          <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-3 z-10 bg-gradient-to-t from-black/80 to-transparent">
+            {images.length > 1 && (
+              <button
+                type="button"
+                aria-label="全屏上一张"
+                onClick={() => {
+                  setActiveIndex(prev => (prev - 1 + images.length) % images.length);
+                  setPanOffset({ x: 0, y: 0 });
+                }}
+                className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
+              >
+                上一张
+              </button>
+            )}
+
+            {([1, 2, 3] as const).map(level => (
+              <button
+                key={level}
+                type="button"
+                onClick={() => {
+                  applyScale(level);
+                  if (level === 1) setPanOffset({ x: 0, y: 0 });
+                }}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-mono font-bold transition ${
+                  Math.round(zoomScale) === level
+                    ? 'bg-sage text-white shadow-sm'
+                    : 'bg-white/15 text-white/85 hover:bg-white/25'
+                }`}
+              >
+                {level}x
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => {
+                setZoomScale(2);
+                setPanOffset({ x: 0, y: 0 });
+              }}
+              className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-white/25"
+            >
+              居中复位
+            </button>
+
+            {images.length > 1 && (
+              <button
+                type="button"
+                aria-label="全屏下一张"
+                onClick={() => {
+                  setActiveIndex(prev => (prev + 1) % images.length);
+                  setPanOffset({ x: 0, y: 0 });
+                }}
+                className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
+              >
+                下一张
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

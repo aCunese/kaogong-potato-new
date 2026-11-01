@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Card, Button } from '../common/UIComponents';
+import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
 import { StudyRecordItem } from '../common/StudyRecordItem';
 import { Plan, StudyRecord } from '../../types';
 import {
@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Trash2,
   Calendar as CalendarIcon,
+  Clock,
 } from 'lucide-react';
 
 interface StudyRecordsViewProps {
@@ -39,13 +40,44 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
 }) => {
   const { state, activeDate } = useApp();
   const [viewMode, setViewMode] = useState<'calendar' | 'detail'>('calendar');
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || activeDate);
+  const baseDate = initialDate || activeDate;
+  const [selectedDate, setSelectedDate] = useState<string>(baseDate);
 
-  // 月历定位（默认 activeDate 年月）
-  const initialYear = Number(activeDate?.slice(0, 4)) || new Date().getFullYear();
-  const initialMonth = Number(activeDate?.slice(5, 7)) || (new Date().getMonth() + 1);
+  useModalBack(viewMode === 'detail', () => setViewMode('calendar'));
+
+  // 月历定位（优先定位到传入的 initialDate 年月，例如跨月待补登记日期；默认 activeDate 年月）
+  const activeYear = Number(activeDate?.slice(0, 4)) || new Date().getFullYear();
+  const activeMonth = Number(activeDate?.slice(5, 7)) || (new Date().getMonth() + 1);
+  const initialYear = Number(baseDate?.slice(0, 4)) || activeYear;
+  const initialMonth = Number(baseDate?.slice(5, 7)) || activeMonth;
   const [viewYear, setViewYear] = useState(initialYear);
   const [viewMonth, setViewMonth] = useState(initialMonth);
+
+  useEffect(() => {
+    const target = initialDate || activeDate;
+    if (!target) return;
+    setSelectedDate(target);
+    const y = Number(target.slice(0, 4));
+    const m = Number(target.slice(5, 7));
+    if (y && m) {
+      setViewYear(y);
+      setViewMonth(m);
+    }
+  }, [initialDate, activeDate]);
+
+  // 所有待补登记的历史日程（按日期倒序）
+  const pendingHistoryPlans = useMemo(
+    () =>
+      state.plans
+        .filter(plan => plan.date < activeDate && !plan.done)
+        .sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)),
+    [state.plans, activeDate],
+  );
+
+  const pendingHistoryDatesSet = useMemo(
+    () => new Set(pendingHistoryPlans.map(plan => plan.date)),
+    [pendingHistoryPlans],
+  );
 
   // 所有存在学习登记记录或日程的日期集合
   const datesWithData = useMemo(() => {
@@ -137,6 +169,74 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
           <div className="w-16" />
         </div>
 
+        {/* 待补登记历史日程直达列表（解决跨月或进日历找不到待补登记项的问题） */}
+        {pendingHistoryPlans.length > 0 && (
+          <section
+            aria-label="待补登记历史日程"
+            className="rounded-2xl border border-potato/60 bg-potato-light/20 p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <Clock size={14} className="text-potato-dark shrink-0" />
+                <h3 className="text-xs font-bold text-ink-main">待补登记历史日程</h3>
+              </div>
+              <Tag variant="potato" className="font-mono text-[11px] py-0">
+                共 {pendingHistoryPlans.length} 项待补
+              </Tag>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-line bg-paper divide-y divide-line/60">
+              {pendingHistoryPlans.map(plan => {
+                const elapsed = Math.floor(getPlanCompletion(plan, state.records).minutes);
+                return (
+                  <div
+                    key={plan.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2.5"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(plan.date);
+                        setViewMode('detail');
+                      }}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="shrink-0 rounded-md bg-potato-light/70 px-1.5 py-0.5 font-mono text-[10px] font-bold text-potato-dark">
+                          {plan.date.slice(5).replace('-', '/')}
+                        </span>
+                        <p className="truncate text-sm font-medium text-ink-main">{plan.name}</p>
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-ink-muted">
+                        {studyDateLabel(plan.date, activeDate)} · {TYPE_LABEL[plan.type]} · {plan.subject} · {elapsed} / {plan.plannedMinutes} 分钟
+                      </p>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => onOpenComplete?.(plan)}
+                        className="rounded-lg bg-sage px-2.5 py-1 text-xs font-bold text-white shadow-sm active:scale-95"
+                      >
+                        补登记
+                      </button>
+                      {onDeletePlan && (
+                        <button
+                          type="button"
+                          aria-label="删除并撤销登记"
+                          title="删除并撤销登记"
+                          onClick={() => onDeletePlan(plan)}
+                          className="rounded-lg p-1 text-ink-muted hover:text-alarm"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* 微信风格月历卡片 */}
         <Card className="p-3.5 space-y-3.5">
           {/* 年月切换 */}
@@ -153,12 +253,12 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
               <span className="text-sm font-bold text-ink-main">
                 {viewYear}年 {viewMonth}月
               </span>
-              {(viewYear !== initialYear || viewMonth !== initialMonth) && (
+              {(viewYear !== activeYear || viewMonth !== activeMonth) && (
                 <button
                   type="button"
                   onClick={() => {
-                    setViewYear(initialYear);
-                    setViewMonth(initialMonth);
+                    setViewYear(activeYear);
+                    setViewMonth(activeMonth);
                   }}
                   className="text-xs text-sage hover:underline"
                 >
@@ -197,6 +297,7 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
               const dayNum = i + 1;
               const dayString = `${viewYear}-${String(viewMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
               const hasData = datesWithData.has(dayString);
+              const hasPending = pendingHistoryDatesSet.has(dayString);
               const isTodayDate = dayString === activeDate;
 
               if (!hasData && !isTodayDate) {
@@ -221,9 +322,11 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
                   className={`h-9 w-9 mx-auto rounded-full flex items-center justify-center transition-all ${
                     isTodayDate
                       ? 'bg-sage text-white font-bold shadow-sm'
-                      : 'text-ink-main font-semibold hover:bg-black/5 cursor-pointer'
+                      : hasPending
+                        ? 'bg-potato-light/60 text-potato-dark ring-1 ring-potato-dark/50 font-bold hover:bg-potato-light cursor-pointer'
+                        : 'text-ink-main font-semibold hover:bg-black/5 cursor-pointer'
                   }`}
-                  title={`${dayString}${isTodayDate ? ' (今天)' : ''}${hasData ? ' (点击查看登记)' : ''}`}
+                  title={`${dayString}${isTodayDate ? ' (今天)' : ''}${hasPending ? ' (含待补登记日程)' : hasData ? ' (点击查看登记)' : ''}`}
                 >
                   {dayNum}
                 </button>

@@ -10,7 +10,7 @@ export function closeTopModal(): boolean {
   return true;
 }
 
-function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false) {
+export function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false) {
   const closeRef = useRef(onClose);
   const disabledRef = useRef(closeDisabled);
   closeRef.current = onClose;

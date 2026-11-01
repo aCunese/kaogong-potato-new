@@ -148,4 +148,6 @@ it('groups wrong records into 9 categories, merges multi-photo uploads into 1 re
   const detailHtml = render(React.createElement(WrongDetailModal, { isOpen: true, record: rec, onClose: noop }));
   expect(detailHtml).toContain('2026.11.1-14:30');
   expect(detailHtml).toContain('1 / 3');
+  expect(detailHtml).toContain('aria-label="点击放大查看错题图片"');
+  expect(detailHtml).toContain('点击放大');
 });

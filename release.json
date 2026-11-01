@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.1.7",
-  "webBuild": "20261101.02",
+  "webVersion": "1.1.8",
+  "webBuild": "20261101.03",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-01T08:45:00Z",
-  "summary": "错题照片复盘全面升级：支持九大科目分类收纳、下拉一键定位与上下双向快捷上传、多图合入同一错题、小时级时间记录、图片秒加载与全站土豆风格选择器美化。"
+  "deployedAt": "2026-11-01T14:35:00Z",
+  "summary": "历史日程补登记直达与错题大图全屏缩放升级：修复跨月待补登记定位并在顶部直接展示待补登记列表，支持错题图片点击2倍全屏放大、单指左右上下拖动平移及顺畅退出。"
 }

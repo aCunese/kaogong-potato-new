@@ -5,7 +5,7 @@ import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { StudyRecordItem } from '../common/StudyRecordItem';
-import { Card, Button, Tag } from '../common/UIComponents';
+import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList } from 'lucide-react';
 import { Plan, StudyRecord, MutationResult, TimerMode } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
@@ -41,17 +41,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [subView, setSubView] = useState<'main' | 'study-records'>('main');
   const [recordsDate, setRecordsDate] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    if (subView !== 'study-records') return;
-    const prevHandle = window.handleBack;
-    window.handleBack = () => {
-      setSubView('main');
-      return true;
-    };
-    return () => {
-      window.handleBack = prevHandle;
-    };
-  }, [subView]);
+  useModalBack(subView === 'study-records', () => setSubView('main'));
   const [onlyUnfinished, setOnlyUnfinished] = useState(() => {
     try {
       return typeof window !== 'undefined' && localStorage.getItem('kaogong_today_only_unfinished') === 'true';

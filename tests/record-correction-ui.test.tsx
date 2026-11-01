@@ -42,6 +42,37 @@ it('StudyRecordsView renders WeChat/Todo style calendar grid without native inpu
   expect(html).toContain('2026-10-28');
 });
 
+it('StudyRecordsView jumps to historical initialDate month and displays pending history plans list at top', () => {
+  const crossMonthState = structuredClone(BLANK_STATE);
+  crossMonthState.plans = [
+    {
+      id: 'p_hist_1',
+      libraryId: 'lib_1',
+      name: '逻辑判断专项',
+      type: 'book',
+      sourceId: 'book_1',
+      subject: '判断推理',
+      date: '2026-10-30',
+      plannedMinutes: 45,
+      done: false,
+      timerStart: 0,
+      accumulatedMs: 900000,
+    },
+  ];
+  const html = renderToStaticMarkup(
+    <AppContext.Provider value={{ state: crossMonthState, activeDate: '2026-11-01' } as any}>
+      <StudyRecordsView onBack={noop} initialDate="2026-10-30" onOpenComplete={noop} onDeletePlan={noop} />
+    </AppContext.Provider>
+  );
+  expect(html).toContain('待补登记历史日程');
+  expect(html).toContain('共 1 项待补');
+  expect(html).toContain('逻辑判断专项');
+  expect(html).toContain('补登记');
+  expect(html).toContain('2026年 10月');
+  expect(html).toContain('回到本月');
+  expect(html).toContain('2026-10-30 (含待补登记日程)');
+});
+
 it('WrongView uses FloatingDatePicker triggers without native green datepicker or sound', () => {
   const html = provider(<WrongView onOpenImportModal={noop} onOpenDetailModal={noop} onOpenDeleteConfirm={noop} />);
   expect(html).toContain('错题照片复盘');
