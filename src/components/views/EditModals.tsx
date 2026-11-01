@@ -8,7 +8,13 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
-import { resolveWrongRecordSubject, getWrongRecordImages, formatWrongRecordTime } from '../../utils/workflowMutators';
+import {
+  resolveWrongRecordSubject,
+  getWrongRecordImages,
+  formatWrongRecordTime,
+  readPersistedWrongSubject,
+  writePersistedWrongSubject,
+} from '../../utils/workflowMutators';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
   const [isSaving, setIsSaving] = useState(false);
@@ -579,6 +585,10 @@ export const PhotoImportModal: React.FC<{
       const matched = state.books.find(b => b.id === initialTarget.bookId);
       if (matched) return matched.subject;
     }
+    const persisted = readPersistedWrongSubject();
+    if (persisted !== 'all') {
+      return persisted;
+    }
     return state.books[0]?.subject || '资料分析';
   };
 
@@ -689,6 +699,11 @@ export const PhotoImportModal: React.FC<{
     if (!result.ok) {
       alert(result.message || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
       return;
+    }
+
+    writePersistedWrongSubject(subject);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kaogong-wrong-subject-change', { detail: subject }));
     }
 
     onToast(

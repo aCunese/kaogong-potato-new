@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   Eye,
@@ -23,6 +23,10 @@ import {
   resolveWrongRecordSubject,
   getWrongRecordImages,
   formatWrongRecordTime,
+  extractWrongRecordTimestamp,
+  readPersistedWrongSubject,
+  writePersistedWrongSubject,
+  WRONG_VIEW_MODE_KEY,
 } from '../../utils/workflowMutators';
 
 interface WrongViewProps {
@@ -31,8 +35,27 @@ interface WrongViewProps {
   onOpenDeleteConfirm: (recordId: string, categoryName: string) => void;
 }
 
-const PAGE_SIZE = 12;
 type ViewMode = 'grid2' | 'list' | 'grid3';
+
+function readPersistedViewMode(): ViewMode {
+  if (typeof window === 'undefined') return 'grid2';
+  try {
+    const raw = window.localStorage.getItem(WRONG_VIEW_MODE_KEY);
+    if (raw === 'grid2' || raw === 'list' || raw === 'grid3') return raw;
+  } catch {
+    // ignore storage errors
+  }
+  return 'grid2';
+}
+
+function writePersistedViewMode(mode: ViewMode): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(WRONG_VIEW_MODE_KEY, mode);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export const WrongView: React.FC<WrongViewProps> = ({
   onOpenImportModal,
@@ -43,11 +66,48 @@ export const WrongView: React.FC<WrongViewProps> = ({
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState<'all' | StudySubject>('all');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid2');
+  const [selectedSubject, setSelectedSubject] = useState<'all' | StudySubject>(
+    readPersistedWrongSubject
+  );
+  const [viewMode, setViewMode] = useState<ViewMode>(readPersistedViewMode);
   const [pickerTarget, setPickerTarget] = useState<'from' | 'to' | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pages, setPages] = useState<Record<string, number>>({});
+  const touchStartRef = useRef<Record<string, { x: number; y: number }>>({});
+
+  // Sync with category updates triggered by PhotoImportModal
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleSubjectSync = (e: Event) => {
+      const custom = e as CustomEvent<'all' | StudySubject>;
+      if (custom.detail) {
+        setSelectedSubject(custom.detail);
+        if (custom.detail !== 'all') {
+          setExpanded(prev => ({ ...prev, [custom.detail]: true }));
+        }
+      }
+    };
+    window.addEventListener('kaogong-wrong-subject-change', handleSubjectSync);
+    return () => window.removeEventListener('kaogong-wrong-subject-change', handleSubjectSync);
+  }, []);
+
+  const updateSelectedSubject = (nextSubj: 'all' | StudySubject) => {
+    setSelectedSubject(nextSubj);
+    writePersistedWrongSubject(nextSubj);
+    setPages({});
+    if (nextSubj !== 'all') {
+      setExpanded(prev => ({ ...prev, [nextSubj]: true }));
+    }
+  };
+
+  const updateViewMode = (nextMode: ViewMode) => {
+    setViewMode(nextMode);
+    writePersistedViewMode(nextMode);
+    setPages({});
+  };
+
+  // Single-screen page size so cards never require long vertical scrolling; flip left/right instead
+  const pageSize = viewMode === 'grid3' ? 6 : 4;
 
   const datesWithWrong = useMemo(
     () => new Set(state.wrong.map(w => w.date)),
@@ -80,7 +140,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
         .sort((a, b) => {
           const cmp = b.date.localeCompare(a.date);
           if (cmp !== 0) return cmp;
-          return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+          return extractWrongRecordTimestamp(b) - extractWrongRecordTimestamp(a);
         }),
     [state.wrong, query, from, to, invalidRange]
   );
@@ -123,13 +183,13 @@ export const WrongView: React.FC<WrongViewProps> = ({
     () => [
       {
         value: 'all',
-        label: `全部九大分类 (${dateAndQueryFiltered.length}道)`,
+        label: `全部九大分类`,
         badge: `${dateAndQueryFiltered.length}道`,
         badgeVariant: 'sage' as const,
       },
       ...subjectGroupsAll.map(g => ({
         value: g.subject,
-        label: `${g.subject} (${g.records.length}道)`,
+        label: g.subject,
         dotColor: g.color,
         badge: `${g.records.length}道`,
         badgeVariant: (g.records.length > 0 ? 'sage' : 'gray') as 'sage' | 'gray',
@@ -186,23 +246,19 @@ export const WrongView: React.FC<WrongViewProps> = ({
           />
         </label>
 
-        {/* 所属分类选择定位器 + 起止日期 */}
+        {/* 所属分类选择定位器（自动持久化记忆上次所选类别） + 起止日期 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div className="min-w-0">
-            <span className="text-xs text-ink-muted block mb-1">所属分类（选择即定位）</span>
+            <span className="text-xs text-ink-muted block mb-1">
+              所属分类（选择即定位 · 自动记忆）
+            </span>
             <CustomSelect
               ariaLabel="筛选错题分类"
               compact
+              columns={2}
               value={selectedSubject}
               options={categorySelectOptions}
-              onChange={val => {
-                const nextSubj = val as 'all' | StudySubject;
-                setSelectedSubject(nextSubj);
-                setPages({});
-                if (nextSubj !== 'all') {
-                  setExpanded(prev => ({ ...prev, [nextSubj]: true }));
-                }
-              }}
+              onChange={val => updateSelectedSubject(val as 'all' | StudySubject)}
             />
           </div>
 
@@ -265,11 +321,11 @@ export const WrongView: React.FC<WrongViewProps> = ({
                     setQuery('');
                     setFrom('');
                     setTo('');
-                    setSelectedSubject('all');
+                    updateSelectedSubject('all');
                   })
                 }
               >
-                重置筛选
+                查看全部九类
               </button>
             )}
           </div>
@@ -281,7 +337,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
           >
             <button
               type="button"
-              onClick={() => setViewMode('grid2')}
+              onClick={() => updateViewMode('grid2')}
               className={`px-2 py-1 rounded-md text-xs inline-flex items-center gap-1 transition ${
                 viewMode === 'grid2'
                   ? 'bg-sage text-white font-bold shadow-sm'
@@ -293,7 +349,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('list')}
+              onClick={() => updateViewMode('list')}
               className={`px-2 py-1 rounded-md text-xs inline-flex items-center gap-1 transition ${
                 viewMode === 'list'
                   ? 'bg-sage text-white font-bold shadow-sm'
@@ -305,7 +361,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('grid3')}
+              onClick={() => updateViewMode('grid3')}
               className={`px-2 py-1 rounded-md text-xs inline-flex items-center gap-1 transition ${
                 viewMode === 'grid3'
                   ? 'bg-sage text-white font-bold shadow-sm'
@@ -342,18 +398,23 @@ export const WrongView: React.FC<WrongViewProps> = ({
       {visibleGroups.map(group => {
         const open =
           expanded[group.id] ?? (selectedSubject !== 'all' || Boolean(query.trim()));
-        const totalPages = Math.max(1, Math.ceil(group.records.length / PAGE_SIZE));
+        const totalPages = Math.max(1, Math.ceil(group.records.length / pageSize));
         const currentPage = Math.min(totalPages, Math.max(1, pages[group.id] ?? 1));
-        const startIdx = (currentPage - 1) * PAGE_SIZE;
-        const pageRecords = group.records.slice(startIdx, startIdx + PAGE_SIZE);
+        const startIdx = (currentPage - 1) * pageSize;
+        const pageRecords = group.records.slice(startIdx, startIdx + pageSize);
+
+        const goPrev = () =>
+          setPages(prev => ({ ...prev, [group.id]: Math.max(1, currentPage - 1) }));
+        const goNext = () =>
+          setPages(prev => ({ ...prev, [group.id]: Math.min(totalPages, currentPage + 1) }));
 
         return (
           <section
             key={group.id}
             className="rounded-2xl border border-line bg-paper overflow-hidden shadow-soft"
           >
-            {/* 分类标题栏 + 右侧快速添加照片按钮 */}
-            <div className="w-full px-3.5 py-3 flex items-center justify-between gap-2 bg-paper">
+            {/* 分类标题栏 + 顶部左右快翻 + 右侧快速添加照片按钮 */}
+            <div className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 bg-paper">
               <button
                 type="button"
                 aria-expanded={open}
@@ -375,10 +436,36 @@ export const WrongView: React.FC<WrongViewProps> = ({
                 >
                   {group.records.length}道
                 </Tag>
-                <span className="text-ink-muted ml-1">
+                <span className="text-ink-muted ml-0.5">
                   {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </span>
               </button>
+
+              {open && totalPages > 1 && (
+                <div className="flex items-center gap-1 bg-cream/80 px-1.5 py-0.5 rounded-full border border-line/70 shrink-0">
+                  <button
+                    type="button"
+                    aria-label="上一页"
+                    disabled={currentPage <= 1}
+                    onClick={goPrev}
+                    className="p-0.5 text-ink-main disabled:opacity-30"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <span className="text-[11px] font-mono text-ink-main font-semibold px-0.5">
+                    {currentPage}/{totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="下一页"
+                    disabled={currentPage >= totalPages}
+                    onClick={goNext}
+                    className="p-0.5 text-ink-main disabled:opacity-30"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              )}
 
               <button
                 type="button"
@@ -391,7 +478,27 @@ export const WrongView: React.FC<WrongViewProps> = ({
             </div>
 
             {open && (
-              <div className="border-t border-line p-3 bg-cream/30 space-y-3">
+              <div
+                className="border-t border-line p-3 bg-cream/30 space-y-3"
+                onTouchStart={e => {
+                  const t = e.touches[0];
+                  if (t) {
+                    touchStartRef.current[group.id] = { x: t.clientX, y: t.clientY };
+                  }
+                }}
+                onTouchEnd={e => {
+                  if (totalPages <= 1) return;
+                  const start = touchStartRef.current[group.id];
+                  const t = e.changedTouches[0];
+                  if (!start || !t) return;
+                  const dx = t.clientX - start.x;
+                  const dy = t.clientY - start.y;
+                  if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+                    if (dx < 0 && currentPage < totalPages) goNext();
+                    else if (dx > 0 && currentPage > 1) goPrev();
+                  }
+                }}
+              >
                 {group.records.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-line bg-paper/80 py-6 px-4 text-center space-y-2">
                     <p className="text-xs text-ink-muted">
@@ -399,7 +506,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                     </p>
                   </div>
                 ) : viewMode === 'list' ? (
-                  /* 模式 1：紧凑列表模式（左小图 + 右完整笔记 + 多图角标 + 小时时间） */
+                  /* 模式 1：紧凑列表模式（每页 4 条，左右翻页） */
                   <div className="space-y-2">
                     {pageRecords.map(record => {
                       const imgs = getWrongRecordImages(record);
@@ -469,7 +576,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                     })}
                   </div>
                 ) : viewMode === 'grid3' ? (
-                  /* 模式 2：3列紧凑相册图墙（海量图片快速扫视） */
+                  /* 模式 2：3列紧凑相册图墙（每页 6 道 = 2×3，左右翻页） */
                   <div className="grid grid-cols-3 gap-2">
                     {pageRecords.map(record => {
                       const imgs = getWrongRecordImages(record);
@@ -502,7 +609,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                                 {imgs.length}张
                               </span>
                             )}
-                            <span className="absolute bottom-0 inset-x-0 bg-black/55 text-white text-[11px] px-1.5 py-0.5 truncate font-mono text-left">
+                            <span className="absolute bottom-0 inset-x-0 bg-black/55 text-white text-[10px] px-1 py-0.5 truncate font-mono text-left">
                               {timeText}
                             </span>
                           </button>
@@ -528,8 +635,8 @@ export const WrongView: React.FC<WrongViewProps> = ({
                     })}
                   </div>
                 ) : (
-                  /* 模式 3（默认）：2列标准卡片 */
-                  <div className="grid grid-cols-2 gap-3">
+                  /* 模式 3（默认）：2×2 单屏四宫格卡片（每页 4 道，左右翻页不拉长页面） */
+                  <div className="grid grid-cols-2 gap-2.5">
                     {pageRecords.map(record => {
                       const imgs = getWrongRecordImages(record);
                       const cover = imgs[0] || record.image;
@@ -559,13 +666,13 @@ export const WrongView: React.FC<WrongViewProps> = ({
                               </span>
                             )}
                           </button>
-                          <p className="text-xs font-mono text-sage-dark font-semibold mt-2">
+                          <p className="text-[11px] font-mono text-sage-dark font-bold mt-1.5 truncate">
                             {timeText}
                           </p>
-                          <p className="text-xs line-clamp-2 min-h-9 mt-1 break-words text-ink-main">
+                          <p className="text-xs line-clamp-2 min-h-8 mt-0.5 break-words text-ink-main">
                             {record.note || '未填写复盘笔记'}
                           </p>
-                          <div className="flex justify-between items-center border-t border-line mt-2 pt-2">
+                          <div className="flex justify-between items-center border-t border-line mt-1.5 pt-1.5">
                             <button
                               type="button"
                               className="text-xs text-sage inline-flex items-center gap-1 font-medium"
@@ -590,54 +697,51 @@ export const WrongView: React.FC<WrongViewProps> = ({
                   </div>
                 )}
 
-                {/* 数字页码翻页器（当错题超过 12 道时显示，固定页面高度不无限拉长） */}
-                {totalPages > 1 && (
+                {/* 左右翻页控制栏（单屏展示 4 道错题，支持点击或左右滑动翻页） */}
+                {group.records.length > 0 && (
                   <div className="pt-2 border-t border-line flex items-center justify-between gap-2">
                     <button
                       type="button"
                       disabled={currentPage <= 1}
-                      onClick={() =>
-                        setPages(prev => ({
-                          ...prev,
-                          [group.id]: Math.max(1, currentPage - 1),
-                        }))
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-paper border border-line text-xs text-ink-main inline-flex items-center gap-1 disabled:opacity-40"
+                      onClick={goPrev}
+                      className="px-2.5 py-1.5 rounded-xl bg-paper border border-line text-xs font-medium text-ink-main inline-flex items-center gap-1 active:bg-cream disabled:opacity-40"
                     >
-                      <ChevronLeft size={13} />
+                      <ChevronLeft size={14} />
                       上一页
                     </button>
 
-                    <div className="flex items-center gap-1 font-mono text-xs flex-wrap justify-center">
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setPages(prev => ({ ...prev, [group.id]: p }))}
-                          className={`w-6 h-6 rounded-md text-xs transition ${
-                            p === currentPage
-                              ? 'bg-sage text-white font-bold'
-                              : 'bg-paper border border-line text-ink-muted hover:text-ink-main'
-                          }`}
-                        >
-                          {p}
-                        </button>
-                      ))}
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className="flex items-center gap-1 font-mono text-xs flex-wrap justify-center">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setPages(prev => ({ ...prev, [group.id]: p }))}
+                            className={`w-6 h-6 rounded-lg text-xs transition ${
+                              p === currentPage
+                                ? 'bg-sage text-white font-bold shadow-sm'
+                                : 'bg-paper border border-line text-ink-muted hover:text-ink-main'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      {totalPages > 1 && (
+                        <span className="text-[10px] text-ink-muted">
+                          第 {currentPage}/{totalPages} 页 · 可左右滑动翻页
+                        </span>
+                      )}
                     </div>
 
                     <button
                       type="button"
                       disabled={currentPage >= totalPages}
-                      onClick={() =>
-                        setPages(prev => ({
-                          ...prev,
-                          [group.id]: Math.min(totalPages, currentPage + 1),
-                        }))
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-paper border border-line text-xs text-ink-main inline-flex items-center gap-1 disabled:opacity-40"
+                      onClick={goNext}
+                      className="px-2.5 py-1.5 rounded-xl bg-paper border border-line text-xs font-medium text-ink-main inline-flex items-center gap-1 active:bg-cream disabled:opacity-40"
                     >
                       下一页
-                      <ChevronRight size={13} />
+                      <ChevronRight size={14} />
                     </button>
                   </div>
                 )}

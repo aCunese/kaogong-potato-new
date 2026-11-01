@@ -380,6 +380,7 @@ export interface CustomSelectProps {
   id?: string;
   className?: string;
   compact?: boolean;
+  columns?: 1 | 2;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -393,6 +394,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   id,
   className = '',
   compact = false,
+  columns = 1,
 }) => {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -466,7 +468,9 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         <div
           role="listbox"
           aria-label={ariaLabel}
-          className="mt-1.5 max-h-56 overflow-y-auto rounded-2xl border border-sage/30 bg-paper p-1.5 shadow-modal space-y-1 z-40 relative"
+          className={`mt-1.5 max-h-56 overflow-y-auto rounded-2xl border border-sage/30 bg-paper p-1.5 shadow-modal z-40 relative ${
+            columns === 2 && options.length > 0 ? 'grid grid-cols-2 gap-1' : 'space-y-1'
+          }`}
         >
           {options.length === 0 ? (
             <div className="rounded-xl border border-dashed border-line bg-cream/40 p-3 text-center text-xs text-ink-muted">

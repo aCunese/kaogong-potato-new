@@ -126,12 +126,15 @@ it('groups wrong records into 9 categories, merges multi-photo uploads into 1 re
   const rec = draft.wrong[0];
   expect(rec.subject).toBe('数量关系');
   expect(getWrongRecordImages(rec)).toHaveLength(3);
-  expect(formatWrongRecordTime(rec)).toBe('2026.11.1-14时');
+  expect(formatWrongRecordTime(rec)).toBe('2026.11.1-14:30');
+
+  // Historical record without createdAt recovers hour:minute from id wrong-<ms>-0
+  expect(formatWrongRecordTime({ id: `wrong-${ts}-0`, date: '2026-11-01' })).toBe('2026.11.1-14:30');
 
   // 3. WrongView renders dropdown category selector and density switcher
   const wrongHtml = render(React.createElement(WrongView, { onOpenImportModal: noop, onOpenDetailModal: noop, onOpenDeleteConfirm: noop }));
   expect(wrongHtml).toContain('aria-label="筛选错题分类"');
-  expect(wrongHtml).toContain('所属分类（选择即定位）');
+  expect(wrongHtml).toContain('所属分类（选择即定位 · 自动记忆）');
   expect(wrongHtml).toContain('2列');
   expect(wrongHtml).toContain('列表');
   expect(wrongHtml).toContain('3列');
@@ -141,8 +144,8 @@ it('groups wrong records into 9 categories, merges multi-photo uploads into 1 re
   expect(importHtml).toContain('所属分类');
   expect(importHtml).not.toContain('<select');
 
-  // 5. WrongDetailModal renders multi-image switcher and hour timestamp
+  // 5. WrongDetailModal renders multi-image switcher and hour:minute timestamp
   const detailHtml = render(React.createElement(WrongDetailModal, { isOpen: true, record: rec, onClose: noop }));
-  expect(detailHtml).toContain('2026.11.1-14时');
+  expect(detailHtml).toContain('2026.11.1-14:30');
   expect(detailHtml).toContain('1 / 3');
 });

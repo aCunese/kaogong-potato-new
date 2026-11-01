@@ -566,19 +566,72 @@ export function getWrongRecordImages(record: Pick<WrongRecord, 'image' | 'images
   return [];
 }
 
+export const WRONG_SELECTED_SUBJECT_KEY = 'kaogong_wrong_selected_subject_v1';
+export const WRONG_VIEW_MODE_KEY = 'kaogong_wrong_view_mode_v1';
+
+export function readPersistedWrongSubject(): 'all' | StudySubject {
+  if (typeof window === 'undefined') return 'all';
+  try {
+    const raw = window.localStorage.getItem(WRONG_SELECTED_SUBJECT_KEY);
+    if (raw === 'all') return 'all';
+    if (raw && (STUDY_SUBJECTS as readonly string[]).includes(raw)) {
+      return raw as StudySubject;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return 'all';
+}
+
+export function writePersistedWrongSubject(subject: 'all' | StudySubject): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(WRONG_SELECTED_SUBJECT_KEY, subject);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /**
- * Formats a WrongRecord timestamp to hour precision (e.g. `2026.11.1-14时`),
- * falling back to `2026.11.1` for legacy records without `createdAt`.
+ * Extracts millisecond timestamp from `record.createdAt` or legacy `record.id` (`wrong-<ms>-...`).
  */
-export function formatWrongRecordTime(record: Pick<WrongRecord, 'date' | 'createdAt'>): string {
+export function extractWrongRecordTimestamp(
+  record: Pick<WrongRecord, 'createdAt'> & { id?: string }
+): number {
+  if (
+    typeof record.createdAt === 'number' &&
+    Number.isFinite(record.createdAt) &&
+    record.createdAt > 0
+  ) {
+    return record.createdAt;
+  }
+  if (typeof record.id === 'string') {
+    const match = /^wrong-(\d{12,15})\b/.exec(record.id);
+    if (match) {
+      const parsed = Number(match[1]);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Formats a WrongRecord timestamp to hour & minute precision (e.g. `2026.11.1-16:59`),
+ * automatically recovering timestamps from `record.id` for historical records.
+ */
+export function formatWrongRecordTime(
+  record: Pick<WrongRecord, 'date' | 'createdAt'> & { id?: string }
+): string {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(record.date || '');
-  if (typeof record.createdAt === 'number' && Number.isFinite(record.createdAt) && record.createdAt > 0) {
-    const d = new Date(record.createdAt);
+  const ts = extractWrongRecordTimestamp(record);
+  if (ts > 0) {
+    const d = new Date(ts);
     const y = dateMatch ? Number(dateMatch[1]) : d.getFullYear();
     const m = dateMatch ? Number(dateMatch[2]) : d.getMonth() + 1;
     const day = dateMatch ? Number(dateMatch[3]) : d.getDate();
     const hh = String(d.getHours()).padStart(2, '0');
-    return `${y}.${m}.${day}-${hh}时`;
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}.${m}.${day}-${hh}:${mm}`;
   }
   if (dateMatch) {
     return `${Number(dateMatch[1])}.${Number(dateMatch[2])}.${Number(dateMatch[3])}`;
