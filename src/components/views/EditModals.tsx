@@ -843,7 +843,7 @@ export const WrongDetailModal: React.FC<{
   const { state } = useApp();
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
-  const [zoomScale, setZoomScale] = useState(2);
+  const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const gestureRef = useRef<{
     mode: 'none' | 'pan' | 'pinch' | 'edge';
@@ -854,6 +854,7 @@ export const WrongDetailModal: React.FC<{
     moved: number;
     startDist: number;
     startScale: number;
+    pinchOccurred: boolean;
   }>({
     mode: 'none',
     startX: 0,
@@ -862,7 +863,8 @@ export const WrongDetailModal: React.FC<{
     originY: 0,
     moved: 0,
     startDist: 0,
-    startScale: 2,
+    startScale: 1,
+    pinchOccurred: false,
   });
 
   useModalBack(Boolean(isOpen && record && zoomOpen), () => setZoomOpen(false));
@@ -870,7 +872,7 @@ export const WrongDetailModal: React.FC<{
   useEffect(() => {
     setActiveIndex(0);
     setZoomOpen(false);
-    setZoomScale(2);
+    setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
   }, [record?.id, isOpen]);
 
@@ -884,10 +886,10 @@ export const WrongDetailModal: React.FC<{
   const timeText = formatWrongRecordTime(record);
 
   const clampPan = (x: number, y: number, scale: number) => {
-    if (scale <= 1) return { x: 0, y: 0 };
+    if (scale <= 1.01) return { x: 0, y: 0 };
     const vw = typeof window !== 'undefined' ? window.innerWidth : 390;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 844;
-    const maxX = Math.max(vw * 0.5 * (scale - 1), 200 * (scale - 1));
+    const maxX = Math.max(vw * 0.55 * (scale - 1), 220 * (scale - 1));
     const maxY = Math.max(vh * 0.45 * (scale - 1), 180 * (scale - 1));
     return {
       x: Math.max(-maxX, Math.min(maxX, x)),
@@ -897,15 +899,9 @@ export const WrongDetailModal: React.FC<{
 
   const openZoomViewer = () => {
     if (!activeImage) return;
-    setZoomScale(2);
+    setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
     setZoomOpen(true);
-  };
-
-  const applyScale = (nextScale: number) => {
-    const clamped = Math.max(1, Math.min(4, Number(nextScale.toFixed(2))));
-    setZoomScale(clamped);
-    setPanOffset(prev => clampPan(prev.x, prev.y, clamped));
   };
 
   return (
@@ -1001,7 +997,7 @@ export const WrongDetailModal: React.FC<{
       </div>
     </Modal>
 
-      {/* 全屏放大与左右/上下自由拖动预览层 */}
+      {/* 全屏默认1倍看图，支持双指自由放大与放大后单指左右/上下拖动 */}
       {zoomOpen && activeImage && (
         <div
           role="dialog"
@@ -1017,7 +1013,7 @@ export const WrongDetailModal: React.FC<{
                 {images.length > 1 ? ` · 图 ${safeIndex + 1}/${images.length}` : ''}
               </div>
               <div className="text-[11px] text-white/70">
-                单指左右/上下拖动查看 · 轻点画面或按返回退出
+                双指捏合放大 · 放大后单指拖动 · 轻点画面退出
               </div>
             </div>
             <button
@@ -1031,11 +1027,11 @@ export const WrongDetailModal: React.FC<{
             </button>
           </div>
 
-          {/* 中央可缩放与可拖动图片画布 */}
+          {/* 中央可双指缩放与单指拖动图片画布 */}
           <div
             className="flex-1 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing"
             onTouchStart={e => {
-              if (e.touches.length === 2) {
+              if (e.touches.length >= 2) {
                 const dx = e.touches[0].clientX - e.touches[1].clientX;
                 const dy = e.touches[0].clientY - e.touches[1].clientY;
                 gestureRef.current = {
@@ -1044,6 +1040,7 @@ export const WrongDetailModal: React.FC<{
                   moved: 99,
                   startDist: Math.hypot(dx, dy) || 1,
                   startScale: zoomScale,
+                  pinchOccurred: true,
                 };
                 return;
               }
@@ -1064,17 +1061,25 @@ export const WrongDetailModal: React.FC<{
                   moved: 0,
                   startDist: 0,
                   startScale: zoomScale,
+                  pinchOccurred: false,
                 };
               }
             }}
             onTouchMove={e => {
               const g = gestureRef.current;
               if (g.mode === 'edge') return;
-              if (e.touches.length === 2 && g.mode === 'pinch') {
+              if (e.touches.length >= 2) {
                 const dx = e.touches[0].clientX - e.touches[1].clientX;
                 const dy = e.touches[0].clientY - e.touches[1].clientY;
                 const dist = Math.hypot(dx, dy) || 1;
-                const nextScale = Math.max(1, Math.min(4, g.startScale * (dist / g.startDist)));
+                if (g.mode !== 'pinch') {
+                  g.mode = 'pinch';
+                  g.startDist = dist;
+                  g.startScale = zoomScale;
+                  g.pinchOccurred = true;
+                  return;
+                }
+                const nextScale = Math.max(1, Math.min(5, g.startScale * (dist / g.startDist)));
                 setZoomScale(Number(nextScale.toFixed(2)));
                 setPanOffset(prev => clampPan(prev.x, prev.y, nextScale));
                 return;
@@ -1084,17 +1089,41 @@ export const WrongDetailModal: React.FC<{
                 const dx = t.clientX - g.startX;
                 const dy = t.clientY - g.startY;
                 g.moved = Math.max(g.moved, Math.hypot(dx, dy));
-                if (zoomScale > 1) {
+                if (zoomScale > 1.01) {
                   setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
                 }
               }
             }}
-            onTouchEnd={() => {
+            onTouchEnd={e => {
               const g = gestureRef.current;
-              if (g.mode === 'pan' && g.moved < 8) {
-                setZoomOpen(false);
+              // 双指缩放后若还剩一根手指在屏幕上，平滑接力为单指拖动而不误触发单击退出
+              if (e.touches.length === 1) {
+                const t = e.touches[0];
+                g.mode = 'pan';
+                g.startX = t.clientX;
+                g.startY = t.clientY;
+                g.originX = panOffset.x;
+                g.originY = panOffset.y;
+                g.moved = 99;
+                return;
               }
-              gestureRef.current.mode = 'none';
+              if (e.touches.length === 0) {
+                if (!g.pinchOccurred && g.mode === 'pan' && g.moved < 8) {
+                  setZoomOpen(false);
+                } else if (zoomScale <= 1.02) {
+                  setZoomScale(1);
+                  setPanOffset({ x: 0, y: 0 });
+                }
+                g.mode = 'none';
+                g.pinchOccurred = false;
+              }
+            }}
+            onWheel={e => {
+              e.preventDefault();
+              const delta = e.deltaY < 0 ? 0.25 : -0.25;
+              const nextScale = Math.max(1, Math.min(5, Number((zoomScale + delta).toFixed(2))));
+              setZoomScale(nextScale);
+              setPanOffset(prev => clampPan(prev.x, prev.y, nextScale));
             }}
             onMouseDown={e => {
               if (e.button !== 0) return;
@@ -1107,6 +1136,7 @@ export const WrongDetailModal: React.FC<{
                 moved: 0,
                 startDist: 0,
                 startScale: zoomScale,
+                pinchOccurred: false,
               };
             }}
             onMouseMove={e => {
@@ -1115,7 +1145,7 @@ export const WrongDetailModal: React.FC<{
               const dx = e.clientX - g.startX;
               const dy = e.clientY - g.startY;
               g.moved = Math.max(g.moved, Math.hypot(dx, dy));
-              if (zoomScale > 1) {
+              if (zoomScale > 1.01) {
                 setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
               }
             }}
@@ -1139,65 +1169,38 @@ export const WrongDetailModal: React.FC<{
             />
           </div>
 
-          {/* 底部倍率切换与多图翻页控制栏 */}
-          <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-3 z-10 bg-gradient-to-t from-black/80 to-transparent">
-            {images.length > 1 && (
+          {/* 仅当同一道错题有多张图时显示上一张/下一张切换，不显示任何倍率按钮 */}
+          {images.length > 1 && (
+            <div className="flex items-center justify-center gap-3 px-4 py-3 z-10 bg-gradient-to-t from-black/80 to-transparent">
               <button
                 type="button"
                 aria-label="全屏上一张"
                 onClick={() => {
                   setActiveIndex(prev => (prev - 1 + images.length) % images.length);
+                  setZoomScale(1);
                   setPanOffset({ x: 0, y: 0 });
                 }}
-                className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
+                className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
               >
                 上一张
               </button>
-            )}
-
-            {([1, 2, 3] as const).map(level => (
-              <button
-                key={level}
-                type="button"
-                onClick={() => {
-                  applyScale(level);
-                  if (level === 1) setPanOffset({ x: 0, y: 0 });
-                }}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-mono font-bold transition ${
-                  Math.round(zoomScale) === level
-                    ? 'bg-sage text-white shadow-sm'
-                    : 'bg-white/15 text-white/85 hover:bg-white/25'
-                }`}
-              >
-                {level}x
-              </button>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => {
-                setZoomScale(2);
-                setPanOffset({ x: 0, y: 0 });
-              }}
-              className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-white/25"
-            >
-              居中复位
-            </button>
-
-            {images.length > 1 && (
+              <span className="text-xs font-mono text-white/80">
+                {safeIndex + 1} / {images.length}
+              </span>
               <button
                 type="button"
                 aria-label="全屏下一张"
                 onClick={() => {
                   setActiveIndex(prev => (prev + 1) % images.length);
+                  setZoomScale(1);
                   setPanOffset({ x: 0, y: 0 });
                 }}
-                className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
+                className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
               >
                 下一张
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </>
