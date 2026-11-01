@@ -1,13 +1,14 @@
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Modal, Button, Tag } from '../common/UIComponents';
+import { Modal, Button, Tag, SubjectCapsuleGrid, CustomSelect } from '../common/UIComponents';
 import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
+import { resolveWrongRecordSubject, getWrongRecordImages, formatWrongRecordTime } from '../../utils/workflowMutators';
 
 function useSaveMutation(onClose: () => void, onToast: (message: string) => void) {
   const [isSaving, setIsSaving] = useState(false);
@@ -90,13 +91,46 @@ export const AddPlanModal: React.FC<{
         }} className={`rounded-lg py-2 text-xs ${type === value ? 'bg-paper text-sage font-bold shadow-sm' : 'text-ink-muted'}`}>{label}</button>)}
       </div>
       {type === 'custom' ? <>
-        <label className="block text-xs text-ink-muted">所属科目<select aria-label="自定义事项所属科目" disabled={isSaving} value={customSubject} onChange={e => setCustomSubject(e.target.value as StudySubject)} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70">{STUDY_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
+        <div>
+          <span className="block text-xs text-ink-muted mb-1.5">所属科目</span>
+          <SubjectCapsuleGrid
+            ariaLabel="自定义事项所属科目"
+            disabled={isSaving}
+            options={STUDY_SUBJECTS}
+            value={customSubject}
+            onChange={val => setCustomSubject(val as StudySubject)}
+          />
+        </div>
         <label className="block text-xs text-ink-muted">事项名称<input aria-label="事项名称" type="text" required maxLength={200} disabled={isSaving} value={customName} onChange={e => setCustomName(e.target.value)} placeholder="例如：晨读时政、整理错题" className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></label>
       </> : <>
-        <label className="block text-xs text-ink-muted">筛选科目<select aria-label="筛选日程科目" value={subject} onChange={e => { const next=e.target.value; setSubject(next);select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');}} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70"><option value="all">全部科目</option>{SUBJECTS.map(s => <option key={s}>{s}</option>)}</select></label>
-        <label className="block text-xs text-ink-muted">选择事项<select aria-label="选择事项" value={selectedLibId} onChange={e => select(e.target.value)} className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">
-          {!items.length && <option value="">该分类暂无内容，请先到学习库添加</option>}{items.map(l => <option key={l.id} value={l.id}>{l.name} · {l.subject}</option>)}
-        </select></label>
+        <div>
+          <span className="block text-xs text-ink-muted mb-1.5">筛选科目</span>
+          <SubjectCapsuleGrid
+            ariaLabel="筛选日程科目"
+            columns={3}
+            options={[{ label: '全部科目', value: 'all' }, ...SUBJECTS.map(s => ({ label: s, value: s }))]}
+            value={subject}
+            onChange={next => {
+              setSubject(next);
+              select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');
+            }}
+          />
+        </div>
+        <div>
+          <span className="block text-xs text-ink-muted mb-1">选择事项</span>
+          <CustomSelect
+            ariaLabel="选择事项"
+            value={selectedLibId}
+            emptyText="该分类暂无内容，请先到学习库添加"
+            options={items.map(l => ({
+              value: l.id,
+              label: `${l.name} · ${l.subject}`,
+              badge: l.subject,
+              badgeVariant: type === 'course' ? 'course' : 'potato',
+            }))}
+            onChange={val => select(val)}
+          />
+        </div>
       </>}
       <label className="block text-xs text-ink-muted">今日计划用时（分钟）<input aria-label="今日计划用时" type="number" min="1" step="1" required disabled={isSaving} value={minutes} onChange={e => setMinutes(e.target.value)} className="mt-1 w-full px-3 py-2.5 border border-line rounded-xl bg-cream/70 font-mono text-sm" /></label>
       {type === 'course' && <div><p className="text-xs text-ink-muted mb-2">剩余 {Math.max(0,remaining)} 节</p><label className="text-xs text-ink-muted">本次计划节数<input aria-label="本次计划节数" type="number" min="1" max={remaining} step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="mt-1 w-full px-3 py-2.5 rounded-xl border border-line bg-cream/70 text-sm" /></label>{!validLessons && <p className="text-xs text-alarm mt-1">节数须大于0，且不能超过剩余 {Math.max(0,remaining)} 节。</p>}<p className="text-xs text-ink-muted mt-2">完成后确认实际节数，真实用时自动记录。</p></div>}
@@ -191,14 +225,14 @@ export const BookEditModal: React.FC<{
         </div>
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">所属科目</label>
-          <select
+          <label className="block text-xs text-ink-muted font-medium mb-1.5">所属科目</label>
+          <SubjectCapsuleGrid
+            ariaLabel="题本所属科目"
+            columns={4}
+            options={SUBJECTS}
             value={subject}
-            onChange={e => setSubject(e.target.value as Subject)}
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          >
-            {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+            onChange={val => setSubject(val as Subject)}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -310,7 +344,7 @@ export const CourseEditModal: React.FC<{
     <form onSubmit={submit} className="space-y-4">
       <FormError message={errorMsg} />
       <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-name">课程名称</label><input id="course-name" value={name} onChange={e => setName(e.target.value)} placeholder="例如：判断推理图形专项技巧精讲" className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
-      <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-subject">所属科目</label><select id="course-subject" value={subject} onChange={e => setSubject(e.target.value as Subject)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm">{SUBJECTS.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
+      <div><label className="block text-xs text-ink-muted mb-1.5" htmlFor="course-subject">所属科目</label><SubjectCapsuleGrid ariaLabel="网课所属科目" columns={4} options={SUBJECTS} value={subject} onChange={val => setSubject(val as Subject)} /></div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-total">总节数</label><input id="course-total" aria-label="总节数" type="number" min="1" step="1" required value={totalLessons} onChange={e => setTotalLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
         <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-completed">已完成节数</label><input id="course-completed" aria-label="已完成节数" type="number" min="0" step="1" required value={completedLessons} onChange={e => setCompletedLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
@@ -360,14 +394,14 @@ export const CustomAddModal: React.FC<{
         </div>
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">归属科目</label>
-          <select
+          <label className="block text-xs text-ink-muted font-medium mb-1.5">归属科目</label>
+          <SubjectCapsuleGrid
+            ariaLabel="自定义备考事项归属科目"
+            columns={3}
+            options={STUDY_SUBJECTS}
             value={subject}
-            onChange={e => setSubject(e.target.value as StudySubject)}
-            className="w-full px-3 py-2 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          >
-            {STUDY_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+            onChange={val => setSubject(val as StudySubject)}
+          />
         </div>
 
         <div>
@@ -524,28 +558,39 @@ export const CountdownModal: React.FC<{
 /* =========================================================================
    6. Photo Import Modal (photo-import: 13:158)
    ========================================================================= */
+const MAX_SINGLE_WRONG_IMAGES = 9;
+
 export const PhotoImportModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onToast: (msg: string) => void;
-  initialTarget?: { bookId: string; date: string };
+  initialTarget?: { bookId?: string; subject?: StudySubject; date?: string };
 }> = ({ isOpen, onClose, onToast, initialTarget }) => {
-  const { state, addWrongRecords } = useApp();
-  const [bookId, setBookId] = useState(initialTarget?.bookId || state.books[0]?.id || '');
+  const { state, activeDate, addWrongRecords } = useApp();
+
+  const resolveInitialSubject = (): StudySubject => {
+    if (initialTarget?.subject && (STUDY_SUBJECTS as readonly string[]).includes(initialTarget.subject)) {
+      return initialTarget.subject;
+    }
+    if (initialTarget?.bookId) {
+      if ((STUDY_SUBJECTS as readonly string[]).includes(initialTarget.bookId)) {
+        return initialTarget.bookId as StudySubject;
+      }
+      const matched = state.books.find(b => b.id === initialTarget.bookId);
+      if (matched) return matched.subject;
+    }
+    return state.books[0]?.subject || '资料分析';
+  };
+
+  const [subject, setSubject] = useState<StudySubject>(resolveInitialSubject);
   const [note, setNote] = useState('');
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
 
-  // 关键修复 (Defect F07)：弹窗打开或题本数据加载完成时，自动校正有效 bookId，优先使用 initialTarget 预选
+  // 弹窗打开时自动预选传入的分类或关联题本对应分类
   useEffect(() => {
     if (isOpen) {
-      if (initialTarget?.bookId && state.books.some(b => b.id === initialTarget.bookId)) {
-        setBookId(initialTarget.bookId);
-      } else if (!bookId || !state.books.some(b => b.id === bookId)) {
-        if (state.books.length > 0) {
-          setBookId(state.books[0].id);
-        }
-      }
+      setSubject(resolveInitialSubject());
     }
   }, [isOpen, initialTarget, state.books]);
 
@@ -553,8 +598,9 @@ export const PhotoImportModal: React.FC<{
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    if (previewImages.length + files.length > MAX_BATCH_COUNT) {
-      alert(`单次最多上传 ${MAX_BATCH_COUNT} 张图片（已有 ${previewImages.length} 张，本次选了 ${files.length} 张）`);
+    const maxAllowed = Math.min(MAX_SINGLE_WRONG_IMAGES, MAX_BATCH_COUNT);
+    if (previewImages.length + files.length > maxAllowed) {
+      alert(`单道错题最多上传 ${maxAllowed} 张图片（已有 ${previewImages.length} 张，本次选了 ${files.length} 张）`);
       e.target.value = '';
       return;
     }
@@ -584,7 +630,7 @@ export const PhotoImportModal: React.FC<{
       }
 
       if (compressedList.length > 0) {
-        setPreviewImages(prev => [...prev, ...compressedList]);
+        setPreviewImages(prev => [...prev, ...compressedList].slice(0, maxAllowed));
       }
 
       if (failedItems.length > 0) {
@@ -597,8 +643,10 @@ export const PhotoImportModal: React.FC<{
   };
 
   const handleAddSample = () => {
-    // Generate a raster PNG sample (SVG data URLs are not accepted by the server media
-    // pipeline, so a canvas PNG keeps the demo photo syncable across devices).
+    if (previewImages.length >= MAX_SINGLE_WRONG_IMAGES) {
+      alert(`单道错题最多添加 ${MAX_SINGLE_WRONG_IMAGES} 张图片`);
+      return;
+    }
     try {
       const canvas = document.createElement('canvas');
       canvas.width = 400;
@@ -620,35 +668,43 @@ export const PhotoImportModal: React.FC<{
       ctx.fillStyle = '#61794F';
       ctx.fillText('✔ 正确思路：截位直除，先看差距判断保留位', 40, 130);
       const pngData = canvas.toDataURL('image/png');
-      setPreviewImages(prev => [...prev, pngData]);
+      setPreviewImages(prev => [...prev, pngData].slice(0, MAX_SINGLE_WRONG_IMAGES));
     } catch {
-      // Canvas unavailable: do not inject an unsyncable SVG placeholder.
+      // Canvas unavailable
     }
   };
 
   const handleSubmit = async () => {
-    if (!bookId) {
-      alert('请先创建题本');
-      return;
-    }
     if (previewImages.length === 0) {
       alert('请选择至少一张错题照片');
       return;
     }
 
-    // Attempt persistent write with safety check (Fixes A01)
-    const result = await addWrongRecords(bookId, note, previewImages, initialTarget?.date);
+    const matchedInitialBook = initialTarget?.bookId
+      ? state.books.find(b => b.id === initialTarget.bookId && b.subject === subject)
+      : undefined;
+    const targetKey = matchedInitialBook ? matchedInitialBook.id : subject;
+
+    const result = await addWrongRecords(targetKey, note, previewImages, initialTarget?.date);
     if (!result.ok) {
       alert(result.message || '照片保存失败：本地存储空间不足。请删除部分过期照片或导出备份后再试。');
-      // Keep user's input intact without closing modal
       return;
     }
 
-    onToast(`成功归档 ${previewImages.length} 张错题照片！`);
+    onToast(
+      previewImages.length > 1
+        ? `成功归档 1 道【${subject}】错题（含 ${previewImages.length} 张照片）！`
+        : `成功归档 1 道【${subject}】错题照片！`
+    );
     setPreviewImages([]);
     setNote('');
     onClose();
   };
+
+  const previewTimeLabel = formatWrongRecordTime({
+    date: initialTarget?.date || activeDate,
+    createdAt: Date.now(),
+  });
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="从相册上传错题照片">
@@ -661,24 +717,33 @@ export const PhotoImportModal: React.FC<{
         )}
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">所属题本</label>
-          <select
-            value={bookId}
-            onChange={e => setBookId(e.target.value)}
-            className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
-          >
-            {state.books.map(b => (
-              <option key={b.id} value={b.id}>{b.name} ({b.subject})</option>
-            ))}
-          </select>
+          <label className="block text-xs text-ink-muted font-medium mb-1.5">
+            1. 所属分类（八大科目 + 其他）
+          </label>
+          <SubjectCapsuleGrid
+            ariaLabel="错题所属分类"
+            columns={3}
+            options={STUDY_SUBJECTS}
+            value={subject}
+            onChange={val => setSubject(val as StudySubject)}
+          />
         </div>
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1.5">选择错题照片 (支持多选)</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs text-ink-muted font-medium">
+              2. 选择错题照片（一次选多张将合并归入同一道错题）
+            </label>
+            <span className="text-xs font-mono text-sage-dark">
+              {previewImages.length}/{MAX_SINGLE_WRONG_IMAGES} 张
+            </span>
+          </div>
           <div className="flex gap-2">
-            <label className="flex-1 border-2 border-dashed border-line hover:border-sage rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-cream/40">
+            <label className="flex-1 border-2 border-dashed border-line hover:border-sage rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-cream/40 transition-colors">
               <Camera size={24} className="text-sage mb-1" />
-              <span className="text-xs text-ink-muted">点击选择系统相册图片</span>
+              <span className="text-xs text-ink-main font-medium">
+                {previewImages.length > 0 ? '点击继续追加照片（题干/解析）' : '点击选择系统相册图片（支持多选）'}
+              </span>
               <input type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
             </label>
             <Button variant="secondary" size="sm" onClick={handleAddSample} className="shrink-0" disabled={isCompressing}>
@@ -693,17 +758,29 @@ export const PhotoImportModal: React.FC<{
           )}
         </div>
 
-        {/* 缩略图预览网格 */}
+        {/* 缩略图预览网格（多图合并归为同一道错题） */}
         {previewImages.length > 0 && (
           <div>
-            <div className="text-xs text-ink-muted mb-1.5">已选 {previewImages.length} 张照片</div>
-            <div className="grid grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1 bg-cream/40 rounded-xl">
+            <div className="text-xs text-ink-muted mb-1.5">
+              已选 {previewImages.length} 张照片 · 将合并保存为 <strong className="text-ink-main">1 道错题</strong>
+            </div>
+            <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto p-1.5 bg-cream/40 rounded-xl border border-line/60">
               {previewImages.map((img, idx) => (
-                <div key={idx} className="relative aspect-[4/3] rounded-lg overflow-hidden border border-line">
-                  <img src={img} alt="预览" className="w-full h-full object-cover" />
+                <div
+                  key={idx}
+                  className={`relative aspect-[4/3] rounded-lg overflow-hidden border ${
+                    idx === 0 ? 'border-2 border-sage' : 'border-line'
+                  }`}
+                >
+                  <img src={img} alt={`预览图${idx + 1}`} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-1 left-1 px-1.5 py-0.2 rounded bg-ink-main/75 text-white text-[10px] font-bold">
+                    {idx === 0 ? '图1·封面' : `图${idx + 1}`}
+                  </span>
                   <button
+                    type="button"
+                    aria-label={`移除第${idx + 1}张图片`}
                     onClick={() => setPreviewImages(prev => prev.filter((_, i) => i !== idx))}
-                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 text-xs"
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
                   >
                     ×
                   </button>
@@ -714,7 +791,9 @@ export const PhotoImportModal: React.FC<{
         )}
 
         <div>
-          <label className="block text-xs text-ink-muted font-medium mb-1">复盘原因与思路笔记 (选填)</label>
+          <label className="block text-xs text-ink-muted font-medium mb-1">
+            3. 复盘原因与思路笔记 (选填)
+          </label>
           <textarea
             value={note}
             onChange={e => setNote(e.target.value)}
@@ -723,8 +802,15 @@ export const PhotoImportModal: React.FC<{
           />
         </div>
 
-        <Button variant="primary" size="md" fullWidth onClick={handleSubmit}>
-          保存并归档到题本
+        <div className="pt-1 flex items-center justify-between text-xs text-ink-muted">
+          <span className="font-mono">记录时间：{previewTimeLabel}</span>
+          <span>归属分类：<strong className="text-sage-dark">{subject}</strong></span>
+        </div>
+
+        <Button variant="primary" size="md" fullWidth onClick={handleSubmit} disabled={isCompressing}>
+          {previewImages.length > 1
+            ? `保存为 1 道【${subject}】错题 (含 ${previewImages.length} 张图)`
+            : `保存并归档到【${subject}】`}
         </Button>
       </div>
     </Modal>
@@ -740,31 +826,87 @@ export const WrongDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ record, isOpen, onClose }) => {
   const { state } = useApp();
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [record?.id, isOpen]);
+
   if (!isOpen || !record) return null;
 
+  const images = getWrongRecordImages(record);
+  const safeIndex = images.length > 0 ? Math.min(activeIndex, images.length - 1) : 0;
+  const activeImage = images[safeIndex] || record.image;
+  const subject = resolveWrongRecordSubject(record, state.books);
   const book = state.books.find(b => b.id === record.bookId);
+  const timeText = formatWrongRecordTime(record);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情">
       <div className="space-y-4">
-        {/* 大图显示 */}
-        <div className="w-full bg-[#EAE8DD] rounded-2xl overflow-hidden border border-line flex items-center justify-center max-h-[50vh]">
-          {record.image ? (
-            <img src={record.image} alt="错题大图" className="w-full h-full object-contain" />
+        {/* 大图显示与多图左右切换 */}
+        <div className="w-full bg-[#EAE8DD] rounded-2xl overflow-hidden border border-line flex items-center justify-center max-h-[52vh] relative">
+          {activeImage ? (
+            <img src={activeImage} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
           ) : (
             <div className="py-16 text-center text-ink-muted text-xs">
               <ImageIcon size={36} className="mx-auto text-sage/40 mb-2" />
               <span>标准手稿演示图片</span>
             </div>
           )}
+
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                aria-label="上一张错题图"
+                onClick={() => setActiveIndex(prev => (prev - 1 + images.length) % images.length)}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-paper/90 border border-line shadow-sm flex items-center justify-center text-ink-main hover:bg-paper"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                aria-label="下一张错题图"
+                onClick={() => setActiveIndex(prev => (prev + 1) % images.length)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-paper/90 border border-line shadow-sm flex items-center justify-center text-ink-main hover:bg-paper"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <span className="absolute bottom-2 right-2.5 px-2.5 py-0.5 rounded-full bg-ink-main/80 text-white text-xs font-mono font-bold">
+                {safeIndex + 1} / {images.length}
+              </span>
+            </>
+          )}
         </div>
 
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <Tag variant="potato">{book?.name || '原题本已删除'}</Tag>
-            <Tag variant="gray">{book?.subject || '科目'}</Tag>
+        {/* 多图缩略图切换条 */}
+        {images.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {images.map((imgUrl, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setActiveIndex(idx)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-medium shrink-0 transition flex items-center gap-1.5 border ${
+                  idx === safeIndex
+                    ? 'bg-sage-light border-sage text-sage-dark font-bold shadow-sm'
+                    : 'bg-cream/70 border-line text-ink-muted hover:text-ink-main'
+                }`}
+              >
+                <span>{idx === 0 ? '图1 (题干/封面)' : `图${idx + 1}`}</span>
+              </button>
+            ))}
           </div>
-          <span className="text-ink-muted font-mono">{record.date}</span>
+        )}
+
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Tag variant="sage">{subject}</Tag>
+            {book && <Tag variant="potato">{book.name}</Tag>}
+            {images.length > 1 && <Tag variant="gray">共 {images.length} 张图</Tag>}
+          </div>
+          <span className="text-ink-muted font-mono font-semibold">{timeText}</span>
         </div>
 
         <div className="bg-cream/60 p-3.5 rounded-2xl border border-line/80 space-y-1">

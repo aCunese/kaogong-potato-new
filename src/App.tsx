@@ -47,7 +47,7 @@ import {
   AlertCircle,
   AlertTriangle,
 } from 'lucide-react';
-import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, LearningSubTab, AnalysisSubTab, MutationResult, TimerMode } from './types';
+import { MainTab, Plan, Book, Course, WrongRecord, StudyRecord, StudySubject, LearningSubTab, AnalysisSubTab, MutationResult, TimerMode } from './types';
 
 declare global {
   interface Window {
@@ -133,7 +133,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [customAddOpen, setCustomAddOpen] = useState(false);
   const [countdownModal, setCountdownModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: string } | null>(null);
   const [photoImportOpen, setPhotoImportOpen] = useState(false);
-  const [photoImportTarget, setPhotoImportTarget] = useState<{ bookId: string; date: string } | undefined>(undefined);
+  const [photoImportTarget, setPhotoImportTarget] = useState<{ bookId?: string; subject?: StudySubject; date?: string } | undefined>(undefined);
   const [wrongDetailRecord, setWrongDetailRecord] = useState<WrongRecord | null>(null);
   const [authModal, setAuthModal] = useState<{ open: boolean; mode: 'login' | 'register' }>({ open: false, mode: 'login' });
   const [downloadApkOpen, setDownloadApkOpen] = useState(false);
@@ -922,8 +922,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'wrong' ? (
             <WrongView
-              onOpenImportModal={() => {
-                setPhotoImportTarget(undefined);
+              onOpenImportModal={(presetSubject) => {
+                setPhotoImportTarget(presetSubject ? { subject: presetSubject } : undefined);
                 setPhotoImportOpen(true);
               }}
               onOpenDetailModal={rec => setWrongDetailRecord(rec)}

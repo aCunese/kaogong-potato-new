@@ -1,5 +1,5 @@
 import { validateStudyExtensions, planExtensions } from './studyExtensions';
-import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, StudySubject, Subject, PlanType, isStudySubjectForType } from '../types';
+import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, STUDY_SUBJECTS, StudySubject, Subject, PlanType, isStudySubjectForType } from '../types';
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
 
 export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -408,10 +408,19 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       }
     }
 
+    const validSubject = typeof w.subject === 'string' && (STUDY_SUBJECTS as readonly string[]).includes(w.subject)
+      ? (w.subject as StudySubject)
+      : undefined;
+    const validCreatedAt = typeof w.createdAt === 'number' && Number.isFinite(w.createdAt) && w.createdAt >= 0
+      ? w.createdAt
+      : undefined;
+
     wrong.push({
       id: typeof w.id === 'string' && w.id.trim() ? w.id.trim() : `wrong-${Date.now()}-${i}`,
       date: w.date.trim(),
       bookId: typeof w.bookId === 'string' ? w.bookId.trim() : '',
+      ...(validSubject !== undefined ? { subject: validSubject } : {}),
+      ...(validCreatedAt !== undefined ? { createdAt: validCreatedAt } : {}),
       note: typeof w.note === 'string' ? w.note : '',
       image: typeof w.image === 'string' ? w.image : '',
       ...(images !== undefined ? { images } : {}),

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Modal, Button } from '../common/UIComponents';
+import { Modal, Button, CustomSelect } from '../common/UIComponents';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { StudySubject, STUDY_SUBJECTS, TimerMode, MutationResult } from '../../types';
 import { sessionTotals } from '../../utils/timerSessions';
@@ -153,7 +153,20 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
       <p className="text-xs text-ink-muted">这是旧版本遗留的待登记计时，请补充关联学习事项后保存。</p>
       <div className="rounded-xl bg-sage-light/40 p-3 text-xs space-y-2"><p>实际学习用时 <output aria-label="本次实际学习用时">{Math.floor(totals.focusMs / 60000)} 分 {Math.floor(totals.focusMs % 60000 / 1000)} 秒</output></p><p>休息 {format(totals.restMs)} · 不计入学习用时</p><p className="text-ink-muted">登记按整分钟确认：{totals.focusMs > 0 ? Math.max(1, Math.round(totals.focusMs / 60000)) : 0} 分钟，用时不能手动修改。</p></div>
       <div role="group" aria-label="关联事项类型" className="grid grid-cols-3 gap-1 bg-cream rounded-xl p-1">{([['book', '题本'], ['course', '网课'], ['custom', '其他学习']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sourceType === value} onClick={() => { setSourceType(value); setSourceId(''); setError(''); }} className={`p-2 rounded-lg text-xs ${sourceType === value ? 'bg-paper text-sage font-bold' : 'text-ink-muted'}`}>{label}</button>)}</div>
-      <label className="block text-xs text-ink-muted">关联事项<select aria-label="关联学习事项" value={source?.id ?? ''} onChange={e => setSourceId(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 bg-cream/70">{!sources.length && <option value="">请先在学习库添加相应事项</option>}{sources.map(l => <option key={l.id} value={l.id}>{l.subject} · {l.name}</option>)}</select></label>
+      <div>
+        <label className="block text-xs text-ink-muted mb-1">关联事项</label>
+        <CustomSelect
+          ariaLabel="关联学习事项"
+          value={source?.id ?? ''}
+          onChange={val => setSourceId(val)}
+          emptyText="请先在学习库添加相应事项"
+          options={sources.map(l => ({
+            value: l.id,
+            label: `${l.subject} · ${l.name}`,
+            badge: l.subject,
+          }))}
+        />
+      </div>
       {sourceType === 'book' && <div className="grid grid-cols-2 gap-2"><label className="text-xs">本次做题数<input aria-label="本次做题数" type="number" min="1" step="1" required value={questions} onChange={e => setQuestions(e.target.value)} className="mt-1 w-full p-2 rounded-xl border border-line bg-cream/70" /></label><label className="text-xs">本次错题数<input aria-label="本次错题数" type="number" min="0" step="1" required value={errors} onChange={e => setErrors(e.target.value)} className="mt-1 w-full p-2 rounded-xl border border-line bg-cream/70" /></label></div>}
       {sourceType === 'course' && <label className="block text-xs">本次完成节数 · 剩余 {remaining} 节<input aria-label="本次完成节数" type="number" min="1" max={remaining} step="1" required value={lessons} onChange={e => setLessons(e.target.value)} className="mt-1 w-full p-2 rounded-xl border border-line bg-cream/70" /></label>}
       <Button fullWidth variant="primary" type="submit" disabled={busy || !validRegistration}>保存学习登记</Button>

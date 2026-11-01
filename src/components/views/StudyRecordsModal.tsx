@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal } from '../common/UIComponents';
+import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { StudyRecordItem } from '../common/StudyRecordItem';
 import { Plan, StudyRecord } from '../../types';
 import {
@@ -31,6 +32,15 @@ const TYPE_LABEL = { book: '刷题', course: '网课', custom: '自定义' } as 
 export const StudyRecordsModal: React.FC<StudyRecordsModalProps> = ({ isOpen, onClose, initialDate, onEditRecord, onOpenComplete, onDeletePlan }) => {
   const { state, activeDate } = useApp();
   const [pickedDate, setPickedDate] = useState(activeDate);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  const highlightDates = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of state.plans) if (p.date) s.add(p.date);
+    for (const r of state.records) if (r.date) s.add(r.date);
+    if (activeDate) s.add(activeDate);
+    return s;
+  }, [state.plans, state.records, activeDate]);
 
   useEffect(() => {
     if (isOpen) setPickedDate(initialDate || activeDate);
@@ -67,19 +77,16 @@ export const StudyRecordsModal: React.FC<StudyRecordsModalProps> = ({ isOpen, on
           >
             <ChevronLeft size={17} />
           </button>
-          <label className="relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-line bg-paper px-3 py-2">
+          <button
+            type="button"
+            aria-label="选择查看日期"
+            onClick={() => setCalendarOpen(true)}
+            className="relative flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-line bg-paper px-3 py-2 active:bg-cream/60"
+          >
             <CalendarDays size={15} className="shrink-0 text-sage" />
             <span className="truncate text-sm font-bold text-ink-main">{studyDateLabel(selectedDate, activeDate)}</span>
             <span className="shrink-0 font-mono text-[10px] text-ink-muted">{selectedDate.slice(5).replace('-', '/')}</span>
-            <input
-              type="date"
-              aria-label="选择查看日期"
-              value={selectedDate}
-              max={activeDate}
-              onChange={event => { if (event.target.value) setPickedDate(event.target.value); }}
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-            />
-          </label>
+          </button>
           <button
             type="button"
             aria-label="后一天"
@@ -151,5 +158,15 @@ export const StudyRecordsModal: React.FC<StudyRecordsModalProps> = ({ isOpen, on
 
       {isToday && pendingPlans > 0 && <p className="px-1 text-[10px] leading-relaxed text-ink-muted">今天还有 {pendingPlans} 项日程未登记，完成登记后会自动出现在这里。</p>}
     </div>
+
+    <FloatingDatePicker
+      isOpen={calendarOpen}
+      onClose={() => setCalendarOpen(false)}
+      title="选择查看日期"
+      value={selectedDate}
+      onChange={val => { if (val) setPickedDate(val); }}
+      highlightDates={highlightDates}
+      activeDate={activeDate}
+    />
   </Modal>;
 };

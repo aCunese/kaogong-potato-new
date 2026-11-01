@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.1.5",
-  "webBuild": "20261031.02",
+  "webVersion": "1.1.6",
+  "webBuild": "20261101.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-10-31T20:25:00Z",
-  "summary": "倒数日体验升级：自研温暖米白与鼠尾草绿浮层日历，点击任意日期即选即生效免点设置，支持快捷按年翻页与清除目标日期。"
+  "deployedAt": "2026-11-01T08:45:00Z",
+  "summary": "错题照片复盘全面升级：支持九大科目分类收纳、下拉一键定位与上下双向快捷上传、多图合入同一错题、小时级时间记录、图片秒加载与全站土豆风格选择器美化。"
 }

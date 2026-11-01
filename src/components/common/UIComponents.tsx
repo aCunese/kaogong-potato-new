@@ -1,5 +1,5 @@
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, ChevronDown, Check } from 'lucide-react';
 
 const modalBackStack: { close: () => void }[] = [];
 
@@ -300,4 +300,229 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 };
 
 export { Avatar } from './Avatar';
+
+/* =========================================================================
+   SubjectCapsuleGrid (Inline Capsule Grid for 8/9 Subjects)
+   ========================================================================= */
+export interface SubjectCapsuleGridProps {
+  options: readonly string[] | Array<{ label: string; value: string }>;
+  value: string;
+  onChange: (val: string) => void;
+  disabled?: boolean;
+  columns?: 3 | 4;
+  ariaLabel?: string;
+  className?: string;
+}
+
+export const SubjectCapsuleGrid: React.FC<SubjectCapsuleGridProps> = ({
+  options,
+  value,
+  onChange,
+  disabled = false,
+  columns = 3,
+  ariaLabel,
+  className = '',
+}) => {
+  const normalized = options.map(opt =>
+    typeof opt === 'string' ? { label: opt, value: opt } : opt
+  );
+  const gridCols = columns === 4 ? 'grid-cols-4' : 'grid-cols-3';
+
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className={`grid ${gridCols} gap-1.5 ${className}`}
+    >
+      {normalized.map(opt => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => onChange(opt.value)}
+            className={`rounded-xl py-2 px-2 text-xs transition-all truncate ${
+              active
+                ? 'bg-sage text-white font-bold shadow-sm'
+                : 'bg-cream/80 text-ink-muted border border-line/60 hover:border-sage/40 hover:text-ink-main'
+            } disabled:opacity-50`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* =========================================================================
+   CustomSelect (Potato Paper-Style Custom Dropdown Picker)
+   ========================================================================= */
+export interface CustomSelectOption {
+  value: string;
+  label: string;
+  subLabel?: string;
+  badge?: string;
+  badgeVariant?: 'sage' | 'course' | 'potato' | 'gray' | 'danger';
+  dotColor?: string;
+}
+
+export interface CustomSelectProps {
+  value: string;
+  options: CustomSelectOption[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+  id?: string;
+  className?: string;
+  compact?: boolean;
+}
+
+export const CustomSelect: React.FC<CustomSelectProps> = ({
+  value,
+  options,
+  onChange,
+  placeholder = '请选择',
+  emptyText = '暂无可选项',
+  disabled = false,
+  ariaLabel,
+  id,
+  className = '',
+  compact = false,
+}) => {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selected = options.find(o => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <button
+        id={id}
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => !disabled && setOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between gap-2 bg-cream/70 border transition-colors text-left ${
+          open ? 'border-sage bg-paper shadow-sm' : 'border-line hover:border-sage/60'
+        } ${
+          compact ? 'px-2.5 py-1.5 rounded-lg text-xs' : 'px-3 py-2.5 rounded-xl text-sm'
+        } disabled:opacity-50`}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {selected?.dotColor && (
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: selected.dotColor }}
+            />
+          )}
+          <span
+            className={`truncate ${
+              selected ? 'text-ink-main font-medium' : 'text-ink-muted/70'
+            }`}
+          >
+            {selected ? selected.label : options.length === 0 ? emptyText : placeholder}
+          </span>
+          {selected?.badge && (
+            <Tag variant={selected.badgeVariant || 'potato'} className="shrink-0 py-0 text-[10px]">
+              {selected.badge}
+            </Tag>
+          )}
+        </div>
+        <ChevronDown
+          size={compact ? 14 : 16}
+          className={`text-ink-muted shrink-0 transition-transform duration-200 ${
+            open ? 'rotate-180 text-sage' : ''
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          className="mt-1.5 max-h-56 overflow-y-auto rounded-2xl border border-sage/30 bg-paper p-1.5 shadow-modal space-y-1 z-40 relative"
+        >
+          {options.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-line bg-cream/40 p-3 text-center text-xs text-ink-muted">
+              {emptyText}
+            </div>
+          ) : (
+            options.map(opt => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl flex items-center justify-between gap-2 text-left transition-colors ${
+                    isSelected
+                      ? 'bg-sage-light/80 text-sage-dark font-bold'
+                      : 'hover:bg-cream/80 text-ink-main'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      {opt.dotColor && (
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: opt.dotColor }}
+                        />
+                      )}
+                      <span className="text-xs truncate">{opt.label}</span>
+                    </div>
+                    {opt.subLabel && (
+                      <div className="text-[11px] text-ink-muted truncate mt-0.5">
+                        {opt.subLabel}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {opt.badge && (
+                      <Tag variant={opt.badgeVariant || 'gray'} className="py-0 text-[10px]">
+                        {opt.badge}
+                      </Tag>
+                    )}
+                    {isSelected && <Check size={14} className="text-sage shrink-0" />}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 

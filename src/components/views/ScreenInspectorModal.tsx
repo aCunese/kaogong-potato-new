@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Tag, Button } from '../common/UIComponents';
+import { Modal, Tag, Button, CustomSelect } from '../common/UIComponents';
 import { CheckCircle2, ExternalLink, Eye, Layers } from 'lucide-react';
 
 export interface ScreenDef {
@@ -147,18 +147,21 @@ export const ScreenInspectorModal: React.FC<ScreenInspectorModalProps> = ({
             onChange={e => setSearch(e.target.value)}
             className="flex-1 px-3 py-1.5 bg-cream/70 border border-line rounded-xl text-xs focus:outline-none focus:border-sage"
           />
-          <select
-            value={filterCat}
-            onChange={e => setFilterCat(e.target.value)}
-            className="px-2.5 py-1.5 bg-cream/70 border border-line rounded-xl text-xs focus:outline-none focus:border-sage"
-          >
-            <option value="all">全部分类</option>
-            <option value="core">核心模块 (8)</option>
-            <option value="flow">主流程 (12+8)</option>
-            <option value="extra">扩展变体 (11)</option>
-            <option value="states">长画板状态 (3)</option>
-            <option value="confirm">确认弹窗 (8)</option>
-          </select>
+          <div className="w-40 shrink-0">
+            <CustomSelect
+              ariaLabel="筛选画板分类"
+              value={filterCat}
+              onChange={val => setFilterCat(val)}
+              options={[
+                { value: 'all', label: '全部分类' },
+                { value: 'core', label: '核心模块 (8)' },
+                { value: 'flow', label: '主流程 (12+8)' },
+                { value: 'extra', label: '扩展变体 (11)' },
+                { value: 'states', label: '长画板状态 (3)' },
+                { value: 'confirm', label: '确认弹窗 (8)' },
+              ]}
+            />
+          </div>
         </div>
 
         {/* 50 屏滚动列表 */}

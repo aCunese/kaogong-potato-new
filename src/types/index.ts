@@ -115,6 +115,8 @@ export interface WrongRecord {
   id: string;
   date: string;
   bookId: string;
+  subject?: StudySubject;
+  createdAt?: number;
   note: string;
   image: string; // base64 or object URL or media ID
   storagePath?: string;

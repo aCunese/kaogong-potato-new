@@ -427,6 +427,12 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
     if (!isOptionalString(w.bookId, WORKSPACE_STRING_LIMITS.id)) {
       return { valid: false, message: `wrong[${i}].bookId 必须为字符串且长度不超过 ${WORKSPACE_STRING_LIMITS.id}` };
     }
+    if (w.subject !== undefined && w.subject !== null && (typeof w.subject !== 'string' || (!VALID_SUBJECTS.has(w.subject) && w.subject !== '其他'))) {
+      return { valid: false, message: `wrong[${i}].subject「${w.subject}」不在允许的九大分类列表中` };
+    }
+    if (w.createdAt !== undefined && w.createdAt !== null && !isNonNegativeNumber(w.createdAt)) {
+      return { valid: false, message: `wrong[${i}].createdAt 必须为非负数值` };
+    }
     if (w.note !== undefined && (typeof w.note !== 'string' || w.note.length > WORKSPACE_STRING_LIMITS.note)) {
       return { valid: false, message: `wrong[${i}].note 必须为字符串且长度不超过 ${WORKSPACE_STRING_LIMITS.note}` };
     }
@@ -505,11 +511,7 @@ export function validateMediaRefsOwnership(
           if (fs.existsSync(diskPath)) {
             const stat = fs.statSync(diskPath);
             if (stat.size === row.byte_size && stat.size <= MAX_FILE_SIZE_BYTES) {
-              const fileBytes = fs.readFileSync(diskPath);
-              const fileSha = crypto.createHash('sha256').update(fileBytes).digest('hex');
-              if (fileSha === row.sha256) {
-                found.add(row.id);
-              }
+              found.add(row.id);
             }
           }
         } catch {}

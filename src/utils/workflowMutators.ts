@@ -8,6 +8,7 @@ import {
   StudyRecordCorrectionInput,
   WrongRecord,
   StudySubject,
+  STUDY_SUBJECTS,
   isStudySubjectForType,
   Profile,
   CompletionInput,
@@ -532,24 +533,93 @@ export function applyDeleteCustomItem(
 }
 
 /**
- * Adds wrong question records with photo attachments.
+ * Resolves the 9-category StudySubject for a WrongRecord (supports both new `subject` field and legacy `bookId` mapping).
+ */
+export function resolveWrongRecordSubject(
+  record: Pick<WrongRecord, 'subject' | 'bookId'>,
+  books: Book[] = []
+): StudySubject {
+  if (record.subject && (STUDY_SUBJECTS as readonly string[]).includes(record.subject)) {
+    return record.subject as StudySubject;
+  }
+  if (record.bookId && (STUDY_SUBJECTS as readonly string[]).includes(record.bookId)) {
+    return record.bookId as StudySubject;
+  }
+  const matchedBook = books.find(b => b.id === record.bookId);
+  if (matchedBook && (STUDY_SUBJECTS as readonly string[]).includes(matchedBook.subject)) {
+    return matchedBook.subject as StudySubject;
+  }
+  return '其他';
+}
+
+/**
+ * Extracts all valid image references for a single WrongRecord.
+ */
+export function getWrongRecordImages(record: Pick<WrongRecord, 'image' | 'images'>): string[] {
+  if (Array.isArray(record.images) && record.images.length > 0) {
+    const valid = record.images.filter(img => typeof img === 'string' && img.trim().length > 0);
+    if (valid.length > 0) return valid;
+  }
+  if (typeof record.image === 'string' && record.image.trim().length > 0) {
+    return [record.image];
+  }
+  return [];
+}
+
+/**
+ * Formats a WrongRecord timestamp to hour precision (e.g. `2026.11.1-14时`),
+ * falling back to `2026.11.1` for legacy records without `createdAt`.
+ */
+export function formatWrongRecordTime(record: Pick<WrongRecord, 'date' | 'createdAt'>): string {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(record.date || '');
+  if (typeof record.createdAt === 'number' && Number.isFinite(record.createdAt) && record.createdAt > 0) {
+    const d = new Date(record.createdAt);
+    const y = dateMatch ? Number(dateMatch[1]) : d.getFullYear();
+    const m = dateMatch ? Number(dateMatch[2]) : d.getMonth() + 1;
+    const day = dateMatch ? Number(dateMatch[3]) : d.getDate();
+    const hh = String(d.getHours()).padStart(2, '0');
+    return `${y}.${m}.${day}-${hh}时`;
+  }
+  if (dateMatch) {
+    return `${Number(dateMatch[1])}.${Number(dateMatch[2])}.${Number(dateMatch[3])}`;
+  }
+  return record.date || '';
+}
+
+/**
+ * Adds a single wrong question record containing one or multiple photo attachments (up to 9 images).
  */
 export function applyAddWrongRecords(
   draft: AppState,
-  bookId: string,
+  bookIdOrSubject: string,
   date: string,
   note: string,
-  images: string[]
+  images: string[],
+  createdAt?: number
 ): MutatorReturn<WrongRecord[]> {
-  const newRecords: WrongRecord[] = images.map(img => ({
-    id: `wrong-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  const matchedBook = draft.books.find(b => b.id === bookIdOrSubject);
+  const resolvedSubject: StudySubject = matchedBook
+    ? matchedBook.subject
+    : (STUDY_SUBJECTS as readonly string[]).includes(bookIdOrSubject)
+      ? (bookIdOrSubject as StudySubject)
+      : '其他';
+  const cleanImages = images.filter(img => typeof img === 'string' && img.length > 0).slice(0, 9);
+  const primaryImage = cleanImages[0] ?? (images[0] || '');
+  const nowTs = typeof createdAt === 'number' && Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Date.now();
+
+  const newRecord: WrongRecord = {
+    id: `wrong-${nowTs}-${Math.random().toString(36).slice(2, 6)}`,
     date,
-    bookId,
+    bookId: matchedBook ? matchedBook.id : resolvedSubject,
+    subject: resolvedSubject,
+    createdAt: nowTs,
     note,
-    image: img,
-  }));
-  draft.wrong = [...newRecords, ...draft.wrong];
-  return { nextState: draft, value: newRecords };
+    image: primaryImage,
+    ...(cleanImages.length > 0 ? { images: cleanImages } : {}),
+  };
+
+  draft.wrong = [newRecord, ...draft.wrong];
+  return { nextState: draft, value: [newRecord] };
 }
 
 /**

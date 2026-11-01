@@ -99,3 +99,50 @@ it('supports editing study record duration for custom, book and course records',
   expect(customRecord.minutes).toBe(35);
   expect(state.plans[0].actualMinutes).toBe(35);
 });
+
+it('groups wrong records into 9 categories, merges multi-photo uploads into 1 record, and formats hour-precision timestamps', async () => {
+  const { applyAddWrongRecords, resolveWrongRecordSubject, formatWrongRecordTime, getWrongRecordImages } = await import('../src/utils/workflowMutators');
+  const { PhotoImportModal, WrongDetailModal } = await import('../src/components/views/EditModals');
+
+  const draft: any = structuredClone(BLANK_STATE);
+  draft.books = [{ id: 'b-math', name: '四海600题数量', subject: '数量关系', total: 600, done: 100, errors: 10, minutes: 200, pages: 100 }];
+
+  // 1. Legacy record without subject maps to book subject or 其他
+  expect(resolveWrongRecordSubject({ id: 'w1', bookId: 'b-math', date: '2026-11-01', note: '', image: 'img1' }, draft.books)).toBe('数量关系');
+  expect(resolveWrongRecordSubject({ id: 'w2', bookId: 'deleted-book', date: '2026-11-01', note: '', image: 'img2' }, draft.books)).toBe('其他');
+
+  // 2. Multi-image upload creates a single WrongRecord with images[] and createdAt
+  const ts = new Date(2026, 10, 1, 14, 30, 0).getTime(); // 2026.11.1 14:30 local time
+  const added = applyAddWrongRecords(
+    draft,
+    '数量关系',
+    '2026-11-01',
+    '工程问题赋值法复盘',
+    ['data:image/jpeg;base64,AAA', 'data:image/jpeg;base64,BBB', 'data:image/jpeg;base64,CCC'],
+    ts
+  );
+  expect('error' in added).toBe(false);
+  expect(draft.wrong).toHaveLength(1);
+  const rec = draft.wrong[0];
+  expect(rec.subject).toBe('数量关系');
+  expect(getWrongRecordImages(rec)).toHaveLength(3);
+  expect(formatWrongRecordTime(rec)).toBe('2026.11.1-14时');
+
+  // 3. WrongView renders dropdown category selector and density switcher
+  const wrongHtml = render(React.createElement(WrongView, { onOpenImportModal: noop, onOpenDetailModal: noop, onOpenDeleteConfirm: noop }));
+  expect(wrongHtml).toContain('aria-label="筛选错题分类"');
+  expect(wrongHtml).toContain('所属分类（选择即定位）');
+  expect(wrongHtml).toContain('2列');
+  expect(wrongHtml).toContain('列表');
+  expect(wrongHtml).toContain('3列');
+
+  // 4. PhotoImportModal renders 9-category capsule grid instead of native select
+  const importHtml = render(React.createElement(PhotoImportModal, { isOpen: true, initialTarget: { subject: '数量关系' }, onClose: noop, onToast: noop }));
+  expect(importHtml).toContain('所属分类');
+  expect(importHtml).not.toContain('<select');
+
+  // 5. WrongDetailModal renders multi-image switcher and hour timestamp
+  const detailHtml = render(React.createElement(WrongDetailModal, { isOpen: true, record: rec, onClose: noop }));
+  expect(detailHtml).toContain('2026.11.1-14时');
+  expect(detailHtml).toContain('1 / 3');
+});
