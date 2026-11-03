@@ -9,8 +9,8 @@
 //   - 页面侧仍通过 /version.json?nonce=<一次性随机值> 服务端回显 nonce 做网络新鲜度证明（双保险）。
 // ==============================================================================
 
-const RELEASE_VERSION = '1.1.9';
-const RELEASE_BUILD = '20261101.04';
+const RELEASE_VERSION = '1.2.0';
+const RELEASE_BUILD = '20261102.01';
 const CACHE_NAME = `kaogong-shell-v5-${RELEASE_VERSION}-${RELEASE_BUILD}`;
 
 // 注意：这里绝对不能包含 /version.json（R16：版本响应不允许被缓存）
@@ -108,6 +108,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request).catch(() => offlineVersionResponse())
     );
+    return;
+  }
+
+  // A2. 一次性更新陪伴视频：直接走原生网络流，绝不写入 SW 缓存
+  if (url.pathname.endsWith('.mp4') || event.request.destination === 'video') {
     return;
   }
 

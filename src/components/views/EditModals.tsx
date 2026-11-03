@@ -849,6 +849,8 @@ export const WrongDetailModal: React.FC<{
     mode: 'none' | 'pan' | 'pinch' | 'edge';
     startX: number;
     startY: number;
+    lastDx: number;
+    lastDy: number;
     originX: number;
     originY: number;
     moved: number;
@@ -859,12 +861,19 @@ export const WrongDetailModal: React.FC<{
     mode: 'none',
     startX: 0,
     startY: 0,
+    lastDx: 0,
+    lastDy: 0,
     originX: 0,
     originY: 0,
     moved: 0,
     startDist: 0,
     startScale: 1,
     pinchOccurred: false,
+  });
+  const cardSwipeRef = useRef<{ startX: number; startY: number; moved: number }>({
+    startX: 0,
+    startY: 0,
+    moved: 0,
   });
 
   useModalBack(Boolean(isOpen && record && zoomOpen), () => setZoomOpen(false));
@@ -908,13 +917,46 @@ export const WrongDetailModal: React.FC<{
     <>
     <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情">
       <div className="space-y-4">
-        {/* 大图显示与多图左右切换 */}
-        <div className="w-full bg-[#EAE8DD] rounded-2xl overflow-hidden border border-line flex items-center justify-center max-h-[52vh] relative">
+        {/* 大图显示与多图直接左右滑动切换 */}
+        <div
+          className="w-full bg-[#EAE8DD] rounded-2xl overflow-hidden border border-line flex items-center justify-center max-h-[52vh] relative select-none"
+          onTouchStart={e => {
+            if (e.touches.length === 1) {
+              cardSwipeRef.current = {
+                startX: e.touches[0].clientX,
+                startY: e.touches[0].clientY,
+                moved: 0,
+              };
+            }
+          }}
+          onTouchMove={e => {
+            if (e.touches.length === 1) {
+              const dx = e.touches[0].clientX - cardSwipeRef.current.startX;
+              const dy = e.touches[0].clientY - cardSwipeRef.current.startY;
+              cardSwipeRef.current.moved = Math.max(cardSwipeRef.current.moved, Math.hypot(dx, dy));
+            }
+          }}
+          onTouchEnd={e => {
+            if (images.length > 1 && e.changedTouches.length === 1) {
+              const dx = e.changedTouches[0].clientX - cardSwipeRef.current.startX;
+              const dy = e.changedTouches[0].clientY - cardSwipeRef.current.startY;
+              if (Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy)) {
+                setActiveIndex(prev =>
+                  dx < 0 ? (prev + 1) % images.length : (prev - 1 + images.length) % images.length
+                );
+              }
+            }
+          }}
+        >
           {activeImage ? (
             <button
               type="button"
               aria-label="点击放大查看错题图片"
-              onClick={openZoomViewer}
+              onClick={() => {
+                if (cardSwipeRef.current.moved < 12) {
+                  openZoomViewer();
+                }
+              }}
               className="w-full h-full flex items-center justify-center relative group cursor-zoom-in focus:outline-none"
             >
               <img src={activeImage} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
@@ -931,55 +973,17 @@ export const WrongDetailModal: React.FC<{
           )}
 
           {images.length > 1 && (
-            <>
-              <button
-                type="button"
-                aria-label="上一张错题图"
-                onClick={() => setActiveIndex(prev => (prev - 1 + images.length) % images.length)}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-paper/90 border border-line shadow-sm flex items-center justify-center text-ink-main hover:bg-paper"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
-                type="button"
-                aria-label="下一张错题图"
-                onClick={() => setActiveIndex(prev => (prev + 1) % images.length)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-paper/90 border border-line shadow-sm flex items-center justify-center text-ink-main hover:bg-paper"
-              >
-                <ChevronRight size={16} />
-              </button>
-              <span className="absolute bottom-2 right-2.5 px-2.5 py-0.5 rounded-full bg-ink-main/80 text-white text-xs font-mono font-bold">
-                {safeIndex + 1} / {images.length}
-              </span>
-            </>
+            <span className="absolute bottom-2 right-2.5 px-2.5 py-0.5 rounded-full bg-ink-main/80 text-white text-xs font-mono font-bold">
+              {safeIndex + 1} / {images.length}
+            </span>
           )}
         </div>
-
-        {/* 多图缩略图切换条 */}
-        {images.length > 1 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {images.map((imgUrl, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setActiveIndex(idx)}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-medium shrink-0 transition flex items-center gap-1.5 border ${
-                  idx === safeIndex
-                    ? 'bg-sage-light border-sage text-sage-dark font-bold shadow-sm'
-                    : 'bg-cream/70 border-line text-ink-muted hover:text-ink-main'
-                }`}
-              >
-                <span>{idx === 0 ? '图1 (题干/封面)' : `图${idx + 1}`}</span>
-              </button>
-            ))}
-          </div>
-        )}
 
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 flex-wrap">
             <Tag variant="sage">{subject}</Tag>
             {book && <Tag variant="potato">{book.name}</Tag>}
-            {images.length > 1 && <Tag variant="gray">共 {images.length} 张图</Tag>}
+            {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
           </div>
           <span className="text-ink-muted font-mono font-semibold">{timeText}</span>
         </div>
@@ -997,7 +1001,7 @@ export const WrongDetailModal: React.FC<{
       </div>
     </Modal>
 
-      {/* 全屏默认1倍看图，支持双指自由放大与放大后单指左右/上下拖动 */}
+      {/* 全屏默认1倍看图，支持直接左右滑动切换多图、双指自由放大与放大后单指拖动 */}
       {zoomOpen && activeImage && (
         <div
           role="dialog"
@@ -1013,7 +1017,9 @@ export const WrongDetailModal: React.FC<{
                 {images.length > 1 ? ` · 图 ${safeIndex + 1}/${images.length}` : ''}
               </div>
               <div className="text-[11px] text-white/70">
-                双指捏合放大 · 放大后单指拖动 · 轻点画面退出
+                {images.length > 1
+                  ? '左右滑动切换图片 · 双指捏合放大 · 轻点画面退出'
+                  : '双指捏合放大 · 放大后单指拖动 · 轻点画面退出'}
               </div>
             </div>
             <button
@@ -1027,7 +1033,7 @@ export const WrongDetailModal: React.FC<{
             </button>
           </div>
 
-          {/* 中央可双指缩放与单指拖动图片画布 */}
+          {/* 中央可左右滑切图、双指缩放与单指拖动图片画布 */}
           <div
             className="flex-1 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing"
             onTouchStart={e => {
@@ -1056,6 +1062,8 @@ export const WrongDetailModal: React.FC<{
                   mode: 'pan',
                   startX: t.clientX,
                   startY: t.clientY,
+                  lastDx: 0,
+                  lastDy: 0,
                   originX: panOffset.x,
                   originY: panOffset.y,
                   moved: 0,
@@ -1088,9 +1096,13 @@ export const WrongDetailModal: React.FC<{
                 const t = e.touches[0];
                 const dx = t.clientX - g.startX;
                 const dy = t.clientY - g.startY;
+                g.lastDx = dx;
+                g.lastDy = dy;
                 g.moved = Math.max(g.moved, Math.hypot(dx, dy));
                 if (zoomScale > 1.01) {
                   setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
+                } else if (images.length > 1 && Math.abs(dx) > Math.abs(dy)) {
+                  setPanOffset({ x: Math.max(-120, Math.min(120, dx * 0.45)), y: 0 });
                 }
               }
             }}
@@ -1102,14 +1114,32 @@ export const WrongDetailModal: React.FC<{
                 g.mode = 'pan';
                 g.startX = t.clientX;
                 g.startY = t.clientY;
+                g.lastDx = 0;
+                g.lastDy = 0;
                 g.originX = panOffset.x;
                 g.originY = panOffset.y;
                 g.moved = 99;
                 return;
               }
               if (e.touches.length === 0) {
-                if (!g.pinchOccurred && g.mode === 'pan' && g.moved < 8) {
-                  setZoomOpen(false);
+                if (!g.pinchOccurred && g.mode === 'pan') {
+                  if (g.moved < 8) {
+                    setZoomOpen(false);
+                  } else if (
+                    zoomScale <= 1.02 &&
+                    images.length > 1 &&
+                    Math.abs(g.lastDx) >= 40 &&
+                    Math.abs(g.lastDx) > Math.abs(g.lastDy)
+                  ) {
+                    setActiveIndex(prev =>
+                      g.lastDx < 0 ? (prev + 1) % images.length : (prev - 1 + images.length) % images.length
+                    );
+                    setZoomScale(1);
+                    setPanOffset({ x: 0, y: 0 });
+                  } else if (zoomScale <= 1.02) {
+                    setZoomScale(1);
+                    setPanOffset({ x: 0, y: 0 });
+                  }
                 } else if (zoomScale <= 1.02) {
                   setZoomScale(1);
                   setPanOffset({ x: 0, y: 0 });
@@ -1131,6 +1161,8 @@ export const WrongDetailModal: React.FC<{
                 mode: 'pan',
                 startX: e.clientX,
                 startY: e.clientY,
+                lastDx: 0,
+                lastDy: 0,
                 originX: panOffset.x,
                 originY: panOffset.y,
                 moved: 0,
@@ -1144,15 +1176,34 @@ export const WrongDetailModal: React.FC<{
               if (g.mode !== 'pan') return;
               const dx = e.clientX - g.startX;
               const dy = e.clientY - g.startY;
+              g.lastDx = dx;
+              g.lastDy = dy;
               g.moved = Math.max(g.moved, Math.hypot(dx, dy));
               if (zoomScale > 1.01) {
                 setPanOffset(clampPan(g.originX + dx, g.originY + dy, zoomScale));
+              } else if (images.length > 1 && Math.abs(dx) > Math.abs(dy)) {
+                setPanOffset({ x: Math.max(-120, Math.min(120, dx * 0.45)), y: 0 });
               }
             }}
             onMouseUp={() => {
               const g = gestureRef.current;
-              if (g.mode === 'pan' && g.moved < 8) {
-                setZoomOpen(false);
+              if (g.mode === 'pan') {
+                if (g.moved < 8) {
+                  setZoomOpen(false);
+                } else if (
+                  zoomScale <= 1.02 &&
+                  images.length > 1 &&
+                  Math.abs(g.lastDx) >= 40 &&
+                  Math.abs(g.lastDx) > Math.abs(g.lastDy)
+                ) {
+                  setActiveIndex(prev =>
+                    g.lastDx < 0 ? (prev + 1) % images.length : (prev - 1 + images.length) % images.length
+                  );
+                  setZoomScale(1);
+                  setPanOffset({ x: 0, y: 0 });
+                } else if (zoomScale <= 1.02) {
+                  setPanOffset({ x: 0, y: 0 });
+                }
               }
               gestureRef.current.mode = 'none';
             }}
@@ -1168,39 +1219,6 @@ export const WrongDetailModal: React.FC<{
               className="max-w-full max-h-full object-contain transition-transform duration-75 ease-out pointer-events-none"
             />
           </div>
-
-          {/* 仅当同一道错题有多张图时显示上一张/下一张切换，不显示任何倍率按钮 */}
-          {images.length > 1 && (
-            <div className="flex items-center justify-center gap-3 px-4 py-3 z-10 bg-gradient-to-t from-black/80 to-transparent">
-              <button
-                type="button"
-                aria-label="全屏上一张"
-                onClick={() => {
-                  setActiveIndex(prev => (prev - 1 + images.length) % images.length);
-                  setZoomScale(1);
-                  setPanOffset({ x: 0, y: 0 });
-                }}
-                className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
-              >
-                上一张
-              </button>
-              <span className="text-xs font-mono text-white/80">
-                {safeIndex + 1} / {images.length}
-              </span>
-              <button
-                type="button"
-                aria-label="全屏下一张"
-                onClick={() => {
-                  setActiveIndex(prev => (prev + 1) % images.length);
-                  setZoomScale(1);
-                  setPanOffset({ x: 0, y: 0 });
-                }}
-                className="rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur-sm active:bg-white/25"
-              >
-                下一张
-              </button>
-            </div>
-          )}
         </div>
       )}
     </>

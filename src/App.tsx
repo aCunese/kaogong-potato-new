@@ -147,6 +147,93 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [backupModalOpen, setBackupModalOpen] = useState<boolean>(false);
   const [profileModalOpen, setProfileModalOpen] = useState<boolean>(false);
 
+  // 更新重新进入界面一次性陪伴视频播放与播放后清除
+  const UPDATE_VIDEO_DONE_KEY = 'kaogong_potato_study_video_v1_done';
+  const [updateVideoOpen, setUpdateVideoOpen] = useState<boolean>(false);
+  const [updateVideoNeedTap, setUpdateVideoNeedTap] = useState<boolean>(false);
+  const updateVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const markUpdateVideoWatched = () => {
+    try {
+      localStorage.setItem(UPDATE_VIDEO_DONE_KEY, '1');
+    } catch {
+      // ignore
+    }
+    try {
+      if (typeof document !== 'undefined') {
+        document.cookie = `${UPDATE_VIDEO_DONE_KEY}=1; path=/; max-age=315360000; SameSite=Lax`;
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const hasWatchedUpdateVideo = (): boolean => {
+    try {
+      if (localStorage.getItem(UPDATE_VIDEO_DONE_KEY) === '1') return true;
+    } catch {
+      // ignore
+    }
+    try {
+      if (typeof document !== 'undefined' && document.cookie.includes(`${UPDATE_VIDEO_DONE_KEY}=1`)) {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  };
+
+  const cleanupAndDismissUpdateVideo = () => {
+    markUpdateVideoWatched();
+    const v = updateVideoRef.current;
+    if (v) {
+      try {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+      } catch {
+        // ignore
+      }
+    }
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      window.caches
+        .keys()
+        .then(keys =>
+          Promise.all(
+            keys.map(k =>
+              window.caches.open(k).then(c => c.delete('/potato-study.mp4', { ignoreSearch: true }))
+            )
+          )
+        )
+        .catch(() => {});
+    }
+    setUpdateVideoOpen(false);
+    setUpdateVideoNeedTap(false);
+  };
+
+  useEffect(() => {
+    if (preview || isLoading || authPhase !== 'authenticated' || !currentUser) return;
+    if (typeof window === 'undefined') return;
+    if (typeof navigator !== 'undefined' && navigator.webdriver) return;
+    if (!hasWatchedUpdateVideo()) {
+      setUpdateVideoOpen(true);
+    }
+  }, [preview, isLoading, authPhase, currentUser]);
+
+  useEffect(() => {
+    if (!updateVideoOpen) return;
+    const v = updateVideoRef.current;
+    if (!v) return;
+    v.muted = false;
+    const playPromise = v.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        setUpdateVideoNeedTap(true);
+      });
+    }
+  }, [updateVideoOpen]);
+
   // Conflict Deferral State (S09: conflict deferral & recoverable workflow)
   const [dismissedConflictKey, setDismissedConflictKey] = useState<string | null>(null);
 
@@ -1290,6 +1377,64 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           screenSize={screenSize}
           onSelectScreenSize={setScreenSize}
         />
+
+        {/* 更新后重新进入界面一次性播放陪伴视频，播放完毕后自动关闭并清除缓存 */}
+        {updateVideoOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="更新陪伴视频"
+            className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center select-none"
+          >
+            <video
+              ref={updateVideoRef}
+              src="/potato-study.mp4"
+              playsInline
+              autoPlay
+              preload="auto"
+              onPlay={() => {
+                setUpdateVideoNeedTap(false);
+                markUpdateVideoWatched();
+              }}
+              onEnded={cleanupAndDismissUpdateVideo}
+              onError={cleanupAndDismissUpdateVideo}
+              className="w-full h-full max-w-[480px] object-contain"
+            />
+            {updateVideoNeedTap && (
+              <button
+                type="button"
+                onClick={() => {
+                  const v = updateVideoRef.current;
+                  if (v) {
+                    v.muted = false;
+                    v.currentTime = 0;
+                    v.play()
+                      .then(() => setUpdateVideoNeedTap(false))
+                      .catch(() => {
+                        v.muted = true;
+                        v.play().catch(() => {});
+                        setUpdateVideoNeedTap(false);
+                      });
+                  }
+                }}
+                className="absolute inset-0 flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px] text-white px-6 text-center"
+              >
+                <div className="px-6 py-3.5 rounded-full bg-potato text-ink-main font-bold text-sm shadow-lg active:scale-95 transition">
+                  🐾 收到一份小猫上岸陪伴礼 · 点击播放
+                </div>
+                <span className="mt-2.5 text-xs text-white/80">仅在本次更新后播放一次</span>
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="关闭视频"
+              onClick={cleanupAndDismissUpdateVideo}
+              className="absolute top-4 right-4 z-10 rounded-full bg-black/50 border border-white/20 px-3 py-1 text-xs text-white/85 backdrop-blur-sm hover:bg-black/70"
+            >
+              跳过
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
