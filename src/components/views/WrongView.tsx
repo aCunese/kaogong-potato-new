@@ -1,3 +1,4 @@
+import { OrientedImage } from '../common/OrientedImage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
@@ -605,7 +606,9 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             className="w-20 h-16 rounded-lg bg-cream/70 overflow-hidden shrink-0 relative flex items-center justify-center border border-line/60"
                           >
                             {cover ? (
-                              <img
+                              <OrientedImage
+                                rotation={record.imageOrientations?.[0]?.rotation}
+                                cover
                                 loading="lazy"
                                 decoding="async"
                                 src={cover}
@@ -684,7 +687,9 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             className="w-full aspect-square bg-cream/70 relative overflow-hidden flex items-center justify-center"
                           >
                             {cover ? (
-                              <img
+                              <OrientedImage
+                                rotation={record.imageOrientations?.[0]?.rotation}
+                                cover
                                 loading="lazy"
                                 decoding="async"
                                 src={cover}
@@ -749,7 +754,9 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             className="w-full aspect-[4/3] rounded-xl bg-cream/70 overflow-hidden relative flex items-center justify-center"
                           >
                             {cover ? (
-                              <img
+                              <OrientedImage
+                                rotation={record.imageOrientations?.[0]?.rotation}
+                                cover
                                 loading="lazy"
                                 decoding="async"
                                 src={cover}

@@ -1,4 +1,5 @@
 import { validateStudyExtensions } from '../src/utils/studyExtensions';
+import { validImageOrientations } from '../src/utils/imageOrientation';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -456,6 +457,14 @@ export function validateWorkspacePayload(state: any, schemaVersion: any): Worksp
         if (!itemCheck.ok) return { valid: false, message: itemCheck.message! };
         if (itemCheck.mediaId) mediaRefs.push(itemCheck.mediaId);
       }
+    }
+  }
+
+  for (let i = 0; i < state.wrong.length; i++) {
+    const w = state.wrong[i];
+    const count = w.images?.filter((image: string) => Boolean(image)).length || (w.image ? 1 : 0);
+    if (w.imageOrientations !== undefined && !validImageOrientations(w.imageOrientations, count)) {
+      return { valid: false, message: `wrong[${i}].imageOrientations 无效` };
     }
   }
 

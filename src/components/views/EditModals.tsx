@@ -1,3 +1,5 @@
+import { OrientedImage } from '../common/OrientedImage';
+import { rememberScheduleSelection, resolveScheduleSelection } from '../../utils/scheduleSelection';
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -52,7 +54,7 @@ export const AddPlanModal: React.FC<{
   isOpen: boolean; onClose: () => void; onToast: (msg: string) => void;
   onOpenCustomAdd?: () => void; initialLibraryId?: string;
 }> = ({ isOpen, onClose, onToast, onOpenCustomAdd, initialLibraryId }) => {
-  const { state, addPlan, addCustomPlan } = useApp();
+  const { state, addPlan, addCustomPlan, currentUser } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const initial = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
   const [type, setType] = useState(initial?.type ?? 'book');
@@ -72,13 +74,31 @@ export const AddPlanModal: React.FC<{
     ? customName.trim().length > 0 && customName.trim().length <= 200 && isStudySubjectForType(customSubject, 'custom')
     : Boolean(selectedItem && selectedItem.type === type);
   const select = (id: string) => { setSelectedLibId(id); setMinutes(String(state.library.find(l => l.id === id)?.defaultMinutes ?? 30)); setLessons('1'); setErrorMsg(''); };
+  const restoreSelection = (requestedType?: 'book' | 'course' | 'custom', explicitId?: string) => {
+    if (requestedType === 'custom') {
+      setType('custom'); setSubject('all'); setMinutes('30'); setErrorMsg('');
+      rememberScheduleSelection(currentUser?.id, 'custom', 'all', '');
+      return;
+    }
+    const restored = resolveScheduleSelection(state.library, currentUser?.id, explicitId, requestedType);
+    setType(restored.type); setSubject(restored.subject); select(restored.item?.id ?? '');
+    rememberScheduleSelection(currentUser?.id, restored.type, restored.subject, restored.item?.id ?? '');
+    if (restored.type === 'custom') {
+      setCustomName(restored.item?.name ?? '');
+      setCustomSubject(restored.item?.subject ?? '其他');
+    }
+  };
   useEffect(() => {
-    if (!isOpen) return;
-    const item = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
-    setType(item?.type ?? 'book'); setSubject('all'); select(item?.id ?? '');
-    setCustomName(item?.type === 'custom' ? item.name : '');
-    setCustomSubject(item?.type === 'custom' ? item.subject : '其他');
-  }, [isOpen, initialLibraryId]);
+    if (isOpen) restoreSelection(undefined, initialLibraryId);
+  }, [isOpen, initialLibraryId, currentUser?.id]);
+  useEffect(() => {
+    if (!isOpen || type === 'custom' || items.some(item => item.id === selectedLibId)) return;
+    const id = items[0]?.id ?? '';
+    if (id !== selectedLibId) {
+      select(id);
+      rememberScheduleSelection(currentUser?.id, type, subject, id);
+    }
+  }, [state.library, isOpen, type, subject, selectedLibId, currentUser?.id]);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validItem || !validMinutes || !validLessons) { setErrorMsg('请填写有效事项、大于0的整数分钟；网课节数不能超过剩余数量。'); return; }
@@ -92,9 +112,7 @@ export const AddPlanModal: React.FC<{
       <div role="group" aria-label="日程类型" className="grid grid-cols-3 rounded-xl bg-cream p-1 gap-1">
         {([['book','题本'],['course','网课'],['custom','自定义']] as const).map(([value,label]) => <button key={value} type="button" disabled={isSaving} aria-pressed={type === value} onClick={() => {
           if (type === value) return;
-          setType(value); setSubject('all');
-          if (value === 'custom') { setMinutes('30'); setErrorMsg(''); }
-          else select(state.library.find(l => l.type === value)?.id ?? '');
+          restoreSelection(value);
         }} className={`rounded-lg py-2 text-xs ${type === value ? 'bg-paper text-sage font-bold shadow-sm' : 'text-ink-muted'}`}>{label}</button>)}
       </div>
       {type === 'custom' ? <>
@@ -119,7 +137,9 @@ export const AddPlanModal: React.FC<{
             value={subject}
             onChange={next => {
               setSubject(next);
-              select(state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '');
+              const id = state.library.find(l => l.type === type && (next === 'all' || next === l.subject))?.id ?? '';
+              select(id);
+              rememberScheduleSelection(currentUser?.id, type, next, id);
             }}
           />
         </div>
@@ -131,11 +151,9 @@ export const AddPlanModal: React.FC<{
             emptyText="该分类暂无内容，请先到学习库添加"
             options={items.map(l => ({
               value: l.id,
-              label: `${l.name} · ${getSubjectLabel(l.subject, state.subjectLabels)}`,
-              badge: getSubjectLabel(l.subject, state.subjectLabels),
-              badgeVariant: type === 'course' ? 'course' : 'potato',
+              label: l.name,
             }))}
-            onChange={val => select(val)}
+            onChange={val => { select(val); rememberScheduleSelection(currentUser?.id, type, subject, val); }}
           />
         </div>
       </>}
@@ -842,7 +860,7 @@ export const WrongDetailModal: React.FC<{
   onClose: () => void;
   onToast?: (msg: string) => void;
 }> = ({ record, isOpen, onClose, onToast }) => {
-  const { state, updateWrongRecord } = useApp();
+  const { state, updateWrongRecord, requestWrongImageOrientations, orientationActivity, orientationErrors } = useApp();
   const liveRecord = state.wrong.find(w => w.id === record?.id) ?? record;
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -899,6 +917,10 @@ export const WrongDetailModal: React.FC<{
     }
   }, [record?.id, isOpen]);
 
+  useEffect(() => {
+    if (isOpen && record?.id) void requestWrongImageOrientations?.(record.id);
+  }, [isOpen, record?.id, requestWrongImageOrientations]);
+
   if (!isOpen || !liveRecord) return null;
 
   const images = getWrongRecordImages(liveRecord);
@@ -924,6 +946,8 @@ export const WrongDetailModal: React.FC<{
       }
       onToast?.(`已更新错题（${getSubjectLabel(editSubject, state.subjectLabels)}）`);
       setEditingMeta(false);
+    } catch (error) {
+      setMetaError(error instanceof Error ? error.message : '保存失败，请重试');
     } finally {
       setIsSavingMeta(false);
     }
@@ -994,7 +1018,7 @@ export const WrongDetailModal: React.FC<{
               }}
               className="w-full h-full flex items-center justify-center relative group cursor-zoom-in focus:outline-none"
             >
-              <img src={activeImage} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
+              <OrientedImage src={activeImage} rotation={liveRecord.imageOrientations?.[safeIndex]?.rotation} alt="错题大图" className="w-full h-full max-h-[52vh] object-contain" />
               <span className="absolute bottom-2 left-2.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-ink-main/75 text-white text-[11px] font-medium backdrop-blur-sm shadow-sm">
                 <ZoomIn size={12} />
                 <span>点击放大</span>
@@ -1014,29 +1038,27 @@ export const WrongDetailModal: React.FC<{
           )}
         </div>
 
+        {images.length > 0 && <div className="flex items-center justify-between gap-2 text-[11px] text-ink-muted" aria-live="polite">
+          <span>{orientationActivity?.recordId === liveRecord.id && orientationActivity.index === safeIndex
+            ? '正在自动摆正…'
+            : orientationErrors?.[`${liveRecord.id}:${safeIndex}`]
+              ?? (liveRecord.imageOrientations?.[safeIndex]?.status === 'resolved' ? '已自动确认图片方向' : liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' ? '未能确认方向，保留原图' : '联网后自动摆正图片')}</span>
+          {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? <button type="button" className="shrink-0 text-sage font-bold px-2 py-1" onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}>重新识别</button> : null}
+        </div>}
+
         <div className="flex items-center justify-between text-xs gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Tag variant="sage">{subjectLabel}</Tag>
-            {book && <Tag variant="potato">{book.name}</Tag>}
-            {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setEditSubject(subject);
-                setEditNote(liveRecord.note || '');
-                setMetaError('');
-                setEditingMeta(prev => !prev);
-              }}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-cream/90 border border-line/70 text-[11px] font-medium text-ink-muted hover:text-sage hover:border-sage/50 transition-colors"
-            >
-              <ArrowRightLeft size={11} />
-              <span>{editingMeta ? '收起编辑' : '转移分类 / 笔记'}</span>
-            </button>
-            <span className="text-ink-muted font-mono font-semibold">{timeText}</span>
-          </div>
+          <button type="button" disabled={isSavingMeta} onClick={() => {
+            setEditSubject(subject); setEditNote(liveRecord.note || ''); setMetaError('');
+            setEditingMeta(prev => !prev);
+          }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage-light text-sage font-bold border border-sage/25">
+            <ArrowRightLeft size={13} /><span>{editingMeta ? '收起编辑' : '编辑'}</span>
+          </button>
+          <span className="text-ink-muted font-mono font-semibold shrink-0">{timeText}</span>
         </div>
+        {(book || images.length > 1) && <div className="flex gap-2 flex-wrap text-xs">
+          {book && <Tag variant="potato">{book.name}</Tag>}
+          {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
+        </div>}
 
         {editingMeta ? (
           <div className="bg-cream/60 p-3.5 rounded-2xl border border-sage/35 space-y-3">
@@ -1293,7 +1315,8 @@ export const WrongDetailModal: React.FC<{
               gestureRef.current.mode = 'none';
             }}
           >
-            <img
+            <OrientedImage
+              rotation={liveRecord.imageOrientations?.[safeIndex]?.rotation}
               src={activeImage}
               alt="错题全屏放大图"
               draggable={false}

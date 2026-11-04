@@ -129,6 +129,12 @@ export interface StudyRecord {
   sessionId?: string;
 }
 
+export interface ImageOrientationResult {
+  status: 'resolved' | 'unresolved';
+  rotation: 0 | 90 | 180 | 270;
+  version: 1;
+}
+
 export interface WrongRecord {
   id: string;
   date: string;
@@ -139,6 +145,7 @@ export interface WrongRecord {
   image: string; // base64 or object URL or media ID
   storagePath?: string;
   images?: string[];
+  imageOrientations?: Array<ImageOrientationResult | null>;
 }
 
 export type StudyRecordCorrectionInput =

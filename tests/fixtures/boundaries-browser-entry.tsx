@@ -1,3 +1,5 @@
+import { useWrongImageOrientation } from '../../src/hooks/useWrongImageOrientation';
+import { OrientedImage } from '../../src/components/common/OrientedImage';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { AppContext, AppProvider, useApp } from '../../src/context/AppContext';
@@ -12,7 +14,8 @@ import * as backupExport from '../../src/utils/backupExport';
 import * as imageCompressor from '../../src/utils/imageCompressor';
 import { ConflictModal } from '../../src/components/views/ConflictModal';
 import { CompletionModal } from '../../src/components/views/CompletionModal';
-import { PhotoImportModal } from '../../src/components/views/EditModals';
+import { PhotoImportModal, AddPlanModal, WrongDetailModal } from '../../src/components/views/EditModals';
+import { AnalysisView } from '../../src/components/views/AnalysisView';
 import { BLANK_STATE, DEMO_STATE } from '../../src/constants/initialData';
 
 const w = window as any;
@@ -35,6 +38,11 @@ Object.assign(w, {
   ConflictModal,
   CompletionModal,
   PhotoImportModal,
+  AddPlanModal,
+  WrongDetailModal,
+  AnalysisView,
+  useWrongImageOrientation,
+  OrientedImage,
 });
 
 function Consumer() {

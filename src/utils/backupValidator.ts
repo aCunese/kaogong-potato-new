@@ -1,6 +1,7 @@
 import { validateStudyExtensions, planExtensions } from './studyExtensions';
 import { AppState, Book, Course, Countdown, Plan, StudyRecord, WrongRecord, Profile, LibraryItem, SUBJECTS, STUDY_SUBJECTS, StudySubject, Subject, PlanType, isStudySubjectForType } from '../types';
 import { buildLibraryFromSources, BLANK_PROFILE, STABLE_COUNTDOWNS } from '../constants/initialData';
+import { validImageOrientations } from './imageOrientation';
 
 export const MAX_BACKUP_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -408,6 +409,10 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       }
     }
 
+    const imageCount = images?.filter(item => Boolean(item)).length || (w.image ? 1 : 0);
+    if (w.imageOrientations !== undefined && !validImageOrientations(w.imageOrientations, imageCount)) {
+      return { valid: false, error: `错题记录中第 ${i + 1} 项的图片方向数据无效` };
+    }
     const validSubject = typeof w.subject === 'string' && (STUDY_SUBJECTS as readonly string[]).includes(w.subject)
       ? (w.subject as StudySubject)
       : undefined;
@@ -424,6 +429,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
       note: typeof w.note === 'string' ? w.note : '',
       image: typeof w.image === 'string' ? w.image : '',
       ...(images !== undefined ? { images } : {}),
+      ...(w.imageOrientations !== undefined ? { imageOrientations: w.imageOrientations.map((item: any) => item ? { ...item } : null) } : {}),
     });
   }
 

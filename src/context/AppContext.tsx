@@ -1,3 +1,4 @@
+import { useWrongImageOrientation } from '../hooks/useWrongImageOrientation';
 import { applyCreateSession, applySessionAction, applySessionConfig, applyRegisterSession, applyFinishAndAutoRegister, applySessionSubject, maintainSessionTimers } from '../utils/timerSessions';
 import type { TimerSession, SessionRegistration, Countdown } from '../types';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
@@ -190,6 +191,9 @@ export interface AppContextType {
   addWrongRecords: (bookId: string, note: string, images: string[], date?: string) => Promise<MutationResult<WrongRecord[]>>;
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
   updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string }) => Promise<MutationResult<WrongRecord>>;
+  requestWrongImageOrientations: (id: string, force?: boolean) => Promise<void>;
+  orientationActivity: { recordId: string; index: number } | null;
+  orientationErrors: Record<string, string>;
   updateSubjectLabel: (subject: StudySubject, label: string) => Promise<MutationResult<void>>;
 
   // Profile
@@ -1416,6 +1420,12 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     [executeMutation]
   );
 
+  const orientation = useWrongImageOrientation({
+    state, userId: currentUser?.id, csrf: csrfToken,
+    enabled: !preview && !isLoading && authPhase === 'authenticated',
+    createScope: createOperationScope, isValid: isOperationScopeValid, mutate: executeMutation,
+  });
+
   const updateSubjectLabel = useCallback(
     async (subject: StudySubject, label: string): Promise<MutationResult<void>> => {
       return executeMutation(draft => applyUpdateSubjectLabel(draft, subject, label), 'update_subject_label');
@@ -2427,6 +2437,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         addWrongRecords,
         deleteWrongRecord,
         updateWrongRecord,
+        ...orientation,
         updateSubjectLabel,
         updateProfile,
         applyDefaultSeed,

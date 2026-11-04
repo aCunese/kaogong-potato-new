@@ -1,4 +1,5 @@
 import { TimeDistribution, AnalysisCategory } from './TimeDistribution';
+import { DailyBookPractice } from './DailyBookPractice';
 import { CourseAnalysisView } from './CourseAnalysisView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -280,6 +281,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
               </div>
             )}
           </Card>}
+          {category === 'book' && <DailyBookPractice state={state} records={overallRecords} />}
         </div>
       )}
 

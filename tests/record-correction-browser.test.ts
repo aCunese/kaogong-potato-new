@@ -91,7 +91,7 @@ it('continues editing a valid existing wrong-detail note longer than 200 charact
     await page.getByRole('button', { name: /^资料分析\s*1道/ }).click();
     await page.getByRole('button', { name: '查看错题大图', exact: true }).click();
     const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
-    await detail.getByRole('button', { name: '转移分类 / 笔记', exact: true }).click();
+    await detail.getByRole('button', { name: '编辑', exact: true }).click();
     const note = detail.getByRole('textbox');
     expect(await note.getAttribute('maxlength')).toBe('2000');
     await note.evaluate((element: HTMLTextAreaElement) => { element.focus(); element.setSelectionRange(element.value.length, element.value.length); });

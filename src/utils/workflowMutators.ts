@@ -7,6 +7,7 @@ import {
   StudyRecord,
   StudyRecordCorrectionInput,
   WrongRecord,
+  ImageOrientationResult,
   Subject,
   SUBJECTS,
   SUBJECT_LABEL_MAX,
@@ -23,6 +24,7 @@ import {
 import { learningElapsedMs, phaseElapsedMs, planDayEnd } from './studyTimers';
 import { buildLibraryFromSources } from '../constants/initialData';
 import { calendarDayNumber } from './calendarDate';
+import { isImageOrientationResult, orientationMediaId } from './imageOrientation';
 
 export type MutatorReturn<T> =
   | { nextState: AppState; value: T; newMedia?: MediaRecord[]; deletedMediaIds?: string[] }
@@ -613,6 +615,34 @@ export function getWrongRecordImages(record: Pick<WrongRecord, 'image' | 'images
   return [];
 }
 
+export function applyWrongImageOrientation(draft: AppState, id: string, index: number, expectedMediaId: string, result: ImageOrientationResult): MutatorReturn<WrongRecord> {
+  const record = draft.wrong.find(item => item.id === id);
+  if (!record) return { error: { code: 'NOT_FOUND', message: '错题记录已不存在。' } };
+  const images = getWrongRecordImages(record);
+  if (!Number.isInteger(index) || index < 0 || index >= images.length || orientationMediaId(images[index]) !== expectedMediaId) {
+    return { error: { code: 'IMAGE_CHANGED', message: '图片已变化，已取消本次识别结果。' } };
+  }
+  if (!isImageOrientationResult(result)) return { error: { code: 'INVALID_ORIENTATION', message: '图片方向识别结果无效。' } };
+  const orientations = images.map((_, i) => record.imageOrientations?.[i] ?? null);
+  orientations[index] = { ...result };
+  record.imageOrientations = orientations;
+  return { nextState: draft, value: record };
+}
+
+export function applyPrepareWrongImageOrientations(draft: AppState, id: string, expectedImages: string[], force: boolean): MutatorReturn<void> {
+  const record = draft.wrong.find(item => item.id === id);
+  if (!record) return { error: { code: 'NOT_FOUND', message: '错题记录已不存在。' } };
+  const images = getWrongRecordImages(record);
+  if (images.length !== expectedImages.length || images.some((image, index) => image !== expectedImages[index])) {
+    return { error: { code: 'IMAGE_CHANGED', message: '图片已变化，请重新打开详情。' } };
+  }
+  record.imageOrientations = images.map((_, index) => {
+    const result = record.imageOrientations?.[index];
+    return force && result?.status === 'unresolved' ? null : result ?? null;
+  });
+  return { nextState: draft, value: undefined };
+}
+
 export const WRONG_SELECTED_SUBJECT_KEY = 'kaogong_wrong_selected_subject_v1';
 export const WRONG_VIEW_MODE_KEY = 'kaogong_wrong_view_mode_v1';
 
@@ -715,7 +745,7 @@ export function applyAddWrongRecords(
     createdAt: nowTs,
     note,
     image: primaryImage,
-    ...(cleanImages.length > 0 ? { images: cleanImages } : {}),
+    ...(cleanImages.length > 0 ? { images: cleanImages, imageOrientations: cleanImages.map(() => null) } : {}),
   };
 
   draft.wrong = [newRecord, ...draft.wrong];
