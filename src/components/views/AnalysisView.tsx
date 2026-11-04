@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Card, Segment, Tag, Button, ProgressBar } from '../common/UIComponents';
-import { SUBJECTS, STUDY_SUBJECTS, StudySubject, AnalysisSubTab, StudyRecord } from '../../types';
+import { SUBJECTS, STUDY_SUBJECTS, StudySubject, AnalysisSubTab, StudyRecord, getSubjectLabel } from '../../types';
 import { filterAnalysisRecords } from '../../utils/workflowPresentation';
 import { PieChart, TrendingUp, Calendar, Info, ChevronRight } from 'lucide-react';
 
@@ -168,7 +168,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
             </div>
           </div>
 
-          <TimeDistribution records={overallRecords} sessions={state.timerSessions ?? []} range={range} today={activeDate} view={category} onViewChange={setCategory} onLegend={() => onOpenLegendDetail(overallRecords.filter(r => r.type === category), range === 'all' ? '全部记录' : `近${range}天`)} />
+          <TimeDistribution records={overallRecords} sessions={state.timerSessions ?? []} range={range} today={activeDate} view={category} onViewChange={setCategory} subjectLabels={state.subjectLabels} onLegend={() => onOpenLegendDetail(overallRecords.filter(r => r.type === category), range === 'all' ? '全部记录' : `近${range}天`)} />
           {category === 'course' && <CourseAnalysisView records={overallRecords.filter(r => r.type === 'course')} />}
 
           {/* 各科每日正确率曲线 */}
@@ -273,7 +273,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                   {SUBJECTS.filter(s => sortedDates.some(d => dateMap[d]?.[s]?.q > 0)).map(s => (
                     <div key={s} className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SUBJECT_COLORS[s] }} />
-                      <span>{s}</span>
+                      <span>{getSubjectLabel(s, state.subjectLabels)}</span>
                     </div>
                   ))}
                 </div>
@@ -348,7 +348,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium text-ink-main flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                      {s.subject}
+                      {getSubjectLabel(s.subject, state.subjectLabels)}
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-ink-muted">{s.minutes} 分钟</span>

@@ -1,14 +1,14 @@
 import React from 'react';
 import { Card } from '../common/UIComponents';
-import { SUBJECTS, STUDY_SUBJECTS, StudyRecord, TimerSession } from '../../types';
+import { SUBJECTS, STUDY_SUBJECTS, StudySubject, StudyRecord, TimerSession, getSubjectLabel } from '../../types';
 import { AnalysisRange } from '../../utils/workflowPresentation';
 import { getSessionAnalysis } from '../../utils/sessionAnalysis';
 export const SUBJECT_COLORS = ['#1F77B4','#FF7F0E','#2CA02C','#D62728','#9467BD','#8C564B','#C43C8F','#087F8C','#8E9685'];
 export type AnalysisCategory = 'course' | 'book' | 'custom' | 'sessions';
-export function TimeDistribution({ records, sessions, range, today, onLegend, view, onViewChange }: { records:StudyRecord[]; sessions:TimerSession[]; range:AnalysisRange; today:string; onLegend:()=>void; view:AnalysisCategory; onViewChange:(view:AnalysisCategory)=>void }) {
+export function TimeDistribution({ records, sessions, range, today, onLegend, view, onViewChange, subjectLabels }: { records:StudyRecord[]; sessions:TimerSession[]; range:AnalysisRange; today:string; onLegend:()=>void; view:AnalysisCategory; onViewChange:(view:AnalysisCategory)=>void; subjectLabels?: Partial<Record<StudySubject, string>> }) {
   const session = getSessionAnalysis(sessions, range, today);
   const subjects = view === 'custom' ? STUDY_SUBJECTS : SUBJECTS;
-  const data = view !== 'sessions' ? subjects.map((label, index) => ({ label, color: SUBJECT_COLORS[index], minutes: records.filter(r => r.type === view && r.subject === label).reduce((n, r) => n + r.minutes, 0) }))
+  const data = view !== 'sessions' ? subjects.map((subj, index) => ({ label: getSubjectLabel(subj, subjectLabels), color: SUBJECT_COLORS[index], minutes: records.filter(r => r.type === view && r.subject === subj).reduce((n, r) => n + r.minutes, 0) }))
     : [{label:'专注时间',minutes:session.focusMs/60000,color:'#607C4E'},{label:'休息时间',minutes:session.restMs/60000,color:'#DEA64A'}];
   const total = data.reduce((n, d) => n + d.minutes, 0);
   let cumulative = 0;

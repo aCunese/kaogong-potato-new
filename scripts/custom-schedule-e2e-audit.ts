@@ -139,7 +139,8 @@ try {
     }
     await timer.getByRole('button', { name: '完成登记', exact: true }).click();
     const completion = page.getByRole('dialog', { name: '完成登记', exact: true });
-    await completion.getByLabel('实际学习分钟（自动记录）').filter({ hasText: `${item.minutes} 分钟` }).waitFor();
+    assert.equal(await completion.getByLabel('实际学习分钟', { exact: true }).inputValue(), String(item.minutes));
+    await completion.getByLabel('实际学习分钟', { exact: true }).fill(String(item.minutes));
     await completion.getByRole('button', { name: '保存并完成', exact: true }).click();
     await completion.getByRole('button', { name: '返回今日工作台', exact: true }).click();
     await until(s => s.records.length === index + 1);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getTimerReminder } from './utils/studyTimers';
+import { getActiveCountdownsForReminder } from './utils/workflowPresentation';
 import { useApp } from './context/AppContext';
 import { TodayView } from './components/views/TodayView';
 import { LearningView } from './components/views/LearningView';
@@ -27,11 +28,12 @@ import {
   AuthModal,
   DownloadApkModal,
   OverallLegendModal,
+  DailyCountdownReminderModal,
 } from './components/views/EditModals';
 import { StatesPreviewView } from './components/views/StatesPreviewView';
 import { ConfirmModalsView } from './components/views/ConfirmModalsView';
 import { ScreenInspectorModal, ALL_50_SCREENS, ScreenSize } from './components/views/ScreenInspectorModal';
-import { ConfirmModal, closeTopModal } from './components/common/UIComponents';
+import { ConfirmModal, closeTopModal, useBlockingModalOpen } from './components/common/UIComponents';
 import { getLocalMonthString } from './constants/initialData';
 import {
   Calendar,
@@ -150,6 +152,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   // 更新重新进入界面一次性陪伴视频播放与播放后清除
   const UPDATE_VIDEO_DONE_KEY = 'kaogong_potato_study_video_v1_done';
   const [updateVideoOpen, setUpdateVideoOpen] = useState<boolean>(false);
+  const [updateVideoCheckedUser, setUpdateVideoCheckedUser] = useState<string | null>(null);
   const [updateVideoNeedTap, setUpdateVideoNeedTap] = useState<boolean>(false);
   const updateVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -215,6 +218,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   useEffect(() => {
     if (preview || isLoading || authPhase !== 'authenticated' || !currentUser) return;
     if (typeof window === 'undefined') return;
+    setUpdateVideoCheckedUser(currentUser.id);
     if (typeof navigator !== 'undefined' && navigator.webdriver) return;
     if (!hasWatchedUpdateVideo()) {
       setUpdateVideoOpen(true);
@@ -343,6 +347,40 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
     const interval = setInterval(check, 1000);
     return () => clearInterval(interval);
   }, [currentUser?.id, preview, state.plans]);
+
+  // Scope the pending dialog to its authenticated owner and calendar day.
+  const [dailyCountdownOpenScope, setDailyCountdownOpenScope] = useState<string | null>(null);
+  const blockingModalOpen = useBlockingModalOpen();
+  const shownCountdownScopes = useRef(new Set<string>());
+  const activeCountdownReminders = getActiveCountdownsForReminder(state.countdowns, activeDate);
+  const dailyCountdownKey = currentUser ? `kaogong_daily_countdown_shown_${currentUser.id}` : null;
+  const dailyCountdownScope = dailyCountdownKey ? `${dailyCountdownKey}:${activeDate}` : null;
+  const countdownBlocked = blockingModalOpen || needsInitChoice || Boolean(guestMigration?.available) || updateVideoOpen ||
+    updateVideoCheckedUser !== currentUser?.id || isConflictModalOpen || confirmConfig.open || inspectorOpen ||
+    addPlanOpen || Boolean(focusPlan) || Boolean(completePlan) || Boolean(recordToEdit) || bookModalState.open ||
+    courseModalState.open || customAddOpen || countdownModal !== null || photoImportOpen || Boolean(wrongDetailRecord) ||
+    authModal.open || downloadApkOpen || legendOpen || monthPickerOpen || syncModalOpen || backupModalOpen ||
+    profileModalOpen || showStatesPreview || showConfirmModalsView || Boolean(timerNotice);
+  const countdownEligible = !preview && !isLoading && authPhase === 'authenticated' && Boolean(currentUser) &&
+    !countdownBlocked && activeCountdownReminders.length > 0;
+  const dailyCountdownReminderOpen = countdownEligible && dailyCountdownScope !== null && dailyCountdownOpenScope === dailyCountdownScope;
+
+  useEffect(() => { setDailyCountdownOpenScope(null); }, [currentUser?.id, authPhase, activeDate]);
+
+  useEffect(() => {
+    if (!countdownEligible || !dailyCountdownScope || !dailyCountdownKey || shownCountdownScopes.current.has(dailyCountdownScope)) return;
+    try {
+      if (localStorage.getItem(dailyCountdownKey) === activeDate) return;
+    } catch { /* A storage restriction must not hide an otherwise valid reminder. */ }
+    setDailyCountdownOpenScope(dailyCountdownScope);
+  }, [countdownEligible, dailyCountdownScope, dailyCountdownKey, activeDate]);
+
+  // This effect runs after the dialog has committed, so deferred/hidden dialogs never consume the daily marker.
+  useEffect(() => {
+    if (!dailyCountdownReminderOpen || !dailyCountdownScope || !dailyCountdownKey) return;
+    shownCountdownScopes.current.add(dailyCountdownScope);
+    try { localStorage.setItem(dailyCountdownKey, activeDate); } catch { /* In-memory deduplication still applies. */ }
+  }, [dailyCountdownReminderOpen, dailyCountdownScope, dailyCountdownKey, activeDate]);
 
   // Responsive device frame width (defaults to native full mobile viewport)
   const [screenSize, setScreenSize] = useState<ScreenSize>('full');
@@ -979,6 +1017,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                   onConfirm: () => confirmMutation(() => deletePlan(plan.id), '已从今日日程中移除'),
                 });
               }}
+              onToast={showToast}
             />
           ) : activeTab === 'learning' ? (
             <LearningView
@@ -1024,6 +1063,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
                   onConfirm: () => confirmMutation(() => deleteWrongRecord(recId), '已删除错题照片记录'),
                 });
               }}
+              onToast={showToast}
             />
           ) : activeTab === 'analysis' ? (
             <AnalysisView
@@ -1219,6 +1259,13 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           record={wrongDetailRecord}
           isOpen={Boolean(wrongDetailRecord)}
           onClose={() => setWrongDetailRecord(null)}
+          onToast={showToast}
+        />
+
+        <DailyCountdownReminderModal
+          isOpen={dailyCountdownReminderOpen}
+          items={activeCountdownReminders}
+          onClose={() => setDailyCountdownOpenScope(null)}
         />
 
         <AuthModal

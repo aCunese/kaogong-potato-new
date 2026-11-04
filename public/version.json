@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "build": "20261102.01",
+  "version": "1.2.1",
+  "build": "20261104.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-02T15:35:00Z",
-  "summary": "错题看图直接左右滑动切换、移除底部翻页按钮，并新增更新后首次进入专属陪伴视频。"
+  "deployedAt": "2026-11-04T05:22:57Z",
+  "summary": "历史待补日程可移到今天续计时与直接修改补登记用时；分类支持自定义名称及题本、网课、错题跨分类转移；新增每日首次打开倒数日提醒。"
 }

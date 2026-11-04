@@ -95,7 +95,7 @@ const POSE_RE = /^pose-[0-7]$/;
 const BRANDING_PATH_RE = /^\/branding\/[A-Za-z0-9._\-\/]+$/;
 const LEGACY_IMAGE_DATA_URL_RE = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 
-const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version', 'todos', 'timerSessions']);
+const ALLOWED_ROOT_KEYS = new Set(['profile', 'books', 'courses', 'library', 'plans', 'records', 'wrong', 'countdowns', 'version', 'todos', 'timerSessions', 'subjectLabels']);
 
 /** 根数组字段的安全容量上限（防范存储炸弹与内存耗尽 DoS） */
 const MAX_ARRAY_LIMITS: Record<string, number> = {

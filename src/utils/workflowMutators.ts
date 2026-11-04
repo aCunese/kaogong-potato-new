@@ -7,6 +7,9 @@ import {
   StudyRecord,
   StudyRecordCorrectionInput,
   WrongRecord,
+  Subject,
+  SUBJECTS,
+  SUBJECT_LABEL_MAX,
   StudySubject,
   STUDY_SUBJECTS,
   isStudySubjectForType,
@@ -19,6 +22,7 @@ import {
 } from '../types';
 import { learningElapsedMs, phaseElapsedMs, planDayEnd } from './studyTimers';
 import { buildLibraryFromSources } from '../constants/initialData';
+import { calendarDayNumber } from './calendarDate';
 
 export type MutatorReturn<T> =
   | { nextState: AppState; value: T; newMedia?: MediaRecord[]; deletedMediaIds?: string[] }
@@ -40,17 +44,31 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
     }
   }
 
+  if (input.expected?.minutes !== undefined && input.expected.minutes !== record.minutes) {
+    return { error: { code: 'RECORD_CHANGED', message: '这条登记用时已被修改，请重新打开后再编辑。' } };
+  }
+  const updateDuration = (minutes: number) => {
+    const delta = minutes - record.minutes;
+    const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
+    if (plan) {
+      if (plan.sessionId) {
+        // A terminal record covers one day; preserve the other days and sub-minute precision.
+        plan.accumulatedMs = (plan.accumulatedMs ?? plan.actualMinutes * 60000) + delta * 60000;
+        plan.actualMinutes += delta;
+      } else {
+        plan.actualMinutes = minutes;
+        plan.accumulatedMs = minutes * 60000;
+      }
+    }
+    record.minutes = minutes;
+  };
+
   if (input.type === 'custom') {
     const newMinutes = input.minutes;
     if (!Number.isSafeInteger(newMinutes) || newMinutes <= 0) {
       return { error: { code: 'INVALID_MINUTES', message: '学习用时须为大于0的整数分钟。' } };
     }
-    record.minutes = newMinutes;
-    const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
-    if (plan) {
-      plan.actualMinutes = newMinutes;
-      plan.accumulatedMs = newMinutes * 60000;
-    }
+    updateDuration(newMinutes);
     draft.version = Math.max(draft.version, 4) as AppState['version'];
     return { nextState: draft, value: record };
   }
@@ -81,12 +99,7 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
     record.questions = input.questions;
     record.errors = input.errors;
     if (input.minutes !== undefined) {
-      record.minutes = input.minutes;
-      const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
-      if (plan) {
-        plan.actualMinutes = input.minutes;
-        plan.accumulatedMs = input.minutes * 60000;
-      }
+      updateDuration(input.minutes);
     }
   } else {
     if (!Number.isSafeInteger(input.lessons) || input.lessons <= 0) return { error: { code: 'INVALID_LESSONS', message: '完成节数须为正整数。' } };
@@ -106,12 +119,7 @@ export function applyStudyRecordCorrection(draft: AppState, input: StudyRecordCo
     }
     record.lessons = input.lessons;
     if (input.minutes !== undefined) {
-      record.minutes = input.minutes;
-      const plan = draft.plans.find(p => p.recordId === record.id || p.id === record.planId);
-      if (plan) {
-        plan.actualMinutes = input.minutes;
-        plan.accumulatedMs = input.minutes * 60000;
-      }
+      updateDuration(input.minutes);
     }
   }
   draft.version = Math.max(draft.version, 4) as AppState['version'];
@@ -422,10 +430,32 @@ export function applyEditBook(
 ): MutatorReturn<void> {
   const book = draft.books.find(b => b.id === id);
   if (!book) return { error: { code: 'NOT_FOUND', message: '题本未找到。' } };
+  if (updates.subject !== undefined && !(SUBJECTS as readonly string[]).includes(updates.subject)) {
+    return { error: { code: 'INVALID_SUBJECT', message: '请选择有效的所属科目。' } };
+  }
   if (updates.minutes !== undefined && updates.minutes !== book.minutes) return { error: { code: 'READ_ONLY_DURATION', message: '累计用时由计时自动记录，不能手动修改。' } };
-  if (!validBookCounts({ ...book, ...updates })) return { error: { code: 'INVALID_COUNTS', message: '请检查总题数、页数和累计题量。' } };
-  draft.books = draft.books.map(b => b.id === id ? { ...b, ...updates } : b);
+  const nextBook: Book = { ...book, ...updates };
+  if (!validBookCounts(nextBook)) return { error: { code: 'INVALID_COUNTS', message: '请检查总题数、页数和累计题量。' } };
+  draft.books = draft.books.map(b => b.id === id ? nextBook : b);
   draft.library = buildLibraryFromSources(draft.books, draft.courses, draft.library);
+  if (nextBook.subject !== book.subject || nextBook.name !== book.name) {
+    for (const p of draft.plans) {
+      if (p.type === 'book' && p.sourceId === id) {
+        p.subject = nextBook.subject;
+        p.name = nextBook.name;
+      }
+    }
+    for (const r of draft.records) {
+      if (r.type === 'book' && r.sourceId === id) {
+        r.subject = nextBook.subject;
+      }
+    }
+    for (const w of draft.wrong) {
+      if (w.bookId === id) {
+        w.subject = nextBook.subject;
+      }
+    }
+  }
   return { nextState: draft, value: undefined };
 }
 
@@ -463,12 +493,29 @@ export function applyEditCourse(
 ): MutatorReturn<void> {
   const course = draft.courses.find(c => c.id === id);
   if (!course) return { error: { code: 'NOT_FOUND', message: '课程未找到。' } };
+  if (updates.subject !== undefined && !(SUBJECTS as readonly string[]).includes(updates.subject)) {
+    return { error: { code: 'INVALID_SUBJECT', message: '请选择有效的所属科目。' } };
+  }
   if (updates.minutes !== undefined && updates.minutes !== course.minutes) return { error: { code: 'READ_ONLY_DURATION', message: '累计用时由计时自动记录，不能手动修改。' } };
   const total = updates.totalLessons ?? course.totalLessons;
   const completed = updates.completedLessons ?? course.completedLessons;
   if (!Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(completed) || completed < 0 || completed > total) return { error: { code: 'INVALID_LESSONS', message: '总节数必须大于0，已完成节数须为不超过总节数的非负整数。' } };
-  draft.courses = draft.courses.map(c => c.id === id ? { ...c, ...updates } : c);
+  const nextCourse: Course = { ...course, ...updates };
+  draft.courses = draft.courses.map(c => c.id === id ? nextCourse : c);
   draft.library = buildLibraryFromSources(draft.books, draft.courses, draft.library);
+  if (nextCourse.subject !== course.subject || nextCourse.name !== course.name) {
+    for (const p of draft.plans) {
+      if (p.type === 'course' && p.sourceId === id) {
+        p.subject = nextCourse.subject;
+        p.name = nextCourse.name;
+      }
+    }
+    for (const r of draft.records) {
+      if (r.type === 'course' && r.sourceId === id) {
+        r.subject = nextCourse.subject;
+      }
+    }
+  }
   return { nextState: draft, value: undefined };
 }
 
@@ -684,6 +731,102 @@ export function applyDeleteWrongRecord(
 ): MutatorReturn<void> {
   draft.wrong = draft.wrong.filter(w => w.id !== id);
   return { nextState: draft, value: undefined };
+}
+
+/**
+ * Updates a wrong question record's category (subject) and/or review note.
+ */
+export function applyUpdateWrongRecord(
+  draft: AppState,
+  id: string,
+  updates: { subject?: StudySubject; note?: string }
+): MutatorReturn<WrongRecord> {
+  const record = draft.wrong.find(w => w.id === id);
+  if (!record) {
+    return { error: { code: 'NOT_FOUND', message: '错题记录未找到。' } };
+  }
+  if (updates.note !== undefined && (typeof updates.note !== 'string' || updates.note.length > 2000)) {
+    return { error: { code: 'INVALID_NOTE', message: '复盘笔记长度不能超过2000个字符。' } };
+  }
+  if (updates.subject !== undefined) {
+    if (!(STUDY_SUBJECTS as readonly string[]).includes(updates.subject)) {
+      return { error: { code: 'INVALID_SUBJECT', message: '请选择有效的错题分类。' } };
+    }
+    record.subject = updates.subject;
+    const matchedBook = draft.books.find(b => b.id === record.bookId);
+    if (!matchedBook || matchedBook.subject !== updates.subject) {
+      record.bookId = updates.subject;
+    }
+  }
+  if (updates.note !== undefined) {
+    record.note = updates.note;
+  }
+  return { nextState: draft, value: record };
+}
+
+/**
+ * Customizes or resets the display label for one of the 8/9 categories.
+ */
+export function applyUpdateSubjectLabel(
+  draft: AppState,
+  subject: StudySubject,
+  label: string
+): MutatorReturn<void> {
+  if (!(STUDY_SUBJECTS as readonly string[]).includes(subject)) {
+    return { error: { code: 'INVALID_SUBJECT', message: '无效的分类标识。' } };
+  }
+  const trimmed = label.trim();
+  if (trimmed.length > SUBJECT_LABEL_MAX) {
+    return { error: { code: 'INVALID_LABEL', message: `分类名称不能超过${SUBJECT_LABEL_MAX}个字符。` } };
+  }
+  const nextLabels: Partial<Record<StudySubject, string>> = { ...(draft.subjectLabels ?? {}) };
+  if (!trimmed || trimmed === subject) {
+    delete nextLabels[subject];
+  } else {
+    nextLabels[subject] = trimmed;
+  }
+  if (Object.keys(nextLabels).length > 0) {
+    draft.subjectLabels = nextLabels;
+    draft.version = Math.max(draft.version, 4) as AppState['version'];
+  } else {
+    delete draft.subjectLabels;
+  }
+  return { nextState: draft, value: undefined };
+}
+
+/**
+ * Moves one or more unfinished plans to a target date (e.g. today),
+ * preserving already-accumulated elapsed time so the user can continue timing.
+ */
+export function applyMovePlansToDate(
+  draft: AppState,
+  planIds: string[],
+  targetDate: string,
+  now = Date.now()
+): MutatorReturn<number> {
+  if (calendarDayNumber(targetDate) === null) {
+    return { error: { code: 'INVALID_DATE', message: '请选择有效的目标日期。' } };
+  }
+  const idSet = new Set(planIds);
+  let moved = 0;
+  for (const plan of draft.plans) {
+    if (!idSet.has(plan.id) || plan.done || plan.date === targetDate) continue;
+    if (plan.timerStart > 0 || (plan.restStart ?? 0) > 0) {
+      applyPauseTimer(draft, plan.id, Math.min(now, planDayEnd(plan)));
+    }
+    const elapsed = plan.accumulatedMs ?? ((plan.actualMinutes ?? 0) * 60000);
+    plan.accumulatedMs = elapsed;
+    plan.actualMinutes = Math.floor(elapsed / 60000);
+    plan.date = targetDate;
+    plan.archived = false;
+    plan.timerStart = 0;
+    if (plan.restStart !== undefined) plan.restStart = 0;
+    moved += 1;
+  }
+  if (moved > 0) {
+    draft.version = Math.max(draft.version, 4) as AppState['version'];
+  }
+  return { nextState: draft, value: moved };
 }
 
 /**

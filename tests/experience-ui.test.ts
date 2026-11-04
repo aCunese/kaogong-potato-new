@@ -47,11 +47,11 @@ it('keeps accumulated course minutes read-only while allowing lesson edits', asy
   expect(html).toContain('<output'); expect(html).toContain('自动累计');
   expect(html).toContain('aria-label="总节数"'); expect(html).toContain('aria-label="已完成节数"');
 });
-it('shows measured completion duration as output and only edits course lesson count', async () => {
+it('prefills editable completion minutes alongside course lesson count', async () => {
   const { CompletionModal } = await import('../src/components/views/CompletionModal');
   const plan: any = { id: 'p', date: '2026-10-27', libraryId: 'lib-course-c', name: 'Course', type: 'course', sourceId: 'c', subject: '资料分析', plannedMinutes: 30, actualMinutes: 20, accumulatedMs: 1200000, timerStart: 0, done: false, plannedLessons: 2 };
   const html = render(React.createElement(CompletionModal, { isOpen: true, plan, onClose: noop, onToast: noop }));
-  expect(html).toContain('<output'); expect(html).toContain('自动记录'); expect((html.match(/<input/g) ?? []).length).toBe(1);
+  expect(html).toContain('aria-label="实际学习分钟"'); expect(html).toContain('value="20"'); expect((html.match(/<input/g) ?? []).length).toBe(2);
 });
 it('makes pomodoro visible on the today page and all three modes visible in focus', async () => {
   const { TodayView } = await import('../src/components/views/TodayView');

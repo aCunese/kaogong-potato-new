@@ -7,7 +7,7 @@ import { Avatar } from '../common/Avatar';
 import { StudyRecordItem } from '../common/StudyRecordItem';
 import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList } from 'lucide-react';
-import { Plan, StudyRecord, MutationResult, TimerMode } from '../../types';
+import { Plan, StudyRecord, MutationResult, TimerMode, getSubjectLabel } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
 import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs, getStudyRecordName, studyDateLabel } from '../../utils/workflowPresentation';
 
@@ -22,6 +22,7 @@ interface TodayViewProps {
   onOpenDeleteConfirm?: (plan: Plan) => void;
   onOpenProfile?: () => void;
   showProfileBar?: boolean;
+  onToast?: (msg: string) => void;
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({
@@ -35,6 +36,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onOpenDeleteConfirm,
   onOpenProfile,
   showProfileBar = false,
+  onToast,
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser } = useApp();
   const [, setTick] = useState(0);
@@ -99,6 +101,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           onEditRecord={onEditRecord}
           onOpenComplete={onOpenComplete}
           onDeletePlan={deleteHistoryPlan}
+          onToast={onToast}
         />
         <StandaloneTimerModal key={currentUser?.id ?? 'preview'} isOpen={pomodoroOpen} onClose={() => setPomodoroOpen(false)} />
       </div>
@@ -317,7 +320,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
                         {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
                       </Tag>
-                      <Tag variant="gray">{plan.subject}</Tag>
+                      <Tag variant="gray">{getSubjectLabel(plan.subject, state.subjectLabels)}</Tag>
                       {plan.date !== activeDate && <Tag variant="danger">跨日 · {plan.date}</Tag>}
                       <span className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] text-sage-dark"><CheckCircle2 size={11} />已完成</span>
                     </div>
@@ -344,7 +347,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
                         {plan.type === 'book' ? '刷题' : plan.type === 'course' ? '网课' : '自定义'}
                       </Tag>
-                      <Tag variant="gray">{plan.subject}</Tag>
+                      <Tag variant="gray">{getSubjectLabel(plan.subject, state.subjectLabels)}</Tag>
                       {plan.date !== activeDate && <Tag variant="danger">跨日 · {plan.date}</Tag>}
                     </div>
                     <h3 onClick={() => onOpenFocus(plan)} className="cursor-pointer truncate text-base font-bold text-ink-main transition-colors hover:text-sage">

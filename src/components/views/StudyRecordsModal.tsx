@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Modal } from '../common/UIComponents';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { StudyRecordItem } from '../common/StudyRecordItem';
-import { Plan, StudyRecord } from '../../types';
+import { Plan, StudyRecord, getSubjectLabel } from '../../types';
 import {
   addDays,
   canCorrectStudyRecord,
@@ -30,7 +30,18 @@ const TYPE_LABEL = { book: '刷题', course: '网课', custom: '自定义' } as 
  * (back-registration included) and registrations. Avoids stacking every record.
  */
 export const StudyRecordsModal: React.FC<StudyRecordsModalProps> = ({ isOpen, onClose, initialDate, onEditRecord, onOpenComplete, onDeletePlan }) => {
-  const { state, activeDate } = useApp();
+  const { state, activeDate, movePlansToDate } = useApp();
+  const [moving, setMoving] = useState(false);
+
+  const handleMoveToToday = async (planId: string) => {
+    if (moving || !movePlansToDate) return;
+    setMoving(true);
+    try {
+      await movePlansToDate([planId], activeDate);
+    } finally {
+      setMoving(false);
+    }
+  };
   const [pickedDate, setPickedDate] = useState(activeDate);
   const [calendarOpen, setCalendarOpen] = useState(false);
 
@@ -123,10 +134,15 @@ export const StudyRecordsModal: React.FC<StudyRecordsModalProps> = ({ isOpen, on
                 <div className="min-w-0 flex-1">
                   <p className={`truncate text-sm ${plan.done ? 'font-medium text-ink-muted line-through' : 'font-medium text-ink-main'}`}>{plan.name}</p>
                   <p className="mt-0.5 text-[10px] text-ink-muted">
-                    {TYPE_LABEL[plan.type]} · {plan.subject} · {elapsed} / {plan.plannedMinutes} 分钟 · {plan.done ? '已登记' : '待补登记'}
+                    {TYPE_LABEL[plan.type]} · {getSubjectLabel(plan.subject, state.subjectLabels)} · {elapsed} / {plan.plannedMinutes} 分钟 · {plan.done ? '已登记' : '待补登记'}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 self-center text-[11px]">
+                  {!isToday && !plan.done && (
+                    <button type="button" disabled={moving} onClick={() => void handleMoveToToday(plan.id)} className="text-sage underline decoration-sage/40 underline-offset-2">
+                      移到今天
+                    </button>
+                  )}
                   <button type="button" onClick={() => openComplete(plan)} className="text-sage underline decoration-sage/40 underline-offset-2">
                     {plan.done ? '查看登记总结' : '补登记'}
                   </button>

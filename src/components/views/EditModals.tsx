@@ -2,10 +2,11 @@ import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, Tag, SubjectCapsuleGrid, CustomSelect, useModalBack } from '../common/UIComponents';
-import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult } from '../../types';
+import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject, Book, Course, WrongRecord, StudyRecord, MutationResult, getSubjectLabel, getSubjectOptions } from '../../types';
+import { CountdownReminderItem } from '../../utils/workflowPresentation';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Sparkles } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 import {
@@ -102,7 +103,7 @@ export const AddPlanModal: React.FC<{
           <SubjectCapsuleGrid
             ariaLabel="自定义事项所属科目"
             disabled={isSaving}
-            options={STUDY_SUBJECTS}
+            options={getSubjectOptions(state.subjectLabels, true)}
             value={customSubject}
             onChange={val => setCustomSubject(val as StudySubject)}
           />
@@ -114,7 +115,7 @@ export const AddPlanModal: React.FC<{
           <SubjectCapsuleGrid
             ariaLabel="筛选日程科目"
             columns={3}
-            options={[{ label: '全部科目', value: 'all' }, ...SUBJECTS.map(s => ({ label: s, value: s }))]}
+            options={[{ label: '全部科目', value: 'all' }, ...getSubjectOptions(state.subjectLabels, false)]}
             value={subject}
             onChange={next => {
               setSubject(next);
@@ -130,8 +131,8 @@ export const AddPlanModal: React.FC<{
             emptyText="该分类暂无内容，请先到学习库添加"
             options={items.map(l => ({
               value: l.id,
-              label: `${l.name} · ${l.subject}`,
-              badge: l.subject,
+              label: `${l.name} · ${getSubjectLabel(l.subject, state.subjectLabels)}`,
+              badge: getSubjectLabel(l.subject, state.subjectLabels),
               badgeVariant: type === 'course' ? 'course' : 'potato',
             }))}
             onChange={val => select(val)}
@@ -156,7 +157,7 @@ export const BookEditModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, book, onClose, onToast }) => {
-  const { addBook, editBook } = useApp();
+  const { state, addBook, editBook } = useApp();
 
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<Subject>('资料分析');
@@ -235,7 +236,7 @@ export const BookEditModal: React.FC<{
           <SubjectCapsuleGrid
             ariaLabel="题本所属科目"
             columns={4}
-            options={SUBJECTS}
+            options={getSubjectOptions(state?.subjectLabels, false)}
             value={subject}
             onChange={val => setSubject(val as Subject)}
           />
@@ -350,7 +351,7 @@ export const CourseEditModal: React.FC<{
     <form onSubmit={submit} className="space-y-4">
       <FormError message={errorMsg} />
       <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-name">课程名称</label><input id="course-name" value={name} onChange={e => setName(e.target.value)} placeholder="例如：判断推理图形专项技巧精讲" className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></div>
-      <div><label className="block text-xs text-ink-muted mb-1.5" htmlFor="course-subject">所属科目</label><SubjectCapsuleGrid ariaLabel="网课所属科目" columns={4} options={SUBJECTS} value={subject} onChange={val => setSubject(val as Subject)} /></div>
+      <div><label className="block text-xs text-ink-muted mb-1.5" htmlFor="course-subject">所属科目</label><SubjectCapsuleGrid ariaLabel="网课所属科目" columns={4} options={getSubjectOptions(state?.subjectLabels, false)} value={subject} onChange={val => setSubject(val as Subject)} /></div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-total">总节数</label><input id="course-total" aria-label="总节数" type="number" min="1" step="1" required value={totalLessons} onChange={e => setTotalLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
         <div><label className="block text-xs text-ink-muted mb-1" htmlFor="course-completed">已完成节数</label><input id="course-completed" aria-label="已完成节数" type="number" min="0" step="1" required value={completedLessons} onChange={e => setCompletedLessons(e.target.value)} className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm font-mono" /></div>
@@ -371,7 +372,7 @@ export const CustomAddModal: React.FC<{
   onClose: () => void;
   onToast: (msg: string) => void;
 }> = ({ isOpen, onClose, onToast }) => {
-  const { addCustomItem } = useApp();
+  const { state, addCustomItem } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const [name, setName] = useState('');
   const [subject, setSubject] = useState<StudySubject>('其他');
@@ -404,7 +405,7 @@ export const CustomAddModal: React.FC<{
           <SubjectCapsuleGrid
             ariaLabel="自定义备考事项归属科目"
             columns={3}
-            options={STUDY_SUBJECTS}
+            options={getSubjectOptions(state?.subjectLabels, true)}
             value={subject}
             onChange={val => setSubject(val as StudySubject)}
           />
@@ -708,8 +709,8 @@ export const PhotoImportModal: React.FC<{
 
     onToast(
       previewImages.length > 1
-        ? `成功归档 1 道【${subject}】错题（含 ${previewImages.length} 张照片）！`
-        : `成功归档 1 道【${subject}】错题照片！`
+        ? `成功归档 1 道【${getSubjectLabel(subject, state.subjectLabels)}】错题（含 ${previewImages.length} 张照片）！`
+        : `成功归档 1 道【${getSubjectLabel(subject, state.subjectLabels)}】错题照片！`
     );
     setPreviewImages([]);
     setNote('');
@@ -738,7 +739,7 @@ export const PhotoImportModal: React.FC<{
           <SubjectCapsuleGrid
             ariaLabel="错题所属分类"
             columns={3}
-            options={STUDY_SUBJECTS}
+            options={getSubjectOptions(state?.subjectLabels, true)}
             value={subject}
             onChange={val => setSubject(val as StudySubject)}
           />
@@ -819,13 +820,13 @@ export const PhotoImportModal: React.FC<{
 
         <div className="pt-1 flex items-center justify-between text-xs text-ink-muted">
           <span className="font-mono">记录时间：{previewTimeLabel}</span>
-          <span>归属分类：<strong className="text-sage-dark">{subject}</strong></span>
+          <span>归属分类：<strong className="text-sage-dark">{getSubjectLabel(subject, state.subjectLabels)}</strong></span>
         </div>
 
         <Button variant="primary" size="md" fullWidth onClick={handleSubmit} disabled={isCompressing}>
           {previewImages.length > 1
-            ? `保存为 1 道【${subject}】错题 (含 ${previewImages.length} 张图)`
-            : `保存并归档到【${subject}】`}
+            ? `保存为 1 道【${getSubjectLabel(subject, state.subjectLabels)}】错题 (含 ${previewImages.length} 张图)`
+            : `保存并归档到【${getSubjectLabel(subject, state.subjectLabels)}】`}
         </Button>
       </div>
     </Modal>
@@ -839,12 +840,19 @@ export const WrongDetailModal: React.FC<{
   record: WrongRecord | null;
   isOpen: boolean;
   onClose: () => void;
-}> = ({ record, isOpen, onClose }) => {
-  const { state } = useApp();
+  onToast?: (msg: string) => void;
+}> = ({ record, isOpen, onClose, onToast }) => {
+  const { state, updateWrongRecord } = useApp();
+  const liveRecord = state.wrong.find(w => w.id === record?.id) ?? record;
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [editSubject, setEditSubject] = useState<StudySubject>('资料分析');
+  const [editNote, setEditNote] = useState('');
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [metaError, setMetaError] = useState('');
   const gestureRef = useRef<{
     mode: 'none' | 'pan' | 'pinch' | 'edge';
     startX: number;
@@ -883,16 +891,43 @@ export const WrongDetailModal: React.FC<{
     setZoomOpen(false);
     setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
+    setEditingMeta(false);
+    setMetaError('');
+    if (liveRecord) {
+      setEditSubject(resolveWrongRecordSubject(liveRecord, state.books));
+      setEditNote(liveRecord.note || '');
+    }
   }, [record?.id, isOpen]);
 
-  if (!isOpen || !record) return null;
+  if (!isOpen || !liveRecord) return null;
 
-  const images = getWrongRecordImages(record);
+  const images = getWrongRecordImages(liveRecord);
   const safeIndex = images.length > 0 ? Math.min(activeIndex, images.length - 1) : 0;
-  const activeImage = images[safeIndex] || record.image;
-  const subject = resolveWrongRecordSubject(record, state.books);
-  const book = state.books.find(b => b.id === record.bookId);
-  const timeText = formatWrongRecordTime(record);
+  const activeImage = images[safeIndex] || liveRecord.image;
+  const subject = resolveWrongRecordSubject(liveRecord, state.books);
+  const subjectLabel = getSubjectLabel(subject, state.subjectLabels);
+  const book = state.books.find(b => b.id === liveRecord.bookId);
+  const timeText = formatWrongRecordTime(liveRecord);
+
+  const handleSaveMeta = async () => {
+    if (isSavingMeta) return;
+    setIsSavingMeta(true);
+    setMetaError('');
+    try {
+      const res = await updateWrongRecord(liveRecord.id, {
+        subject: editSubject,
+        note: editNote.trim(),
+      });
+      if (!res.ok) {
+        setMetaError(res.message);
+        return;
+      }
+      onToast?.(`已更新错题（${getSubjectLabel(editSubject, state.subjectLabels)}）`);
+      setEditingMeta(false);
+    } finally {
+      setIsSavingMeta(false);
+    }
+  };
 
   const clampPan = (x: number, y: number, scale: number) => {
     if (scale <= 1.01) return { x: 0, y: 0 };
@@ -979,21 +1014,71 @@ export const WrongDetailModal: React.FC<{
           )}
         </div>
 
-        <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center justify-between text-xs gap-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <Tag variant="sage">{subject}</Tag>
+            <Tag variant="sage">{subjectLabel}</Tag>
             {book && <Tag variant="potato">{book.name}</Tag>}
             {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
           </div>
-          <span className="text-ink-muted font-mono font-semibold">{timeText}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setEditSubject(subject);
+                setEditNote(liveRecord.note || '');
+                setMetaError('');
+                setEditingMeta(prev => !prev);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-cream/90 border border-line/70 text-[11px] font-medium text-ink-muted hover:text-sage hover:border-sage/50 transition-colors"
+            >
+              <ArrowRightLeft size={11} />
+              <span>{editingMeta ? '收起编辑' : '转移分类 / 笔记'}</span>
+            </button>
+            <span className="text-ink-muted font-mono font-semibold">{timeText}</span>
+          </div>
         </div>
 
-        <div className="bg-cream/60 p-3.5 rounded-2xl border border-line/80 space-y-1">
-          <div className="text-xs font-bold text-ink-main">复盘原因与解题突破口</div>
-          <p className="text-xs text-ink-muted leading-relaxed whitespace-pre-wrap">
-            {record.note || '未填写复盘笔记'}
-          </p>
-        </div>
+        {editingMeta ? (
+          <div className="bg-cream/60 p-3.5 rounded-2xl border border-sage/35 space-y-3">
+            <FormError message={metaError} />
+            <div>
+              <span className="block text-xs font-bold text-ink-main mb-2">转移到分类</span>
+              <SubjectCapsuleGrid
+                options={getSubjectOptions(state.subjectLabels, true)}
+                value={editSubject}
+                onChange={val => setEditSubject(val as StudySubject)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-ink-main mb-1.5">
+                复盘原因与解题突破口
+                <textarea
+                  value={editNote}
+                  onChange={e => setEditNote(e.target.value)}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="补充错因或解题突破口..."
+                  className="mt-1.5 w-full bg-card border border-line rounded-xl px-3 py-2 text-xs text-ink-main focus:outline-none focus:border-sage resize-none"
+                />
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" fullWidth onClick={() => setEditingMeta(false)} disabled={isSavingMeta}>
+                取消
+              </Button>
+              <Button variant="primary" size="sm" fullWidth onClick={handleSaveMeta} disabled={isSavingMeta}>
+                {isSavingMeta ? '保存中...' : '保存修改'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-cream/60 p-3.5 rounded-2xl border border-line/80 space-y-1">
+            <div className="text-xs font-bold text-ink-main">复盘原因与解题突破口</div>
+            <p className="text-xs text-ink-muted leading-relaxed whitespace-pre-wrap">
+              {liveRecord.note || '未填写复盘笔记'}
+            </p>
+          </div>
+        )}
 
         <Button variant="secondary" size="md" fullWidth onClick={onClose}>
           关闭
@@ -1013,7 +1098,7 @@ export const WrongDetailModal: React.FC<{
           <div className="flex items-center justify-between gap-2 px-4 py-3 text-white z-10 bg-gradient-to-b from-black/80 to-transparent">
             <div className="min-w-0">
               <div className="text-xs font-bold truncate">
-                {subject}
+                {subjectLabel}
                 {images.length > 1 ? ` · 图 ${safeIndex + 1}/${images.length}` : ''}
               </div>
               <div className="text-[11px] text-white/70">
@@ -1396,7 +1481,7 @@ export const OverallLegendModal: React.FC<{
               <div key={subj} className="flex items-center justify-between p-2.5 bg-cream/40 rounded-xl border border-line/60 text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-ink-main">
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: SUBJECT_COLORS[STUDY_SUBJECTS.indexOf(subj)] }} />
-                  {subj}
+                  {getSubjectLabel(subj, state.subjectLabels)}
                 </span>
                 <div className="flex items-center gap-3">
                   <span className="text-ink-muted font-mono">{pct}%</span>
@@ -1409,6 +1494,70 @@ export const OverallLegendModal: React.FC<{
 
         <Button variant="secondary" size="md" fullWidth onClick={onClose}>
           关闭
+        </Button>
+      </div>
+    </Modal>
+  );
+};
+
+/* =========================================================================
+   11. Daily Countdown Reminder Modal
+   ========================================================================= */
+export const DailyCountdownReminderModal: React.FC<{
+  isOpen: boolean;
+  items: CountdownReminderItem[];
+  onClose: () => void;
+}> = ({ isOpen, items, onClose }) => {
+  if (!isOpen || items.length === 0) return null;
+  const primary = items[0];
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="今日备考倒数日提醒" blocksReminders={false}>
+      <div className="space-y-4">
+        <div className="bg-gradient-to-br from-potato-light/70 via-cream/80 to-sage-light/30 p-4 rounded-2xl border border-potato-border/70 flex items-center gap-3.5">
+          <div className="shrink-0">
+            <PotatoSprite pose={6} size={56} />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-potato/20 text-[#9A6F18] text-[11px] font-bold">
+              <Sparkles size={11} />
+              <span>新的一天，继续稳步向前</span>
+            </div>
+            <div className="text-sm font-bold text-ink-main leading-snug">
+              {primary.days === 0
+                ? `「${primary.name}」就在今天，沉着应战！`
+                : `距离「${primary.name}」还有 ${primary.days} 天`}
+            </div>
+            <div className="text-[11px] text-ink-muted">
+              目标日期：{primary.date} · 每天一点积累，终会迎来收获
+            </div>
+          </div>
+        </div>
+
+        {items.length > 1 && (
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-ink-muted">全部倒数日目标</div>
+            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
+              {items.map(item => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-cream/60 border border-line/70 text-xs"
+                >
+                  <div className="min-w-0 flex-1 pr-2">
+                    <div className="font-bold text-ink-main truncate">{item.name}</div>
+                    <div className="text-[11px] text-ink-muted font-mono">{item.date}</div>
+                  </div>
+                  <span className="shrink-0 px-2.5 py-1 rounded-full bg-sage-light/60 text-sage font-mono font-bold">
+                    {item.days === 0 ? '就在今天' : `剩 ${item.days} 天`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Button variant="primary" size="md" fullWidth onClick={onClose}>
+          知道了，开启今日备考！
         </Button>
       </div>
     </Modal>

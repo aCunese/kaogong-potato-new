@@ -1,5 +1,6 @@
-import { AppState, Plan, StudyRecord } from '../types';
+import { AppState, Countdown, Plan, StudyRecord } from '../types';
 import { learningElapsedMs } from './studyTimers';
+import { calendarDayNumber } from './calendarDate';
 
 export function getPlanElapsedMs(plan: Plan, now = Date.now()): number {
   return learningElapsedMs(plan, now);
@@ -73,4 +74,30 @@ export function addDays(date: string, days: number): string {
   if (!Number.isFinite(base.getTime())) return date;
   base.setDate(base.getDate() + days);
   return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+}
+
+export interface CountdownReminderItem {
+  id: string;
+  name: string;
+  date: string;
+  days: number;
+}
+
+/** Filters active countdowns (days >= 0) relative to activeDate, sorted by remaining days ascending. */
+export function getActiveCountdownsForReminder(
+  countdowns: Countdown[],
+  activeDate: string
+): CountdownReminderItem[] {
+  const today = calendarDayNumber(activeDate);
+  if (today === null) return [];
+  const items: CountdownReminderItem[] = [];
+  for (const cd of countdowns ?? []) {
+    const target = calendarDayNumber(cd.date);
+    if (target === null) continue;
+    const days = target - today;
+    if (days >= 0) {
+      items.push({ id: cd.id, name: cd.name, date: cd.date, days });
+    }
+  }
+  return items.sort((a, b) => a.days - b.days);
 }

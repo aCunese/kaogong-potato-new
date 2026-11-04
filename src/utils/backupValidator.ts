@@ -475,6 +475,7 @@ export function validateAndMigrateBackup(jsonString: string): BackupValidationRe
     wrong,
     ...(target.todos !== undefined ? { todos: structuredClone(target.todos) } : {}),
     ...(target.timerSessions !== undefined ? { timerSessions: structuredClone(target.timerSessions) } : {}),
+    ...(target.subjectLabels !== undefined ? { subjectLabels: structuredClone(target.subjectLabels) } : {}),
     version: target.version === 5 ? 5 : target.version === 4 ? 4 : 3,
   };
 

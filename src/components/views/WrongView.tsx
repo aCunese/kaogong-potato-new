@@ -12,12 +12,15 @@ import {
   List as ListIcon,
   Grid3X3,
   Plus,
+  Edit2,
+  ArrowRightLeft,
+  RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Button, Card, Tag, CustomSelect } from '../common/UIComponents';
+import { Button, Card, Tag, CustomSelect, Modal, SubjectCapsuleGrid } from '../common/UIComponents';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
-import { STUDY_SUBJECTS, StudySubject, WrongRecord } from '../../types';
+import { STUDY_SUBJECTS, StudySubject, WrongRecord, SUBJECT_LABEL_MAX, getSubjectLabel, getSubjectOptions } from '../../types';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import {
   resolveWrongRecordSubject,
@@ -33,6 +36,7 @@ interface WrongViewProps {
   onOpenImportModal: (presetSubject?: StudySubject) => void;
   onOpenDetailModal: (record: WrongRecord) => void;
   onOpenDeleteConfirm: (recordId: string, categoryName: string) => void;
+  onToast?: (msg: string) => void;
 }
 
 type ViewMode = 'grid2' | 'list' | 'grid3';
@@ -61,8 +65,75 @@ export const WrongView: React.FC<WrongViewProps> = ({
   onOpenImportModal,
   onOpenDetailModal,
   onOpenDeleteConfirm,
+  onToast,
 }) => {
-  const { state, activeDate } = useApp();
+  const { state, activeDate, updateWrongRecord, updateSubjectLabel } = useApp();
+  const [editingRecord, setEditingRecord] = useState<WrongRecord | null>(null);
+  const [targetSubject, setTargetSubject] = useState<StudySubject>('资料分析');
+  const [noteDraft, setNoteDraft] = useState('');
+  const [editingSubject, setEditingSubject] = useState<StudySubject | null>(null);
+  const [subjectLabelDraft, setSubjectLabelDraft] = useState('');
+  const [modalBusy, setModalBusy] = useState(false);
+  const [modalError, setModalError] = useState('');
+
+  const openEditRecordModal = (rec: WrongRecord) => {
+    const subj = resolveWrongRecordSubject(rec, state.books);
+    setEditingRecord(rec);
+    setTargetSubject(subj);
+    setNoteDraft(rec.note || '');
+    setModalError('');
+  };
+
+  const handleSaveRecordEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRecord || modalBusy || !updateWrongRecord) return;
+    setModalBusy(true);
+    setModalError('');
+    try {
+      const res = await updateWrongRecord(editingRecord.id, {
+        subject: targetSubject,
+        note: noteDraft.trim(),
+      });
+      if (!res.ok) {
+        setModalError(res.message);
+        return;
+      }
+      setExpanded(prev => ({ ...prev, [targetSubject]: true }));
+      onToast?.(`错题已转移至【${getSubjectLabel(targetSubject, state.subjectLabels)}】并更新笔记`);
+      setEditingRecord(null);
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const openSubjectRename = (subj: StudySubject) => {
+    setEditingSubject(subj);
+    setSubjectLabelDraft(getSubjectLabel(subj, state.subjectLabels));
+    setModalError('');
+  };
+
+  const handleSaveSubjectLabel = async (e: React.FormEvent, resetToDefault = false) => {
+    e.preventDefault();
+    if (!editingSubject || modalBusy || !updateSubjectLabel) return;
+    const nextLabel = resetToDefault ? '' : subjectLabelDraft.trim();
+    if (nextLabel.length > SUBJECT_LABEL_MAX) {
+      setModalError(`分类名称需为 1 至 ${SUBJECT_LABEL_MAX} 个字符`);
+      return;
+    }
+    setModalBusy(true);
+    setModalError('');
+    try {
+      const res = await updateSubjectLabel(editingSubject, nextLabel);
+      if (!res.ok) {
+        setModalError(res.message);
+        return;
+      }
+      onToast?.(!nextLabel ? `已恢复默认分类名「${editingSubject}」` : `已将分类重命名为「${nextLabel}」`);
+      setEditingSubject(null);
+    } finally {
+      setModalBusy(false);
+    }
+  };
   const [query, setQuery] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -189,13 +260,13 @@ export const WrongView: React.FC<WrongViewProps> = ({
       },
       ...subjectGroupsAll.map(g => ({
         value: g.subject,
-        label: g.subject,
+        label: getSubjectLabel(g.subject, state.subjectLabels),
         dotColor: g.color,
         badge: `${g.records.length}道`,
         badgeVariant: (g.records.length > 0 ? 'sage' : 'gray') as 'sage' | 'gray',
       })),
     ],
-    [dateAndQueryFiltered.length, subjectGroupsAll]
+    [dateAndQueryFiltered.length, subjectGroupsAll, state.subjectLabels]
   );
 
   const filter = (change: () => void) => {
@@ -308,7 +379,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                 <>匹配 {filtered.length} 道错题</>
               ) : (
                 <>
-                  已定位：<strong className="text-ink-main">{selectedSubject}</strong> ({filtered.length} 道)
+                  已定位：<strong className="text-ink-main">{getSubjectLabel(selectedSubject, state.subjectLabels)}</strong> ({filtered.length} 道)
                 </>
               )}
             </span>
@@ -428,7 +499,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                   style={{ backgroundColor: group.color }}
                 />
                 <span className="text-sm font-bold text-ink-main truncate">
-                  {group.subject}
+                  {getSubjectLabel(group.subject, state.subjectLabels)}
                 </span>
                 <Tag
                   variant={group.records.length > 0 ? 'sage' : 'gray'}
@@ -439,6 +510,16 @@ export const WrongView: React.FC<WrongViewProps> = ({
                 <span className="text-ink-muted ml-0.5">
                   {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </span>
+              </button>
+
+              <button
+                type="button"
+                aria-label={`编辑分类名称：${getSubjectLabel(group.subject, state.subjectLabels)}`}
+                title={`修改「${getSubjectLabel(group.subject, state.subjectLabels)}」分类名称`}
+                onClick={() => openSubjectRename(group.subject)}
+                className="shrink-0 p-1 rounded-lg text-ink-muted hover:text-sage hover:bg-black/5 transition"
+              >
+                <Edit2 size={13} />
               </button>
 
               {open && totalPages > 1 && (
@@ -502,7 +583,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                 {group.records.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-line bg-paper/80 py-6 px-4 text-center space-y-2">
                     <p className="text-xs text-ink-muted">
-                      【{group.subject}】分类下暂无错题记录
+                      【{getSubjectLabel(group.subject, state.subjectLabels)}】分类下暂无错题记录
                     </p>
                   </div>
                 ) : viewMode === 'list' ? (
@@ -563,9 +644,18 @@ export const WrongView: React.FC<WrongViewProps> = ({
                           <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
+                              aria-label="转移错题分类或编辑笔记"
+                              title="转移分类 / 编辑笔记"
+                              onClick={() => openEditRecordModal(record)}
+                              className="p-1.5 rounded-lg text-ink-muted hover:text-sage hover:bg-sage-light/50"
+                            >
+                              <ArrowRightLeft size={14} />
+                            </button>
+                            <button
+                              type="button"
                               aria-label="删除错题照片"
                               title="删除错题照片"
-                              onClick={() => onOpenDeleteConfirm(record.id, group.subject)}
+                              onClick={() => onOpenDeleteConfirm(record.id, getSubjectLabel(group.subject, state.subjectLabels))}
                               className="p-1.5 rounded-lg text-ink-muted hover:text-alarm hover:bg-alarm-light/50"
                             >
                               <Trash2 size={14} />
@@ -622,9 +712,18 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             </span>
                             <button
                               type="button"
+                              aria-label="转移错题分类或编辑笔记"
+                              title="转移分类 / 编辑笔记"
+                              onClick={() => openEditRecordModal(record)}
+                              className="p-0.5 text-ink-muted hover:text-sage shrink-0"
+                            >
+                              <ArrowRightLeft size={12} />
+                            </button>
+                            <button
+                              type="button"
                               aria-label="删除错题照片"
                               title="删除错题照片"
-                              onClick={() => onOpenDeleteConfirm(record.id, group.subject)}
+                              onClick={() => onOpenDeleteConfirm(record.id, getSubjectLabel(group.subject, state.subjectLabels))}
                               className="p-0.5 text-ink-muted hover:text-alarm shrink-0"
                             >
                               <Trash2 size={12} />
@@ -681,15 +780,27 @@ export const WrongView: React.FC<WrongViewProps> = ({
                               <Eye size={13} />
                               查看详情
                             </button>
-                            <button
-                              type="button"
-                              title="删除错题照片"
-                              aria-label="删除错题照片"
-                              className="p-1 text-ink-muted hover:text-alarm"
-                              onClick={() => onOpenDeleteConfirm(record.id, group.subject)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                title="转移分类 / 编辑笔记"
+                                aria-label="转移错题分类或编辑笔记"
+                                className="px-1.5 py-0.5 rounded-md bg-sage-light/70 text-[11px] font-medium text-sage hover:bg-sage-light inline-flex items-center gap-0.5"
+                                onClick={() => openEditRecordModal(record)}
+                              >
+                                <ArrowRightLeft size={11} />
+                                <span>转移</span>
+                              </button>
+                              <button
+                                type="button"
+                                title="删除错题照片"
+                                aria-label="删除错题照片"
+                                className="p-1 text-ink-muted hover:text-alarm"
+                                onClick={() => onOpenDeleteConfirm(record.id, getSubjectLabel(group.subject, state.subjectLabels))}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         </Card>
                       );
@@ -753,13 +864,114 @@ export const WrongView: React.FC<WrongViewProps> = ({
                   className="w-full py-2.5 rounded-xl border-2 border-dashed border-sage/40 bg-paper hover:bg-sage-light/50 text-xs font-bold text-sage-dark flex items-center justify-center gap-1.5 transition"
                 >
                   <Camera size={14} />
-                  <span>+ 快速添加【{group.subject}】错题照片</span>
+                  <span>+ 快速添加【{getSubjectLabel(group.subject, state.subjectLabels)}】错题照片</span>
                 </button>
               </div>
             )}
           </section>
         );
       })}
+
+      {/* 转移错题分类 / 编辑复盘笔记弹窗 */}
+      <Modal
+        isOpen={Boolean(editingRecord)}
+        onClose={() => setEditingRecord(null)}
+        title="转移错题分类 / 编辑笔记"
+        closeDisabled={modalBusy}
+      >
+        {editingRecord && (
+          <form onSubmit={handleSaveRecordEdit} className="space-y-4">
+            {modalError && (
+              <p role="alert" className="text-xs text-alarm bg-alarm-light p-2.5 rounded-xl">
+                {modalError}
+              </p>
+            )}
+            <div>
+              <span className="block text-xs text-ink-muted font-medium mb-1.5">选择所属分类</span>
+              <SubjectCapsuleGrid
+                ariaLabel="转移错题所属分类"
+                columns={3}
+                disabled={modalBusy}
+                options={getSubjectOptions(state.subjectLabels, true)}
+                value={targetSubject}
+                onChange={val => setTargetSubject(val as StudySubject)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ink-muted font-medium mb-1" htmlFor="wrong-edit-note">
+                复盘原因与解题突破口（选填）
+              </label>
+              <textarea
+                id="wrong-edit-note"
+                aria-label="编辑复盘笔记"
+                rows={3}
+                maxLength={2000}
+                disabled={modalBusy}
+                value={noteDraft}
+                onChange={e => setNoteDraft(e.target.value)}
+                placeholder="记录错因、易错陷阱或解题关键点..."
+                className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-xs focus:outline-none focus:border-sage resize-none"
+              />
+            </div>
+            <Button type="submit" variant="primary" fullWidth disabled={modalBusy}>
+              {modalBusy ? '正在保存…' : '保存分类与笔记'}
+            </Button>
+          </form>
+        )}
+      </Modal>
+
+      {/* 编辑分类名称弹窗 */}
+      <Modal
+        isOpen={Boolean(editingSubject)}
+        onClose={() => setEditingSubject(null)}
+        title="编辑分类名称"
+        closeDisabled={modalBusy}
+      >
+        {editingSubject && (
+          <form onSubmit={e => void handleSaveSubjectLabel(e, false)} className="space-y-4">
+            {modalError && (
+              <p role="alert" className="text-xs text-alarm bg-alarm-light p-2.5 rounded-xl">
+                {modalError}
+              </p>
+            )}
+            <div className="rounded-xl bg-cream/70 p-3 text-xs text-ink-muted border border-line/60">
+              标准分类槽位：<span className="font-bold text-ink-main">{editingSubject}</span>
+            </div>
+            <div>
+              <label className="block text-xs text-ink-muted font-medium mb-1" htmlFor="wrong-subject-rename-input">
+                自定义分类名称（最多 {SUBJECT_LABEL_MAX} 字）
+              </label>
+              <input
+                id="wrong-subject-rename-input"
+                aria-label="自定义分类名称"
+                type="text"
+                maxLength={SUBJECT_LABEL_MAX}
+                disabled={modalBusy}
+                value={subjectLabelDraft}
+                onChange={e => setSubjectLabelDraft(e.target.value)}
+                placeholder={`默认：${editingSubject}`}
+                className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              {state.subjectLabels?.[editingSubject] && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={modalBusy}
+                  onClick={e => void handleSaveSubjectLabel(e, true)}
+                >
+                  <RotateCcw size={14} />
+                  恢复默认
+                </Button>
+              )}
+              <Button type="submit" variant="primary" fullWidth disabled={modalBusy}>
+                {modalBusy ? '正在保存…' : '保存分类名称'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
 
       <FloatingDatePicker
         isOpen={pickerTarget !== null}

@@ -1,13 +1,21 @@
 import { validateTimerSessions } from './sessionValidation';
 import type { AppState, Plan } from '../types';
+import { STUDY_SUBJECTS, SUBJECT_LABEL_MAX } from '../types';
 
 export const PLAN_EXTENSION_KEYS = ['plannedLessons', 'timerMode', 'focusMinutes', 'restMinutes', 'timerPhase', 'phaseAccumulatedMs', 'restStart', 'archived', 'sessionId'] as const;
 
 /** Shared by server sync and portable backup import, so new fields cannot disappear in either path. */
 export function validateStudyExtensions(state: any): string | null {
   const records = Array.isArray(state.records) ? state.records : [];
-  const hasFields = records.some((r: any) => r && r.sourceApplied !== undefined) || state.todos !== undefined || (Array.isArray(state.plans) && state.plans.some((p: any) => p && PLAN_EXTENSION_KEYS.some(k => p[k] !== undefined)));
+  const hasFields = records.some((r: any) => r && r.sourceApplied !== undefined) || state.todos !== undefined || state.subjectLabels !== undefined || (Array.isArray(state.plans) && state.plans.some((p: any) => p && PLAN_EXTENSION_KEYS.some(k => p[k] !== undefined)));
   if (hasFields && ![4, 5].includes(state.version)) return '待办和新版计时字段需要工作区版本4，请更新客户端。';
+  if (state.subjectLabels !== undefined) {
+    if (!state.subjectLabels || typeof state.subjectLabels !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(state.subjectLabels))) return '分类自定义名称配置无效。';
+    const validKeys = new Set<string>(STUDY_SUBJECTS);
+    for (const [k, v] of Object.entries(state.subjectLabels)) {
+      if (!validKeys.has(k) || typeof v !== 'string' || !v.trim() || v.length > SUBJECT_LABEL_MAX) return '分类自定义名称需为1至20个字符。';
+    }
+  }
   if (state.todos !== undefined) {
     if (!Array.isArray(state.todos) || state.todos.length > 5000) return '待办必须为数组且最多5000条。';
     const ids = new Set<string>();

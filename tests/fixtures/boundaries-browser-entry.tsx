@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { AppProvider, useApp } from '../../src/context/AppContext';
+import { AppContext, AppProvider, useApp } from '../../src/context/AppContext';
+import { App } from '../../src/App';
 import { BackupModal } from '../../src/components/views/BackupModal';
 import { SettingsView } from '../../src/components/views/SettingsView';
 import * as db from '../../src/utils/db';
@@ -27,6 +28,8 @@ Object.assign(w, {
   React,
   createRoot,
   AppProvider,
+  AppContext,
+  App,
   BackupModal,
   SettingsView,
   ConflictModal,
@@ -123,4 +126,15 @@ w.mount = () => {
       React.createElement(AppProvider, null, React.createElement(Consumer))
     );
   }
+  return new Promise<void>(resolve => {
+    const start = Date.now();
+    const check = () => {
+      if ((w.api && !w.api.isLoading) || Date.now() - start > 3000) {
+        resolve();
+      } else {
+        setTimeout(check, 10);
+      }
+    };
+    check();
+  });
 };

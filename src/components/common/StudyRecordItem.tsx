@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tag } from './UIComponents';
-import { StudyRecord } from '../../types';
+import { StudyRecord, getSubjectLabel } from '../../types';
+import { useApp } from '../../context/AppContext';
 import { getCompletionSummary } from '../../utils/workflowPresentation';
 
 const TYPE_LABEL = { book: '刷题', course: '网课', custom: '自定义' } as const;
@@ -16,6 +17,7 @@ export const StudyRecordItem: React.FC<{
   dateLabel?: string;
   onEdit?: () => void;
 }> = ({ record, name, dateLabel, onEdit }) => {
+  const { state } = useApp();
   const summary = getCompletionSummary(record);
   const meta = record.type === 'book' ? `${record.minutes} 分钟 · ${summary}` : summary;
   return (
@@ -23,7 +25,7 @@ export const StudyRecordItem: React.FC<{
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <Tag variant={TYPE_VARIANT[record.type]}>{TYPE_LABEL[record.type]}</Tag>
-          <Tag variant="gray">{record.subject}</Tag>
+          <Tag variant="gray">{getSubjectLabel(record.subject, state?.subjectLabels)}</Tag>
           {dateLabel && <span className="text-[10px] text-ink-muted">{dateLabel}</span>}
         </div>
         <p className="truncate text-sm font-medium text-ink-main">{name}</p>

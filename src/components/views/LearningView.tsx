@@ -4,9 +4,9 @@ import { TodoView } from './TodoView';
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Card, Button, Tag, Segment, ProgressBar } from '../common/UIComponents';
-import { Plus, Edit2, Trash2, ExternalLink, BookOpen, Video, ListOrdered, CheckCircle2 } from 'lucide-react';
-import { Book, Course, LibraryItem, LearningSubTab } from '../../types';
+import { Card, Button, Tag, Segment, ProgressBar, Modal, SubjectCapsuleGrid } from '../common/UIComponents';
+import { Plus, Edit2, Trash2, ExternalLink, ArrowRightLeft, RotateCcw } from 'lucide-react';
+import { Book, Course, LearningSubTab, SUBJECT_LABEL_MAX, getSubjectLabel, getSubjectOptions } from '../../types';
 
 interface LearningViewProps {
   initialSubTab?: LearningSubTab;
@@ -27,15 +27,86 @@ export const LearningView: React.FC<LearningViewProps> = ({
   onToast,
   onAddCourseToToday,
 }) => {
-  const { state, updateLibraryMinutes, quickAddPlan } = useApp();
+  const { state, editBook, editCourse, updateSubjectLabel } = useApp();
   const [errorMsg, setErrorMsg] = useState('');
   const [bookGroups, setBookGroups] = useState<Partial<Record<Subject, boolean>>>({});
   const [courseGroups, setCourseGroups] = useState<Partial<Record<Subject, boolean>>>({});
-  const [pendingAddId, setPendingAddId] = useState('');
-  const updateMinutes = async (id: string, minutes: number) => {
-    setErrorMsg('');
-    const result = await updateLibraryMinutes(id, minutes);
-    if (!result.ok) setErrorMsg(result.message);
+  const [movingTarget, setMovingTarget] = useState<
+    | { type: 'book'; item: Book }
+    | { type: 'course'; item: Course }
+    | null
+  >(null);
+  const [targetSubject, setTargetSubject] = useState<Subject>('资料分析');
+  const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
+  const [subjectLabelDraft, setSubjectLabelDraft] = useState('');
+  const [modalBusy, setModalBusy] = useState(false);
+  const [modalError, setModalError] = useState('');
+
+  const openMoveModal = (target: { type: 'book'; item: Book } | { type: 'course'; item: Course }) => {
+    setMovingTarget(target);
+    setTargetSubject(target.item.subject);
+    setModalError('');
+  };
+
+  const handleConfirmMove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movingTarget || modalBusy) return;
+    if (targetSubject === movingTarget.item.subject) {
+      setMovingTarget(null);
+      return;
+    }
+    setModalBusy(true);
+    setModalError('');
+    try {
+      const res =
+        movingTarget.type === 'book'
+          ? await editBook(movingTarget.item.id, { subject: targetSubject })
+          : await editCourse(movingTarget.item.id, { subject: targetSubject });
+      if (!res.ok) {
+        setModalError(res.message);
+        return;
+      }
+      const newLabel = getSubjectLabel(targetSubject, state.subjectLabels);
+      if (movingTarget.type === 'book') {
+        setBookGroups(prev => ({ ...prev, [targetSubject]: true }));
+        onToast(`已将题本「${movingTarget.item.name}」转移至【${newLabel}】`);
+      } else {
+        setCourseGroups(prev => ({ ...prev, [targetSubject]: true }));
+        onToast(`已将网课「${movingTarget.item.name}」转移至【${newLabel}】`);
+      }
+      setMovingTarget(null);
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const openSubjectRename = (subj: Subject) => {
+    setEditingSubject(subj);
+    setSubjectLabelDraft(getSubjectLabel(subj, state.subjectLabels));
+    setModalError('');
+  };
+
+  const handleSaveSubjectLabel = async (e: React.FormEvent, resetToDefault = false) => {
+    e.preventDefault();
+    if (!editingSubject || modalBusy) return;
+    const nextLabel = resetToDefault ? '' : subjectLabelDraft.trim();
+    if (nextLabel.length > SUBJECT_LABEL_MAX) {
+      setModalError(`分类名称需为 1 至 ${SUBJECT_LABEL_MAX} 个字符`);
+      return;
+    }
+    setModalBusy(true);
+    setModalError('');
+    try {
+      const res = await updateSubjectLabel(editingSubject, nextLabel);
+      if (!res.ok) {
+        setModalError(res.message);
+        return;
+      }
+      onToast(!nextLabel ? `已恢复默认分类名「${editingSubject}」` : `已将分类重命名为「${nextLabel}」`);
+      setEditingSubject(null);
+    } finally {
+      setModalBusy(false);
+    }
   };
   const [subTab, setSubTab] = useState<LearningSubTab>(initialSubTab);
 
@@ -89,7 +160,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
             </Button>
           </div>
 
-          <SubjectGroups items={state.books} unit="本题本" expanded={bookGroups} onToggle={subject => setBookGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,b) => n+b.done,0), total: items.reduce((n,b) => n+b.total,0), unit: '题' })} renderItem={b => {
+          <SubjectGroups items={state.books} unit="本题本" subjectLabels={state.subjectLabels} onEditSubject={openSubjectRename} expanded={bookGroups} onToggle={subject => setBookGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,b) => n+b.done,0), total: items.reduce((n,b) => n+b.total,0), unit: '题' })} renderItem={b => {
               const pct = b.total > 0 ? Math.min(100, Math.round((b.done / b.total) * 100)) : 0;
               const accuracy = b.done > 0 ? Math.max(0, Math.round(((b.done - b.errors) / b.done) * 100)) : 0;
 
@@ -99,7 +170,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <Tag variant="potato">{b.subject}</Tag>
+                        <Tag variant="potato">{getSubjectLabel(b.subject, state.subjectLabels)}</Tag>
                         {b.pages > 0 && (
                           <span className="text-[11px] text-ink-muted">全书 {b.pages} 页</span>
                         )}
@@ -109,6 +180,16 @@ export const LearningView: React.FC<LearningViewProps> = ({
                       </h3>
                     </div>
                     <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openMoveModal({ type: 'book', item: b })}
+                        className="px-2 py-1 text-[11px] font-medium text-sage bg-sage-light/70 hover:bg-sage-light rounded-lg inline-flex items-center gap-1 transition"
+                        title="转移到其他分类"
+                        aria-label={`转移题本分类：${b.name}`}
+                      >
+                        <ArrowRightLeft size={12} />
+                        <span>转移分类</span>
+                      </button>
                       <button
                         onClick={() => onOpenBookEdit(b)}
                         className="p-1.5 text-ink-muted hover:text-sage rounded-lg hover:bg-black/5"
@@ -163,7 +244,7 @@ export const LearningView: React.FC<LearningViewProps> = ({
             </Button>
           </div>
 
-          <SubjectGroups items={state.courses} unit="门网课" expanded={courseGroups} onToggle={subject => setCourseGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,c) => n+c.completedLessons,0), total: items.reduce((n,c) => n+c.totalLessons,0), unit: '节' })} renderItem={c => {
+          <SubjectGroups items={state.courses} unit="门网课" subjectLabels={state.subjectLabels} onEditSubject={openSubjectRename} expanded={courseGroups} onToggle={subject => setCourseGroups(prev => ({ ...prev, [subject]: !prev[subject] }))} progress={items => ({ done: items.reduce((n,c) => n+c.completedLessons,0), total: items.reduce((n,c) => n+c.totalLessons,0), unit: '节' })} renderItem={c => {
               const pct = c.totalLessons > 0 ? Math.min(100, Math.round((c.completedLessons / c.totalLessons) * 100)) : 0;
               const hasUrl = Boolean(c.url && /^https?:\/\//i.test(c.url));
 
@@ -172,13 +253,23 @@ export const LearningView: React.FC<LearningViewProps> = ({
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <Tag variant="course">{c.subject}</Tag>
+                        <Tag variant="course">{getSubjectLabel(c.subject, state.subjectLabels)}</Tag>
                       </div>
                       <h3 className="text-sm font-bold text-ink-main truncate">
                         {c.name}
                       </h3>
                     </div>
                     <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openMoveModal({ type: 'course', item: c })}
+                        className="px-2 py-1 text-[11px] font-medium text-sage bg-sage-light/70 hover:bg-sage-light rounded-lg inline-flex items-center gap-1 transition"
+                        title="转移到其他分类"
+                        aria-label={`转移网课分类：${c.name}`}
+                      >
+                        <ArrowRightLeft size={12} />
+                        <span>转移分类</span>
+                      </button>
                       <button
                         onClick={() => onOpenCourseEdit(c)}
                         className="p-1.5 text-ink-muted hover:text-sage rounded-lg hover:bg-black/5"
@@ -232,6 +323,100 @@ export const LearningView: React.FC<LearningViewProps> = ({
       )}
 
       {subTab === 'library' && <TodoView />}
+
+      {/* 转移题本/网课所属分类弹窗 */}
+      <Modal
+        isOpen={Boolean(movingTarget)}
+        onClose={() => setMovingTarget(null)}
+        title="转移所属分类"
+        closeDisabled={modalBusy}
+      >
+        {movingTarget && (
+          <form onSubmit={handleConfirmMove} className="space-y-4">
+            {modalError && (
+              <p role="alert" className="text-xs text-alarm bg-alarm-light p-2.5 rounded-xl">
+                {modalError}
+              </p>
+            )}
+            <div className="rounded-xl bg-cream/70 p-3 text-xs space-y-1 border border-line/60">
+              <div className="font-bold text-sm text-ink-main">{movingTarget.item.name}</div>
+              <div className="text-ink-muted">
+                当前分类：<span className="font-semibold text-ink-main">{getSubjectLabel(movingTarget.item.subject, state.subjectLabels)}</span>
+              </div>
+            </div>
+            <div>
+              <span className="block text-xs text-ink-muted font-medium mb-1.5">选择目标分类</span>
+              <SubjectCapsuleGrid
+                ariaLabel="选择目标分类"
+                columns={4}
+                disabled={modalBusy}
+                options={getSubjectOptions(state.subjectLabels, false)}
+                value={targetSubject}
+                onChange={val => setTargetSubject(val as Subject)}
+              />
+            </div>
+            <p className="text-[11px] text-ink-muted leading-relaxed">
+              转移后，该{movingTarget.type === 'book' ? '题本' : '网课'}关联的事项库、日程、学习登记与错题分类会自动同步更新。
+            </p>
+            <Button type="submit" variant="primary" fullWidth disabled={modalBusy}>
+              {modalBusy ? '正在转移…' : '确认转移分类'}
+            </Button>
+          </form>
+        )}
+      </Modal>
+
+      {/* 编辑八大类名称弹窗 */}
+      <Modal
+        isOpen={Boolean(editingSubject)}
+        onClose={() => setEditingSubject(null)}
+        title="编辑分类名称"
+        closeDisabled={modalBusy}
+      >
+        {editingSubject && (
+          <form onSubmit={e => void handleSaveSubjectLabel(e, false)} className="space-y-4">
+            {modalError && (
+              <p role="alert" className="text-xs text-alarm bg-alarm-light p-2.5 rounded-xl">
+                {modalError}
+              </p>
+            )}
+            <div className="rounded-xl bg-cream/70 p-3 text-xs text-ink-muted border border-line/60">
+              标准分类槽位：<span className="font-bold text-ink-main">{editingSubject}</span>
+            </div>
+            <div>
+              <label className="block text-xs text-ink-muted font-medium mb-1" htmlFor="subject-rename-input">
+                自定义分类名称（最多 {SUBJECT_LABEL_MAX} 字）
+              </label>
+              <input
+                id="subject-rename-input"
+                aria-label="自定义分类名称"
+                type="text"
+                maxLength={SUBJECT_LABEL_MAX}
+                disabled={modalBusy}
+                value={subjectLabelDraft}
+                onChange={e => setSubjectLabelDraft(e.target.value)}
+                placeholder={`默认：${editingSubject}`}
+                className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm focus:outline-none focus:border-sage"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              {state.subjectLabels?.[editingSubject] && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={modalBusy}
+                  onClick={e => void handleSaveSubjectLabel(e, true)}
+                >
+                  <RotateCcw size={14} />
+                  恢复默认
+                </Button>
+              )}
+              <Button type="submit" variant="primary" fullWidth disabled={modalBusy}>
+                {modalBusy ? '正在保存…' : '保存分类名称'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 };

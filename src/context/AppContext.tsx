@@ -98,6 +98,9 @@ import {
   applyDeleteCustomItem,
   applyAddWrongRecords,
   applyDeleteWrongRecord,
+  applyUpdateWrongRecord,
+  applyUpdateSubjectLabel,
+  applyMovePlansToDate,
   applyUpdateProfile,
   applyUpdateCountdown,
   applyAddCountdown,
@@ -142,6 +145,7 @@ export interface AppContextType {
   startTimer: (planId: string) => Promise<MutationResult<void>>;
   pauseTimer: (planId: string) => Promise<MutationResult<void>>;
   deletePlan: (planId: string) => Promise<MutationResult<void>>;
+  movePlansToDate: (planIds: string[], targetDate?: string) => Promise<MutationResult<number>>;
 
   addTodo: (text: string, date?: string) => Promise<MutationResult<TodoItem>>;
   toggleTodo: (id: string) => Promise<MutationResult<void>>;
@@ -185,6 +189,8 @@ export interface AppContextType {
   // Wrong records
   addWrongRecords: (bookId: string, note: string, images: string[], date?: string) => Promise<MutationResult<WrongRecord[]>>;
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
+  updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string }) => Promise<MutationResult<WrongRecord>>;
+  updateSubjectLabel: (subject: StudySubject, label: string) => Promise<MutationResult<void>>;
 
   // Profile
   updateProfile: (name: string, avatar?: string) => Promise<MutationResult<Profile>>;
@@ -1403,6 +1409,28 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
     [executeMutation]
   );
 
+  const updateWrongRecord = useCallback(
+    async (id: string, updates: { subject?: StudySubject; note?: string }): Promise<MutationResult<WrongRecord>> => {
+      return executeMutation(draft => applyUpdateWrongRecord(draft, id, updates), 'update_wrong_record');
+    },
+    [executeMutation]
+  );
+
+  const updateSubjectLabel = useCallback(
+    async (subject: StudySubject, label: string): Promise<MutationResult<void>> => {
+      return executeMutation(draft => applyUpdateSubjectLabel(draft, subject, label), 'update_subject_label');
+    },
+    [executeMutation]
+  );
+
+  const movePlansToDate = useCallback(
+    async (planIds: string[], targetDate?: string): Promise<MutationResult<number>> => {
+      const destDate = targetDate || activeDate;
+      return executeMutation(draft => applyMovePlansToDate(draft, planIds, destDate), 'move_plans_to_date');
+    },
+    [activeDate, executeMutation]
+  );
+
   const updateProfile = useCallback(
     async (name: string, avatar?: string): Promise<MutationResult<Profile>> => {
       return executeMutation(draft => applyUpdateProfile(draft, name, avatar), 'update_profile');
@@ -2381,6 +2409,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         startTimer,
         pauseTimer,
         deletePlan,
+        movePlansToDate,
         completePlan,
         updateStudyRecord,
         completeBookPlan,
@@ -2397,6 +2426,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         deleteCustomItem,
         addWrongRecords,
         deleteWrongRecord,
+        updateWrongRecord,
+        updateSubjectLabel,
         updateProfile,
         applyDefaultSeed,
         resetState,

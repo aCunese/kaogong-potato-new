@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
 import { StudyRecordItem } from '../common/StudyRecordItem';
-import { Plan, StudyRecord } from '../../types';
+import { Plan, StudyRecord, getSubjectLabel } from '../../types';
 import {
   addDays,
   canCorrectStudyRecord,
@@ -27,6 +27,7 @@ interface StudyRecordsViewProps {
   onEditRecord?: (record: StudyRecord) => void;
   onOpenComplete?: (plan: Plan) => void;
   onDeletePlan?: (plan: Plan) => void;
+  onToast?: (msg: string) => void;
 }
 
 const TYPE_LABEL = { book: '刷题', course: '网课', custom: '自定义' } as const;
@@ -37,8 +38,27 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
   onEditRecord,
   onOpenComplete,
   onDeletePlan,
+  onToast,
 }) => {
-  const { state, activeDate } = useApp();
+  const { state, activeDate, movePlansToDate } = useApp();
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState('');
+
+  const handleMoveToToday = async (planIds: string[], toastMsg: string) => {
+    if (moving || !movePlansToDate || planIds.length === 0) return;
+    setMoving(true);
+    setMoveError('');
+    try {
+      const res = await movePlansToDate(planIds, activeDate);
+      if (!res.ok) {
+        setMoveError(res.message);
+      } else {
+        onToast?.(toastMsg);
+      }
+    } finally {
+      setMoving(false);
+    }
+  };
   const [viewMode, setViewMode] = useState<'calendar' | 'detail'>('calendar');
   const baseDate = initialDate || activeDate;
   const [selectedDate, setSelectedDate] = useState<string>(baseDate);
@@ -180,10 +200,28 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
                 <Clock size={14} className="text-potato-dark shrink-0" />
                 <h3 className="text-xs font-bold text-ink-main">待补登记历史日程</h3>
               </div>
-              <Tag variant="potato" className="font-mono text-[11px] py-0">
-                共 {pendingHistoryPlans.length} 项待补
-              </Tag>
+              <div className="flex items-center gap-1.5">
+                {pendingHistoryPlans.length > 1 && (
+                  <button
+                    type="button"
+                    disabled={moving}
+                    onClick={() =>
+                      void handleMoveToToday(
+                        pendingHistoryPlans.map(p => p.id),
+                        `已将 ${pendingHistoryPlans.length} 项待补日程全部移到今天`
+                      )
+                    }
+                    className="rounded-lg border border-sage/50 bg-sage-light/70 px-2 py-0.5 text-[11px] font-bold text-sage-dark hover:bg-sage-light active:scale-95"
+                  >
+                    全部移到今天
+                  </button>
+                )}
+                <Tag variant="potato" className="font-mono text-[11px] py-0">
+                  共 {pendingHistoryPlans.length} 项待补
+                </Tag>
+              </div>
             </div>
+            {moveError && <p role="alert" className="text-xs text-alarm">{moveError}</p>}
             <div className="overflow-hidden rounded-xl border border-line bg-paper divide-y divide-line/60">
               {pendingHistoryPlans.map(plan => {
                 const elapsed = Math.floor(getPlanCompletion(plan, state.records).minutes);
@@ -207,10 +245,23 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
                         <p className="truncate text-sm font-medium text-ink-main">{plan.name}</p>
                       </div>
                       <p className="mt-0.5 text-[10px] text-ink-muted">
-                        {studyDateLabel(plan.date, activeDate)} · {TYPE_LABEL[plan.type]} · {plan.subject} · {elapsed} / {plan.plannedMinutes} 分钟
+                        {studyDateLabel(plan.date, activeDate)} · {TYPE_LABEL[plan.type]} · {getSubjectLabel(plan.subject, state.subjectLabels)} · {elapsed} / {plan.plannedMinutes} 分钟
                       </p>
                     </button>
-                    <div className="flex shrink-0 items-center gap-2 text-xs">
+                    <div className="flex shrink-0 items-center gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        disabled={moving}
+                        onClick={() =>
+                          void handleMoveToToday(
+                            [plan.id],
+                            `已将「${plan.name}」移到今天（保留已累计 ${elapsed} 分钟）`
+                          )
+                        }
+                        className="rounded-lg border border-sage/50 bg-sage-light/60 px-2 py-1 text-xs font-bold text-sage-dark hover:bg-sage-light active:scale-95"
+                      >
+                        移到今天
+                      </button>
                       <button
                         type="button"
                         onClick={() => onOpenComplete?.(plan)}
@@ -439,11 +490,26 @@ export const StudyRecordsView: React.FC<StudyRecordsViewProps> = ({
                         {plan.name}
                       </p>
                       <p className="mt-0.5 text-[10px] text-ink-muted">
-                        {TYPE_LABEL[plan.type]} · {plan.subject} · {elapsed} / {plan.plannedMinutes} 分钟 ·{' '}
+                        {TYPE_LABEL[plan.type]} · {getSubjectLabel(plan.subject, state.subjectLabels)} · {elapsed} / {plan.plannedMinutes} 分钟 ·{' '}
                         {plan.done ? '已登记' : '待补登记'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2 self-center text-[11px]">
+                      {!isToday && !plan.done && (
+                        <button
+                          type="button"
+                          disabled={moving}
+                          onClick={() =>
+                            void handleMoveToToday(
+                              [plan.id],
+                              `已将「${plan.name}」移到今天（保留已累计 ${elapsed} 分钟）`
+                            )
+                          }
+                          className="text-sage underline decoration-sage/40 underline-offset-2"
+                        >
+                          移到今天
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => onOpenComplete?.(plan)}

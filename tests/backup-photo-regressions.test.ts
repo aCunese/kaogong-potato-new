@@ -121,7 +121,7 @@ describe('S10: Capacity limits, photo readability & workflow polish', () => {
           await w.db.commitMutation(() => ({ nextState: state, value: undefined }), 'seed_huge');
 
           w.backupModalOpen = true;
-          w.mount();
+          await w.mount();
           await new Promise(r => setTimeout(r, 60));
 
           // Use the app context exportBackup directly
@@ -161,7 +161,7 @@ describe('S10: Capacity limits, photo readability & workflow polish', () => {
           await w.db.commitMutation(() => ({ nextState: state, value: undefined }), 'seed_near_limit');
 
           w.backupModalOpen = true;
-          w.mount();
+          await w.mount();
           await new Promise(r => setTimeout(r, 60));
 
           const modalText = document.body.innerText;

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal, Button, CustomSelect } from '../common/UIComponents';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { StudySubject, STUDY_SUBJECTS, TimerMode, MutationResult } from '../../types';
+import { StudySubject, STUDY_SUBJECTS, TimerMode, MutationResult, getSubjectLabel } from '../../types';
 import { sessionTotals } from '../../utils/timerSessions';
 
 const format = (ms: number) => {
@@ -95,7 +95,7 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
       return;
     }
     if (current.subject) {
-      const subject = current.subject;
+      const subject = getSubjectLabel(current.subject, state.subjectLabels);
       const minutes = Math.max(1, Math.round(focusMs / 60000));
       const saved = await run(() => finishSession(current.id));
       if (saved) {
@@ -141,7 +141,7 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
     {selected && selected.subject ? <div className="space-y-4">
       <h3 className="font-bold text-sm">补登记本次计时</h3>
       <div className="rounded-xl bg-sage-light/40 p-3 text-xs space-y-1">
-        <p>类别 <span className="font-bold text-ink-main">{selected.subject}</span></p>
+        <p>类别 <span className="font-bold text-ink-main">{getSubjectLabel(selected.subject, state.subjectLabels)}</span></p>
         <p>专注用时 <output aria-label="本次实际学习用时">{Math.floor(sessionTotals(selected).focusMs / 60000)} 分钟</output></p>
         <p className="text-ink-muted">将按自定义学习登记一次，重复点击不会产生第二条记录。</p>
       </div>
@@ -162,8 +162,8 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
           emptyText="请先在学习库添加相应事项"
           options={sources.map(l => ({
             value: l.id,
-            label: `${l.subject} · ${l.name}`,
-            badge: l.subject,
+            label: `${getSubjectLabel(l.subject, state.subjectLabels)} · ${l.name}`,
+            badge: getSubjectLabel(l.subject, state.subjectLabels),
           }))}
         />
       </div>
@@ -178,15 +178,15 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
       <fieldset disabled={running || busy} className="space-y-2 disabled:opacity-70">
         <div className="flex items-center justify-between">
           <span className="text-xs text-ink-muted">学习类别 <span className="text-[10px]">（开始前必选，结束自动登记）</span></span>
-          {lockedCategory && <span className="text-[11px] text-sage font-medium">已选：{lockedCategory} · 已锁定</span>}
+          {lockedCategory && <span className="text-[11px] text-sage font-medium">已选：{getSubjectLabel(lockedCategory, state.subjectLabels)} · 已锁定</span>}
         </div>
         {lockedCategory ? (
-          <div className="rounded-xl border border-sage/40 bg-sage-light/40 p-2.5 text-sm font-bold text-ink-main text-center">{lockedCategory}</div>
+          <div className="rounded-xl border border-sage/40 bg-sage-light/40 p-2.5 text-sm font-bold text-ink-main text-center">{getSubjectLabel(lockedCategory, state.subjectLabels)}</div>
         ) : running ? (
           <p className="rounded-xl bg-cream p-2.5 text-xs text-ink-muted">本次为旧版计时，结束后可选择学习事项补登记。</p>
         ) : (
           <div role="group" aria-label="学习类别" className="grid grid-cols-3 gap-1.5">
-            {STUDY_SUBJECTS.map(subject => <button key={subject} type="button" aria-pressed={category === subject} onClick={() => { setCategory(subject); setError(''); }} className={`rounded-lg py-2 text-xs ${category === subject ? 'bg-sage text-white font-bold' : 'bg-cream text-ink-muted'}`}>{subject}</button>)}
+            {STUDY_SUBJECTS.map(subject => <button key={subject} type="button" aria-pressed={category === subject} onClick={() => { setCategory(subject); setError(''); }} className={`rounded-lg py-2 text-xs ${category === subject ? 'bg-sage text-white font-bold' : 'bg-cream text-ink-muted'}`}>{getSubjectLabel(subject, state.subjectLabels)}</button>)}
           </div>
         )}
       </fieldset>
@@ -211,6 +211,6 @@ export function StandaloneTimerModal({ isOpen, onClose }: { isOpen: boolean; onC
       {current && !current.subject && !running && totals.focusMs > 0 && <p className="text-[11px] text-ink-muted">旧版计时：结束时可选择题本/网课/其他学习补登记。</p>}
     </div>}
 
-    {pendingOthers.length > 0 && <section className="mt-5 pt-3 border-t border-line space-y-2"><h3 className="text-sm font-bold">待登记计时（{pendingOthers.length}）</h3>{pendingOthers.map(s => <button key={s.id} className="block w-full rounded-xl bg-cream p-3 text-left text-xs" onClick={() => { setSelectedId(s.id); setError(''); }}>补登记 · {new Date(s.endedAt).toLocaleDateString()} · {s.subject ? `${s.subject} · ` : ''}专注 {format(sessionTotals(s).focusMs)} / 休息 {format(sessionTotals(s).restMs)}</button>)}</section>}
+    {pendingOthers.length > 0 && <section className="mt-5 pt-3 border-t border-line space-y-2"><h3 className="text-sm font-bold">待登记计时（{pendingOthers.length}）</h3>{pendingOthers.map(s => <button key={s.id} className="block w-full rounded-xl bg-cream p-3 text-left text-xs" onClick={() => { setSelectedId(s.id); setError(''); }}>补登记 · {new Date(s.endedAt).toLocaleDateString()} · {s.subject ? `${getSubjectLabel(s.subject, state.subjectLabels)} · ` : ''}专注 {format(sessionTotals(s).focusMs)} / 休息 {format(sessionTotals(s).restMs)}</button>)}</section>}
   </Modal>;
 }

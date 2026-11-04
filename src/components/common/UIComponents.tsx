@@ -1,7 +1,19 @@
-import React, { ReactNode, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { X, AlertTriangle, ChevronDown, Check } from 'lucide-react';
 
-const modalBackStack: { close: () => void }[] = [];
+const modalBackStack: { close: () => void; blocksReminders: boolean }[] = [];
+const modalListeners = new Set<() => void>();
+const notifyModalChange = () => modalListeners.forEach(listener => listener());
+const subscribeModalChange = (listener: () => void) => {
+  modalListeners.add(listener);
+  return () => { modalListeners.delete(listener); };
+};
+const hasBlockingModal = () => modalBackStack.some(entry => entry.blocksReminders);
+
+/** Observe child-owned overlays without duplicating their local state in App. */
+export function useBlockingModalOpen(): boolean {
+  return useSyncExternalStore(subscribeModalChange, hasBlockingModal, () => false);
+}
 
 export function closeTopModal(): boolean {
   const top = modalBackStack[modalBackStack.length - 1];
@@ -10,15 +22,16 @@ export function closeTopModal(): boolean {
   return true;
 }
 
-export function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false) {
+export function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled = false, blocksReminders = true) {
   const closeRef = useRef(onClose);
   const disabledRef = useRef(closeDisabled);
   closeRef.current = onClose;
   disabledRef.current = closeDisabled;
   useEffect(() => {
     if (!isOpen) return;
-    const entry = { close: () => { if (!disabledRef.current) closeRef.current(); } };
+    const entry = { close: () => { if (!disabledRef.current) closeRef.current(); }, blocksReminders };
     modalBackStack.push(entry);
+    notifyModalChange();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && modalBackStack[modalBackStack.length - 1] === entry) {
         event.preventDefault();
@@ -29,9 +42,10 @@ export function useModalBack(isOpen: boolean, onClose: () => void, closeDisabled
     return () => {
       const index = modalBackStack.indexOf(entry);
       if (index >= 0) modalBackStack.splice(index, 1);
+      notifyModalChange();
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, blocksReminders]);
 }
 
 /* =========================================================================
@@ -181,10 +195,11 @@ interface ModalProps {
   title: string;
   children: ReactNode;
   closeDisabled?: boolean;
+  blocksReminders?: boolean;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false }) => {
-  useModalBack(isOpen, onClose, closeDisabled);
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false, blocksReminders = true }) => {
+  useModalBack(isOpen, onClose, closeDisabled, blocksReminders);
   if (!isOpen) return null;
 
   return (

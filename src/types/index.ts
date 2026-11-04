@@ -17,6 +17,24 @@ export function isStudySubjectForType(subject: unknown, type: unknown): subject 
   return typeof subject === 'string' && (SUBJECTS.some(s => s === subject) || (type === 'custom' && subject === '其他'));
 }
 
+export const SUBJECT_LABEL_MAX = 20;
+
+export function getSubjectLabel(
+  subject: string,
+  subjectLabels?: Partial<Record<StudySubject, string>>
+): string {
+  const custom = subjectLabels?.[subject as StudySubject];
+  return typeof custom === 'string' && custom.trim().length > 0 ? custom.trim() : subject;
+}
+
+export function getSubjectOptions(
+  subjectLabels?: Partial<Record<StudySubject, string>>,
+  includeOther = false
+): Array<{ label: string; value: StudySubject }> {
+  const list = includeOther ? STUDY_SUBJECTS : SUBJECTS;
+  return list.map(s => ({ label: getSubjectLabel(s, subjectLabels), value: s }));
+}
+
 export interface Countdown {
   id: string;
   name: string;
@@ -145,6 +163,7 @@ export interface AppState {
   wrong: WrongRecord[];
   todos?: TodoItem[];
   timerSessions?: TimerSession[];
+  subjectLabels?: Partial<Record<StudySubject, string>>;
   version: 3 | 4 | 5;
 }
 

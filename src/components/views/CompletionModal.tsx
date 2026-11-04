@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Button, Tag } from '../common/UIComponents';
 import { X, CheckCircle2, Award, ArrowRight, AlertCircle, Camera } from 'lucide-react';
-import { Plan, StudyRecord } from '../../types';
+import { Plan, StudyRecord, getSubjectLabel } from '../../types';
 import { canCorrectStudyRecord, getCompletionMinutes, getCompletionSummary, getPlanCompletion } from '../../utils/workflowPresentation';
 
 interface CompletionModalProps {
@@ -26,19 +26,25 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   onOpenPhotoImport,
   onEditRecord,
 }) => {
-  const { state, completePlan, pauseTimer, activeDate } = useApp();
+  const { state, completePlan, pauseTimer, movePlansToDate, activeDate } = useApp();
   const livePlan = state.plans.find(item => item.id === plan?.id) || plan;
 
   // Form states with dynamic per-task reset (Fixes A12)
   const [questions, setQuestions] = useState('0');
   const [errors, setErrors] = useState('0');
   const actualMinutes = livePlan ? getCompletionMinutes(livePlan) : 0;
+  const isHistorical = Boolean(livePlan && livePlan.date !== activeDate);
+  const [minutesDraft, setMinutesDraft] = useState(() =>
+    String(actualMinutes > 0 ? actualMinutes : (livePlan?.plannedMinutes || 30))
+  );
   const [lessons, setLessons] = useState(String(plan?.plannedLessons ?? 1));
   const liveCourse = state.courses.find(course => course.id === livePlan?.sourceId);
   const remainingLessons = liveCourse ? liveCourse.totalLessons - liveCourse.completedLessons : 0;
   const validLessons = /^\d+$/.test(lessons) && Number.isSafeInteger(Number(lessons)) && Number(lessons) > 0 && Number(lessons) <= remainingLessons;
   const parsedQuestions = parseIntegerDraft(questions), parsedErrors = parseIntegerDraft(errors, 'nonnegative');
   const validQuestions = parsedQuestions !== null && parsedErrors !== null && parsedErrors <= parsedQuestions;
+  const parsedDraftMinutes = parseIntegerDraft(minutesDraft);
+  const effectiveMinutes = parsedDraftMinutes ?? 0;
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [preparedPlanId, setPreparedPlanId] = useState('');
   const [prepareAttempt, setPrepareAttempt] = useState(0);
@@ -86,6 +92,8 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || !livePlan || livePlan.done || initialSuccess || (livePlan.timerStart > 0 || (livePlan.restStart ?? 0) > 0) || preparedPlanId === livePlan.id) return;
+    const measured = getCompletionMinutes(livePlan);
+    setMinutesDraft(String(measured > 0 ? measured : (livePlan.plannedMinutes || 30)));
     setPreparedPlanId(livePlan.id);
   }, [isOpen, livePlan, initialSuccess, preparedPlanId]);
 
@@ -100,11 +108,42 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
     onClose();
   };
 
+  const handleMoveToToday = async () => {
+    if (!livePlan || isSubmitting) return;
+    setIsSubmitting(true);
+    setErrorMsg('');
+    const res = await movePlansToDate([livePlan.id], activeDate);
+    setIsSubmitting(false);
+    if (!res.ok) {
+      setErrorMsg(res.message);
+      return;
+    }
+    onToast(`已将「${livePlan.name}」移到今天（保留已累计 ${actualMinutes} 分钟）`);
+    handleClose();
+  };
+
+  const renderDurationField = (labelText = '实际学习分钟') => (
+    <label className="block text-xs text-ink-muted font-medium">
+      {labelText}
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label="实际学习分钟"
+        value={minutesDraft}
+        disabled={isSubmitting}
+        onChange={e => setMinutesDraft(e.target.value.replace(/[^\d]/g, ''))}
+        placeholder="请输入有效整数分钟（如 30）"
+        className="mt-1 w-full px-3 py-2 bg-cream/60 border border-line rounded-xl text-sm font-mono focus:outline-none focus:border-sage"
+      />
+    </label>
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting || preparedPlanId !== plan.id || livePlan?.timerStart || livePlan?.restStart || livePlan?.done) return;
     setErrorMsg('');
-    if (!Number.isSafeInteger(actualMinutes) || actualMinutes <= 0) {
+    if (!Number.isSafeInteger(effectiveMinutes) || effectiveMinutes <= 0) {
       setErrorMsg('学习用时必须为大于0的整数分钟');
       return;
     }
@@ -126,10 +165,10 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         planId: plan.id,
         questions: parsedQuestions!,
         errors: parsedErrors!,
-        minutes: actualMinutes,
+        minutes: effectiveMinutes,
       });
     } else if (plan.type === 'course') {
-      if (!validLessons || actualMinutes < 0) {
+      if (!validLessons || effectiveMinutes < 0) {
         setErrorMsg(`本次节数须为正整数，且不能超过剩余 ${Math.max(0, remainingLessons)} 节`);
         return;
       }
@@ -138,10 +177,10 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         type: 'course',
         planId: plan.id,
         lessons: Number(lessons),
-        minutes: actualMinutes,
+        minutes: effectiveMinutes,
       });
     } else {
-      if (actualMinutes < 0) {
+      if (effectiveMinutes < 0) {
         setErrorMsg('学习用时不能为负数');
         return;
       }
@@ -149,7 +188,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
       res = await completePlan({
         type: 'custom',
         planId: plan.id,
-        minutes: actualMinutes,
+        minutes: effectiveMinutes,
       });
     }
 
@@ -214,7 +253,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                       计入原计划日期: {plan.date}
                     </span>
                   )}
-                  <Tag variant="gray">{lastCompletedData?.subject}</Tag>
+                  <Tag variant="gray">{lastCompletedData ? getSubjectLabel(lastCompletedData.subject, state.subjectLabels) : ''}</Tag>
                 </div>
               </div>
               <div className="text-sm font-bold text-sage">
@@ -271,7 +310,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
               <Tag variant={plan.type === 'book' ? 'potato' : plan.type === 'course' ? 'course' : 'gray'}>
                 {plan.type === 'book' ? '刷题登记' : plan.type === 'course' ? '网课登记' : '事项登记'}
               </Tag>
-              <Tag variant="gray">{plan.subject}</Tag>
+              <Tag variant="gray">{getSubjectLabel(plan.subject, state.subjectLabels)}</Tag>
             </div>
 
             <div>
@@ -279,9 +318,18 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
               <p className="text-xs text-ink-muted mt-0.5">
                 记录本次实际投入的题量与时间，供后续复盘
               </p>
-              {plan.date !== activeDate && (
-                <div className="mt-2 text-xs text-amber-800 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200 inline-flex items-center gap-1 font-medium">
+              {isHistorical && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-xl border border-amber-200 font-medium">
                   <span>计入原计划日期: {plan.date}</span>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => void handleMoveToToday()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-sage px-2 py-0.5 text-[11px] font-bold text-white shadow-sm active:scale-95"
+                  >
+                    <span>移到今天</span>
+                    <ArrowRight size={11} />
+                  </button>
                 </div>
               )}
             </div>
@@ -318,10 +366,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-ink-muted font-medium mb-1">实际学习分钟</label>
-                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
-                </div>
+                {renderDurationField('实际学习分钟')}
               </div>
             )}
 
@@ -342,10 +387,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs text-ink-muted font-medium mb-1">实际学习分钟</label>
-                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
-                </div>
+                {renderDurationField('实际学习分钟')}
               </div>
             )}
 
@@ -353,24 +395,23 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
               <div className="space-y-3">
                 <div className="p-3 bg-cream/40 rounded-xl border border-line/70 text-xs text-ink-muted space-y-1">
                   <div>事项：<span className="font-bold text-ink-main">{plan.name}</span></div>
-                  <div>科目：<span className="font-bold text-ink-main">{plan.subject}</span></div>
+                  <div>科目：<span className="font-bold text-ink-main">{getSubjectLabel(plan.subject, state.subjectLabels)}</span></div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-ink-muted font-medium mb-1">实际学习用时 (分钟)</label>
-                  <output aria-label="实际学习分钟（自动记录）" className="block px-3 py-2.5 bg-sage-light/50 rounded-xl text-sm font-mono">{actualMinutes} 分钟 · 自动记录</output>
-                </div>
+                {renderDurationField('实际学习用时 (分钟)')}
               </div>
             )}
 
-            <p className="text-xs text-ink-muted">用时来自本次计时，不能手动修改。{actualMinutes <= 0 ? '请先开始计时，学习后再完成登记。' : ''}</p>
+            <p className="text-xs text-ink-muted">
+              已自动带入计时或计划时长，可直接修改本次实际学习分钟数，保存后计入进度与学情。
+            </p>
             <div className="pt-2">
               {errorMsg && livePlan?.timerStart ? (
                 <Button variant="secondary" size="md" fullWidth onClick={() => setPrepareAttempt(value => value + 1)}>
                   重试暂停计时
                 </Button>
               ) : null}
-              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart) || actualMinutes <= 0 || (plan.type === 'book' && !validQuestions) || (plan.type === 'course' && !validLessons)}>
+              <Button variant="primary" size="md" fullWidth type="submit" disabled={isSubmitting || preparedPlanId !== plan.id || Boolean(livePlan?.timerStart) || effectiveMinutes <= 0 || (plan.type === 'book' && !validQuestions) || (plan.type === 'course' && !validLessons)}>
                 <CheckCircle2 size={16} />
                 保存并完成
               </Button>

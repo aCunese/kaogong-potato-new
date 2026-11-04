@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Button, Modal } from '../common/UIComponents';
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import { getStudyRecordName } from '../../utils/workflowPresentation';
+import { getSubjectLabel } from '../../types';
 import type { StudyRecord, StudyRecordCorrectionInput } from '../../types';
 
 export function StudyRecordEditModal({ record, onClose, onToast }: {
@@ -80,7 +81,7 @@ export function StudyRecordEditModal({ record, onClose, onToast }: {
     }}>
       <div className="rounded-xl bg-cream/70 p-3 text-sm space-y-1">
         <p className="font-bold break-words">{recordName}</p>
-        <p className="text-xs text-ink-muted">{record.subject} · {record.date} · 原用时 {record.minutes} 分钟</p>
+        <p className="text-xs text-ink-muted">{getSubjectLabel(record.subject, state.subjectLabels)} · {record.date} · 原用时 {record.minutes} 分钟</p>
         <p className="text-xs text-ink-muted">修改后自动同步校正日程已学时长与学情分析。</p>
         {((record.type === 'book' && !state.books.some(b => b.id === record.sourceId)) || (record.type === 'course' && !state.courses.some(c => c.id === record.sourceId))) && (
           <p className="text-xs text-ink-muted">关联资料已删除，本次修改仅更新历史学情。</p>

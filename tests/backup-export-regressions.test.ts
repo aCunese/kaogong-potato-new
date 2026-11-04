@@ -97,7 +97,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         const w = window as any;
         delete w.AndroidBridge;
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         // Invoke exportBackup directly
@@ -158,7 +158,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
             }),
         };
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         const exportRes = await w.api.exportBackup();
@@ -250,7 +250,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         };
 
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         // Click export button in UI
@@ -327,7 +327,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         };
 
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         const exportBtn = Array.from(document.querySelectorAll('button')).find(b =>
@@ -389,7 +389,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         };
 
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         const exportBtn = Array.from(document.querySelectorAll('button')).find(b =>
@@ -442,7 +442,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
         };
 
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         // Create an OperationContext that becomes invalid during chunking
@@ -485,7 +485,7 @@ describe('S08: Formal backup entry & Android SAF export regressions', () => {
       const res = await page.evaluate(async () => {
         const w = window as any;
         w.backupModalOpen = true;
-        w.mount();
+        await w.mount();
         await new Promise(r => setTimeout(r, 60));
 
         // Find file input and simulate large file (51MB)

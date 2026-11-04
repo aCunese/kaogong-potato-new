@@ -65,6 +65,9 @@ function uniqueId(prefix: string, existing: Set<string>): string {
  */
 export function buildGuestMigration(account: AppState, guest: AppState): GuestMigrationResult {
   const merged: AppState = JSON.parse(JSON.stringify(account));
+  if (guest.subjectLabels !== undefined) {
+    merged.subjectLabels = { ...guest.subjectLabels, ...account.subjectLabels };
+  }
   const preview: GuestMigrationPreview = {
     available: true,
     booksToAdd: 0,
