@@ -67,11 +67,14 @@ export function useWrongImageOrientation(options: Options) {
             if (saved.code === 'IMAGE_CHANGED' || saved.code === 'NOT_FOUND' || saved.code === 'AUTH_EPOCH_CHANGED') continue;
             throw new Error(saved.message);
           }
-          if (mounted.current && o.isValid(scope)) setErrors(prev => { const next = { ...prev }; delete next[`${task.id}:${task.index}`]; return next; });
+          if (mounted.current && o.isValid(scope)) setErrors(prev => { const next = { ...prev }; delete next[task.key]; return next; });
         } catch (error) {
-          if (o.isValid(scope) && mounted.current) {
+          const current = latest.current;
+          const record = current.state.wrong.find(record => record.id === task.id);
+          const image = record && getWrongRecordImages(record)[task.index];
+          if (o.isValid(scope) && mounted.current && image && keyFor(current.userId, task.id, task.index, image) === task.key) {
             retryAt.current.set(task.key, Date.now() + 60000);
-            setErrors(prev => ({ ...prev, [`${task.id}:${task.index}`]: error instanceof Error && error.name !== 'AbortError' ? error.message : '识别暂未完成，请重试' }));
+            setErrors(prev => ({ ...prev, [task.key]: error instanceof Error && error.name !== 'AbortError' ? error.message : '识别暂未完成，请重试' }));
           }
         } finally {
           if (mounted.current && o.isValid(scope)) setActivity(null);
@@ -108,5 +111,12 @@ export function useWrongImageOrientation(options: Options) {
     window.addEventListener('focus', resume);
     return () => { mounted.current = false; clearTimeout(timer.current); window.removeEventListener('online', resume); window.removeEventListener('focus', resume); };
   }, []);
-  return { requestWrongImageOrientations: request, orientationActivity: activity, orientationErrors: errors };
+  const orientationErrors: Record<string, string> = {};
+  for (const record of options.state.wrong) {
+    getWrongRecordImages(record).forEach((image, index) => {
+      const error = errors[keyFor(options.userId, record.id, index, image)];
+      if (error) orientationErrors[`${record.id}:${index}`] = error;
+    });
+  }
+  return { requestWrongImageOrientations: request, orientationActivity: activity, orientationErrors };
 }

@@ -15,6 +15,7 @@ async function mountQueue(page: Page, refs: string[], pending = true) {
     w.orientationState.wrong = [{ id: 'w', bookId: '资料分析', date: '2026-11-04', image: refs[0], images: refs, ...(pending ? { imageOrientations: refs.map(() => null) } : {}) }];
     const isValid = (scope: any) => scope.userId === w.owner && scope.epoch === w.epoch && !scope.signal.aborted;
     function Queue() {
+      w.renderedOrientationState = w.orientationState;
       w.orientationAPI = w.useWrongImageOrientation({ state: w.orientationState, userId: w.owner, csrf: 'test-only', enabled: true,
         createScope: (userId: string) => { const controller = new AbortController(); w.controllers.push(controller); return { userId, epoch: w.epoch, signal: controller.signal, operationId: 'test' }; },
         isValid,
@@ -111,6 +112,48 @@ it('discards recognition for a removed image even when the record ID remains the
     expect(await page.evaluate(() => (window as any).commits)).toEqual([]);
     expect(await page.evaluate(() => (window as any).orientationState.wrong[0].imageOrientations)).toEqual([null]);
     expect(await page.evaluate(() => (window as any).orientationState.wrong[0].note)).toBe('new note');
+  } finally { await context.close(); }
+}, 15000);
+
+it('discards a stale failure after the image at the same index has changed', async () => {
+  const { page, context } = await createHarnessPage(browser, harness); let release: any;
+  try {
+    await page.route('**/api/media/*/orientation', route => new Promise<void>(resolve => { release = async () => { await route.fulfill({ status: 503, json: { ok: false } }); resolve(); }; }));
+    await mountQueue(page, ['/api/media/media_old']);
+    await page.waitForFunction(() => (window as any).orientationAPI.orientationActivity?.index === 0);
+    await page.evaluate(() => { const w = window as any; w.orientationState = structuredClone(w.orientationState); w.orientationState.wrong[0].images = ['data:image/png;base64,replaced']; w.orientationState.wrong[0].image = 'data:image/png;base64,replaced'; w.renderQueue(); });
+    await page.waitForFunction(() => (window as any).renderedOrientationState.wrong[0].images[0] === 'data:image/png;base64,replaced');
+    await release();
+    await page.waitForFunction(() => !(window as any).orientationAPI.orientationActivity);
+    expect(await page.evaluate(() => (window as any).orientationAPI.orientationErrors)).toEqual({});
+    expect(await page.evaluate(() => (window as any).commits)).toEqual([]);
+  } finally { await context.close(); }
+}, 15000);
+
+it('hides an existing error after image replacement and retries only the current image', async () => {
+  const { page, context } = await createHarnessPage(browser, harness); const requested: string[] = []; let release: any;
+  try {
+    await page.route('**/api/media/*/orientation', route => {
+      const mediaId = route.request().url().split('/').at(-2)!;
+      requested.push(mediaId);
+      if (mediaId === 'media_old') return route.fulfill({ status: 503, json: { ok: false } });
+      if (requested.length === 2) return new Promise<void>(resolve => { release = async () => { await route.fulfill({ status: 503, json: { ok: false } }); resolve(); }; });
+      return route.fulfill({ json: { ok: true, mediaId, orientation: resolved(180) } });
+    });
+    await mountQueue(page, ['/api/media/media_old']);
+    await page.waitForFunction(() => !!(window as any).orientationAPI.orientationErrors['w:0']);
+    await page.evaluate(() => { const w = window as any; w.orientationState = structuredClone(w.orientationState); w.orientationState.wrong[0].images = ['data:image/png;base64,replaced']; w.orientationState.wrong[0].image = 'data:image/png;base64,replaced'; w.renderQueue(); });
+    await page.waitForFunction(() => (window as any).renderedOrientationState.wrong[0].images[0] === 'data:image/png;base64,replaced');
+    expect(await page.evaluate(() => (window as any).orientationAPI.orientationErrors)).toEqual({});
+    await page.evaluate(() => { const w = window as any; w.orientationState = structuredClone(w.orientationState); w.orientationState.wrong[0].images = ['/api/media/media_new']; w.orientationState.wrong[0].image = '/api/media/media_new'; w.renderQueue(); });
+    await page.waitForFunction(() => (window as any).orientationAPI.orientationActivity?.index === 0);
+    expect(await page.evaluate(() => (window as any).orientationAPI.orientationErrors)).toEqual({});
+    await release();
+    await page.waitForFunction(() => !!(window as any).orientationAPI.orientationErrors['w:0'] && !(window as any).orientationAPI.orientationActivity);
+    await page.evaluate(() => (window as any).orientationAPI.requestWrongImageOrientations('w', true));
+    await page.waitForFunction(() => (window as any).orientationState.wrong[0].imageOrientations[0]?.rotation === 180);
+    expect(requested).toEqual(['media_old', 'media_new', 'media_new']);
+    expect(await page.evaluate(() => (window as any).orientationAPI.orientationErrors)).toEqual({});
   } finally { await context.close(); }
 }, 15000);
 
