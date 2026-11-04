@@ -3,6 +3,7 @@ import app, { getReleaseValidation } from './app';
 import { getDb, getCurrentGenerationId, getDataDir, closeDb } from './db';
 import { acquireDataDirectoryLock, DataDirectoryLock } from './dataLock';
 import { startReminderWorker } from './reminders';
+import { imageOrientationService } from './imageOrientation';
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -54,6 +55,7 @@ let isShuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  await imageOrientationService.shutdown();
   await reminderWorker.stop();
   console.log(`收到 ${signal} 信号，正在平稳关闭服务...`);
 

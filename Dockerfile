@@ -27,6 +27,7 @@ RUN (sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/deb
     apt-get update -o Acquire::Retries=3 && apt-get install -y -o Acquire::Retries=3 --no-install-recommends \
     python3 \
     python3-pil \
+    tini \
     tesseract-ocr \
     tesseract-ocr-osd \
     tesseract-ocr-chi-sim \
@@ -65,4 +66,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD node -e "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
+# Reap orphaned native OCR descendants after the supervisor kills a job group.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "--import", "tsx", "server/index.ts"]

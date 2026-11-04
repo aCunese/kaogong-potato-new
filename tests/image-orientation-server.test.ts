@@ -54,7 +54,10 @@ test('orientation POST authenticates, checks CSRF and ownership before any cache
     const textPage = saveUserMedia(first.id, fs.readFileSync(path.resolve('tests/fixtures/image-orientation/study-page.png')), 'page.png');
     assert.equal(textPage.ok, true);
     const pageUrl = `${base}/api/media/${textPage.media!.id}/orientation`;
-    assert.equal((await fetch(pageUrl, { method: 'POST', headers: first.headers })).status, 200);
+    const pageResponse = await fetch(pageUrl, { method: 'POST', headers: first.headers });
+    assert.equal(pageResponse.status, 200);
+    assert.equal((await pageResponse.json()).orientation.status, 'resolved');
+    assert.equal((await fetch(pageUrl, { method: 'POST', headers: other.headers })).status, 404);
     // Further identical requests hit the result cache, but remain subject to endpoint guards.
     let limited: Response | undefined;
     for (let attempt = 0; attempt < 31; attempt++) {

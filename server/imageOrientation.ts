@@ -23,15 +23,22 @@ interface OrientationOptions {
 /** Only call after getUserMediaFile has verified the current user's ownership. */
 export class ImageOrientationService {
   private running = false;
+  private stopping = false;
+  private currentJob: Promise<void> | null = null;
+  private cancelActive: (() => void) | null = null;
   private readonly cache = new Map<string, ImageOrientationResult>();
   constructor(private readonly options: OrientationOptions = {}) {}
 
   async orient(diskPath: string): Promise<ImageOrientationResult> {
+    if (this.stopping) throw new ImageOrientationError('ORIENTATION_UNAVAILABLE');
     if (this.running) throw new ImageOrientationError('ORIENTATION_BUSY');
     this.running = true;
+    let finishJob!: () => void;
+    this.currentJob = new Promise<void>(resolve => { finishJob = resolve; });
     const started = Date.now();
     try {
       const bytes = await readFile(diskPath);
+      if (this.stopping) throw new ImageOrientationError('ORIENTATION_UNAVAILABLE');
       const key = `1:${createHash('sha256').update(bytes).digest('hex')}`;
       const cached = this.cache.get(key);
       if (cached) {
@@ -52,13 +59,24 @@ export class ImageOrientationService {
       throw new ImageOrientationError('ORIENTATION_UNAVAILABLE');
     } finally {
       this.running = false;
+      this.cancelActive = null;
+      this.currentJob = null;
+      finishJob();
     }
+  }
+
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    this.cancelActive?.();
+    await this.currentJob;
+    this.cache.clear();
   }
 
   private async runHelper(diskPath: string, deadlineMs: number): Promise<ImageOrientationResult> {
     // The supervisor owns scratch storage so SIGKILL cannot leak image copies.
     const scratch = await mkdtemp(path.join(tmpdir(), 'potato-orientation-job-'));
     try {
+      if (this.stopping) throw new ImageOrientationError('ORIENTATION_UNAVAILABLE');
       return await new Promise<ImageOrientationResult>((resolve, reject) => {
         const child = spawn(
           this.options.pythonBin || process.env.PYTHON_BIN || 'python3',
@@ -74,6 +92,7 @@ export class ImageOrientationService {
             else child.kill('SIGKILL');
           } catch { /* Child may have exited just before the deadline. */ }
         };
+        this.cancelActive = killGroup;
         const timer = setTimeout(() => { timedOut = true; killGroup(); }, deadlineMs);
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {

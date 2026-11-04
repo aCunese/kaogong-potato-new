@@ -88,3 +88,45 @@ test('an unresolved result can be retried for the same bytes instead of becoming
     assert.deepEqual(await service.orient(w.image), result);
   } finally { w.cleanup(); }
 });
+
+test('shutdown stops in-flight OCR, awaits scratch cleanup and refuses new work', async () => {
+  const w = workspace();
+  const marker = path.join(w.temp, 'shutdown-pids.json');
+  fs.writeFileSync(w.helper, `import os,json,subprocess,time,sys\nfrom pathlib import Path\nchild=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\nPath(${JSON.stringify(marker)}).write_text(json.dumps({'pids':[os.getpid(),child.pid],'scratch':os.environ.get('TMPDIR')}))\ntime.sleep(60)\n`);
+  const service = new ImageOrientationService({ pythonBin: python, helperScript: w.helper });
+  const pending = service.orient(w.image);
+  const rejected = assert.rejects(pending, { code: 'ORIENTATION_UNAVAILABLE' });
+  try {
+    for (let attempt = 0; attempt < 100 && !fs.existsSync(marker); attempt++) await delay(10);
+    assert.ok(fs.existsSync(marker));
+    const started = Date.now();
+    await service.shutdown();
+    await rejected;
+    assert.ok(Date.now() - started < 2000, 'shutdown must not wait for the 30s job deadline');
+    const stopped = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    assert.equal(fs.existsSync(stopped.scratch), false);
+    for (const pid of stopped.pids as number[]) {
+      let exists = true;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        try { process.kill(pid, 0); await delay(20); }
+        catch { exists = false; break; }
+      }
+      assert.equal(exists, false, `shutdown must reap process ${pid}`);
+    }
+    await assert.rejects(service.orient(w.image), { code: 'ORIENTATION_UNAVAILABLE' });
+    await service.shutdown();
+  } finally { w.cleanup(); }
+});
+
+test('shutdown requested during the initial file read prevents spawning native OCR', async () => {
+  const w = workspace();
+  const marker = path.join(w.temp, 'unexpected-worker');
+  fs.writeFileSync(w.helper, `from pathlib import Path\nPath(${JSON.stringify(marker)}).touch()\nprint('{"status":"resolved","rotation":90,"version":1}')\n`);
+  const service = new ImageOrientationService({ pythonBin: python, helperScript: w.helper });
+  const rejected = assert.rejects(service.orient(w.image), { code: 'ORIENTATION_UNAVAILABLE' });
+  try {
+    await service.shutdown();
+    await rejected;
+    assert.equal(fs.existsSync(marker), false);
+  } finally { w.cleanup(); }
+});
