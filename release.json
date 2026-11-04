@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.2.2",
-  "webBuild": "20261104.02",
+  "webVersion": "1.2.3",
+  "webBuild": "20261104.03",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-04T10:20:42Z",
-  "summary": "日程选择按账号记住类型、科目与资料；题本分析新增每日刷题与正确数量汇总；错题支持反复编辑分类笔记及照片自动摆正。"
+  "deployedAt": "2026-11-04T13:52:25Z",
+  "summary": "错题编辑与分类转移独立操作；分类快速添加直接归档；每日刷题与听课显示最近3天，历史记录每页5天并支持左右滑动。"
 }

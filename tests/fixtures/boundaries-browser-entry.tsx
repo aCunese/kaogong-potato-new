@@ -16,6 +16,8 @@ import { ConflictModal } from '../../src/components/views/ConflictModal';
 import { CompletionModal } from '../../src/components/views/CompletionModal';
 import { PhotoImportModal, AddPlanModal, WrongDetailModal } from '../../src/components/views/EditModals';
 import { AnalysisView } from '../../src/components/views/AnalysisView';
+import { WrongView } from '../../src/components/views/WrongView';
+import { closeTopModal } from '../../src/components/common/UIComponents';
 import { BLANK_STATE, DEMO_STATE } from '../../src/constants/initialData';
 
 const w = window as any;
@@ -41,6 +43,8 @@ Object.assign(w, {
   AddPlanModal,
   WrongDetailModal,
   AnalysisView,
+  WrongView,
+  closeTopModal,
   useWrongImageOrientation,
   OrientedImage,
 });

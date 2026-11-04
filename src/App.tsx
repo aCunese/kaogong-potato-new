@@ -24,6 +24,7 @@ import {
   CustomAddModal,
   CountdownModal,
   PhotoImportModal,
+  type PhotoImportTarget,
   WrongDetailModal,
   AuthModal,
   DownloadApkModal,
@@ -135,7 +136,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
   const [customAddOpen, setCustomAddOpen] = useState(false);
   const [countdownModal, setCountdownModal] = useState<{ mode: 'create' } | { mode: 'edit'; id: string } | null>(null);
   const [photoImportOpen, setPhotoImportOpen] = useState(false);
-  const [photoImportTarget, setPhotoImportTarget] = useState<{ bookId?: string; subject?: StudySubject; date?: string } | undefined>(undefined);
+  const [photoImportTarget, setPhotoImportTarget] = useState<PhotoImportTarget | undefined>(undefined);
   const [wrongDetailRecord, setWrongDetailRecord] = useState<WrongRecord | null>(null);
   const [authModal, setAuthModal] = useState<{ open: boolean; mode: 'login' | 'register' }>({ open: false, mode: 'login' });
   const [downloadApkOpen, setDownloadApkOpen] = useState(false);
@@ -1048,8 +1049,8 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
             />
           ) : activeTab === 'wrong' ? (
             <WrongView
-              onOpenImportModal={(presetSubject) => {
-                setPhotoImportTarget(presetSubject ? { subject: presetSubject } : undefined);
+              onOpenImportModal={(presetSubject, lockSubject = false) => {
+                setPhotoImportTarget(presetSubject ? { subject: presetSubject, lockSubject } : undefined);
                 setPhotoImportOpen(true);
               }}
               onOpenDetailModal={rec => setWrongDetailRecord(rec)}

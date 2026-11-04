@@ -8,7 +8,7 @@ import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject,
 import { CountdownReminderItem } from '../../utils/workflowPresentation';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Sparkles } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Edit2, Sparkles } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 import {
@@ -585,11 +585,18 @@ export const CountdownModal: React.FC<{
    ========================================================================= */
 const MAX_SINGLE_WRONG_IMAGES = 9;
 
+export interface PhotoImportTarget {
+  bookId?: string;
+  subject?: StudySubject;
+  date?: string;
+  lockSubject?: boolean;
+}
+
 export const PhotoImportModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onToast: (msg: string) => void;
-  initialTarget?: { bookId?: string; subject?: StudySubject; date?: string };
+  initialTarget?: PhotoImportTarget;
 }> = ({ isOpen, onClose, onToast, initialTarget }) => {
   const { state, activeDate, addWrongRecords } = useApp();
 
@@ -615,6 +622,7 @@ export const PhotoImportModal: React.FC<{
   const [note, setNote] = useState('');
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [isCompressing, setIsCompressing] = useState(false);
+  const subjectLocked = Boolean(initialTarget?.lockSubject);
 
   // 弹窗打开时自动预选传入的分类或关联题本对应分类
   useEffect(() => {
@@ -741,7 +749,7 @@ export const PhotoImportModal: React.FC<{
   });
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="从相册上传错题照片">
+    <Modal isOpen={isOpen} onClose={onClose} title={subjectLocked ? `添加【${getSubjectLabel(subject, state.subjectLabels)}】错题照片` : '从相册上传错题照片'}>
       <div className="space-y-4">
         {initialTarget?.date && (
           <div className="text-[11px] text-ink-muted bg-cream/70 px-3 py-2 rounded-xl border border-line flex items-center justify-between">
@@ -750,7 +758,7 @@ export const PhotoImportModal: React.FC<{
           </div>
         )}
 
-        <div>
+        {!subjectLocked && <div>
           <label className="block text-xs text-ink-muted font-medium mb-1.5">
             1. 所属分类（八大科目 + 其他）
           </label>
@@ -761,12 +769,12 @@ export const PhotoImportModal: React.FC<{
             value={subject}
             onChange={val => setSubject(val as StudySubject)}
           />
-        </div>
+        </div>}
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs text-ink-muted font-medium">
-              2. 选择错题照片（一次选多张将合并归入同一道错题）
+              {subjectLocked ? '1' : '2'}. 选择错题照片（一次选多张将合并归入同一道错题）
             </label>
             <span className="text-xs font-mono text-sage-dark">
               {previewImages.length}/{MAX_SINGLE_WRONG_IMAGES} 张
@@ -826,7 +834,7 @@ export const PhotoImportModal: React.FC<{
 
         <div>
           <label className="block text-xs text-ink-muted font-medium mb-1">
-            3. 复盘原因与思路笔记 (选填)
+            {subjectLocked ? '2' : '3'}. 复盘原因与思路笔记 (选填)
           </label>
           <textarea
             value={note}
@@ -851,6 +859,54 @@ export const PhotoImportModal: React.FC<{
   );
 };
 
+export const WrongRecordMoveModal: React.FC<{
+  record: WrongRecord | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onToast?: (message: string) => void;
+}> = ({ record, isOpen, onClose, onToast }) => {
+  const { state, updateWrongRecord } = useApp();
+  const liveRecord = state.wrong.find(item => item.id === record?.id) ?? record;
+  const subject = liveRecord ? resolveWrongRecordSubject(liveRecord, state.books) : '资料分析';
+  const [targetSubject, setTargetSubject] = useState<StudySubject>(subject);
+  const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, message => onToast?.(message));
+
+  useEffect(() => {
+    if (isOpen) {
+      setTargetSubject(subject);
+      setErrorMsg('');
+    }
+  }, [record?.id, isOpen]);
+
+  return <Modal isOpen={isOpen && Boolean(liveRecord)} onClose={onClose} title="转移错题分类" closeDisabled={isSaving}>
+    <form className="space-y-4" onSubmit={event => {
+      event.preventDefault();
+      if (!liveRecord || targetSubject === subject) return;
+      void save(
+        () => updateWrongRecord(liveRecord.id, { subject: targetSubject }),
+        `错题已转移至【${getSubjectLabel(targetSubject, state.subjectLabels)}】`,
+      );
+    }}>
+      <FormError message={errorMsg} />
+      <div>
+        <span className="mb-2 block text-xs font-medium text-ink-muted">选择目标分类</span>
+        <SubjectCapsuleGrid
+          ariaLabel="转移错题所属分类"
+          columns={3}
+          disabled={isSaving}
+          options={getSubjectOptions(state.subjectLabels, true)}
+          value={targetSubject}
+          onChange={value => { setTargetSubject(value as StudySubject); setErrorMsg(''); }}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" variant="secondary" fullWidth onClick={onClose} disabled={isSaving}>取消</Button>
+        <Button type="submit" variant="primary" fullWidth disabled={isSaving || targetSubject === subject}>{isSaving ? '正在转移…' : '确认转移'}</Button>
+      </div>
+    </form>
+  </Modal>;
+};
+
 /* =========================================================================
    7. Wrong Detail Modal (wrong-detail: 13:340)
    ========================================================================= */
@@ -867,7 +923,7 @@ export const WrongDetailModal: React.FC<{
   const [zoomScale, setZoomScale] = useState(1);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [editingMeta, setEditingMeta] = useState(false);
-  const [editSubject, setEditSubject] = useState<StudySubject>('资料分析');
+  const [movingRecord, setMovingRecord] = useState(false);
   const [editNote, setEditNote] = useState('');
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState('');
@@ -910,9 +966,9 @@ export const WrongDetailModal: React.FC<{
     setZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
     setEditingMeta(false);
+    setMovingRecord(false);
     setMetaError('');
     if (liveRecord) {
-      setEditSubject(resolveWrongRecordSubject(liveRecord, state.books));
       setEditNote(liveRecord.note || '');
     }
   }, [record?.id, isOpen]);
@@ -937,14 +993,13 @@ export const WrongDetailModal: React.FC<{
     setMetaError('');
     try {
       const res = await updateWrongRecord(liveRecord.id, {
-        subject: editSubject,
         note: editNote.trim(),
       });
       if (!res.ok) {
         setMetaError(res.message);
         return;
       }
-      onToast?.(`已更新错题（${getSubjectLabel(editSubject, state.subjectLabels)}）`);
+      onToast?.('已更新复盘笔记');
       setEditingMeta(false);
     } catch (error) {
       setMetaError(error instanceof Error ? error.message : '保存失败，请重试');
@@ -974,7 +1029,7 @@ export const WrongDetailModal: React.FC<{
 
   return (
     <>
-    <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情">
+    <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情" closeDisabled={isSavingMeta}>
       <div className="space-y-4">
         {/* 大图显示与多图直接左右滑动切换 */}
         <div
@@ -1046,36 +1101,35 @@ export const WrongDetailModal: React.FC<{
           {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? <button type="button" className="shrink-0 text-sage font-bold px-2 py-1" onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}>重新识别</button> : null}
         </div>}
 
-        <div className="flex items-center justify-between text-xs gap-2">
+        <div className="flex flex-wrap items-center justify-between text-xs gap-2">
+          <div className="flex items-center gap-2">
           <button type="button" disabled={isSavingMeta} onClick={() => {
-            setEditSubject(subject); setEditNote(liveRecord.note || ''); setMetaError('');
+            setEditNote(liveRecord.note || ''); setMetaError('');
             setEditingMeta(prev => !prev);
           }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage-light text-sage font-bold border border-sage/25">
-            <ArrowRightLeft size={13} /><span>{editingMeta ? '收起编辑' : '编辑'}</span>
+            <Edit2 size={13} /><span>{editingMeta ? '收起编辑' : '编辑'}</span>
           </button>
+          <button type="button" disabled={isSavingMeta || editingMeta} onClick={() => setMovingRecord(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream text-ink-muted font-bold border border-line disabled:opacity-50">
+            <ArrowRightLeft size={13} /><span>转移</span>
+          </button>
+          </div>
           <span className="text-ink-muted font-mono font-semibold shrink-0">{timeText}</span>
         </div>
-        {(book || images.length > 1) && <div className="flex gap-2 flex-wrap text-xs">
+        <div className="flex gap-2 flex-wrap text-xs">
+          <Tag variant="sage">{subjectLabel}</Tag>
           {book && <Tag variant="potato">{book.name}</Tag>}
           {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
-        </div>}
+        </div>
 
         {editingMeta ? (
           <div className="bg-cream/60 p-3.5 rounded-2xl border border-sage/35 space-y-3">
             <FormError message={metaError} />
             <div>
-              <span className="block text-xs font-bold text-ink-main mb-2">转移到分类</span>
-              <SubjectCapsuleGrid
-                options={getSubjectOptions(state.subjectLabels, true)}
-                value={editSubject}
-                onChange={val => setEditSubject(val as StudySubject)}
-              />
-            </div>
-            <div>
               <label className="block text-xs font-bold text-ink-main mb-1.5">
                 复盘原因与解题突破口
                 <textarea
                   value={editNote}
+                  disabled={isSavingMeta}
                   onChange={e => setEditNote(e.target.value)}
                   rows={2}
                   maxLength={2000}
@@ -1102,11 +1156,12 @@ export const WrongDetailModal: React.FC<{
           </div>
         )}
 
-        <Button variant="secondary" size="md" fullWidth onClick={onClose}>
+        <Button variant="secondary" size="md" fullWidth onClick={onClose} disabled={isSavingMeta}>
           关闭
         </Button>
       </div>
     </Modal>
+    <WrongRecordMoveModal record={liveRecord} isOpen={movingRecord} onClose={() => setMovingRecord(false)} onToast={onToast} />
 
       {/* 全屏默认1倍看图，支持直接左右滑动切换多图、双指自由放大与放大后单指拖动 */}
       {zoomOpen && activeImage && (

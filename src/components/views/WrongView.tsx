@@ -19,9 +19,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Button, Card, Tag, CustomSelect, Modal, SubjectCapsuleGrid } from '../common/UIComponents';
+import { Button, Card, Tag, CustomSelect, Modal } from '../common/UIComponents';
+import { WrongRecordMoveModal } from './EditModals';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
-import { STUDY_SUBJECTS, StudySubject, WrongRecord, SUBJECT_LABEL_MAX, getSubjectLabel, getSubjectOptions } from '../../types';
+import { STUDY_SUBJECTS, StudySubject, WrongRecord, SUBJECT_LABEL_MAX, getSubjectLabel } from '../../types';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import {
   resolveWrongRecordSubject,
@@ -34,7 +35,7 @@ import {
 } from '../../utils/workflowMutators';
 
 interface WrongViewProps {
-  onOpenImportModal: (presetSubject?: StudySubject) => void;
+  onOpenImportModal: (presetSubject?: StudySubject, lockSubject?: boolean) => void;
   onOpenDetailModal: (record: WrongRecord) => void;
   onOpenDeleteConfirm: (recordId: string, categoryName: string) => void;
   onToast?: (msg: string) => void;
@@ -68,44 +69,12 @@ export const WrongView: React.FC<WrongViewProps> = ({
   onOpenDeleteConfirm,
   onToast,
 }) => {
-  const { state, activeDate, updateWrongRecord, updateSubjectLabel } = useApp();
-  const [editingRecord, setEditingRecord] = useState<WrongRecord | null>(null);
-  const [targetSubject, setTargetSubject] = useState<StudySubject>('资料分析');
-  const [noteDraft, setNoteDraft] = useState('');
+  const { state, activeDate, updateSubjectLabel } = useApp();
+  const [movingRecord, setMovingRecord] = useState<WrongRecord | null>(null);
   const [editingSubject, setEditingSubject] = useState<StudySubject | null>(null);
   const [subjectLabelDraft, setSubjectLabelDraft] = useState('');
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState('');
-
-  const openEditRecordModal = (rec: WrongRecord) => {
-    const subj = resolveWrongRecordSubject(rec, state.books);
-    setEditingRecord(rec);
-    setTargetSubject(subj);
-    setNoteDraft(rec.note || '');
-    setModalError('');
-  };
-
-  const handleSaveRecordEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingRecord || modalBusy || !updateWrongRecord) return;
-    setModalBusy(true);
-    setModalError('');
-    try {
-      const res = await updateWrongRecord(editingRecord.id, {
-        subject: targetSubject,
-        note: noteDraft.trim(),
-      });
-      if (!res.ok) {
-        setModalError(res.message);
-        return;
-      }
-      setExpanded(prev => ({ ...prev, [targetSubject]: true }));
-      onToast?.(`错题已转移至【${getSubjectLabel(targetSubject, state.subjectLabels)}】并更新笔记`);
-      setEditingRecord(null);
-    } finally {
-      setModalBusy(false);
-    }
-  };
 
   const openSubjectRename = (subj: StudySubject) => {
     setEditingSubject(subj);
@@ -551,7 +520,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => onOpenImportModal(group.subject)}
+                onClick={() => onOpenImportModal(group.subject, true)}
                 className="shrink-0 px-2.5 py-1 rounded-full bg-sage-light text-sage-dark hover:bg-sage hover:text-white text-xs font-bold inline-flex items-center gap-1 transition"
               >
                 <Plus size={12} />
@@ -647,9 +616,9 @@ export const WrongView: React.FC<WrongViewProps> = ({
                           <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              aria-label="转移错题分类或编辑笔记"
-                              title="转移分类 / 编辑笔记"
-                              onClick={() => openEditRecordModal(record)}
+                              aria-label="转移错题分类"
+                              title="转移错题分类"
+                              onClick={() => setMovingRecord(record)}
                               className="p-1.5 rounded-lg text-ink-muted hover:text-sage hover:bg-sage-light/50"
                             >
                               <ArrowRightLeft size={14} />
@@ -717,9 +686,9 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             </span>
                             <button
                               type="button"
-                              aria-label="转移错题分类或编辑笔记"
-                              title="转移分类 / 编辑笔记"
-                              onClick={() => openEditRecordModal(record)}
+                              aria-label="转移错题分类"
+                              title="转移错题分类"
+                              onClick={() => setMovingRecord(record)}
                               className="p-0.5 text-ink-muted hover:text-sage shrink-0"
                             >
                               <ArrowRightLeft size={12} />
@@ -790,10 +759,10 @@ export const WrongView: React.FC<WrongViewProps> = ({
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
-                                title="转移分类 / 编辑笔记"
-                                aria-label="转移错题分类或编辑笔记"
+                                title="转移错题分类"
+                                aria-label="转移错题分类"
                                 className="px-1.5 py-0.5 rounded-md bg-sage-light/70 text-[11px] font-medium text-sage hover:bg-sage-light inline-flex items-center gap-0.5"
-                                onClick={() => openEditRecordModal(record)}
+                                onClick={() => setMovingRecord(record)}
                               >
                                 <ArrowRightLeft size={11} />
                                 <span>转移</span>
@@ -867,7 +836,7 @@ export const WrongView: React.FC<WrongViewProps> = ({
                 {/* 底部快速添加当前分类照片入口（无需滑回顶部） */}
                 <button
                   type="button"
-                  onClick={() => onOpenImportModal(group.subject)}
+                  onClick={() => onOpenImportModal(group.subject, true)}
                   className="w-full py-2.5 rounded-xl border-2 border-dashed border-sage/40 bg-paper hover:bg-sage-light/50 text-xs font-bold text-sage-dark flex items-center justify-center gap-1.5 transition"
                 >
                   <Camera size={14} />
@@ -879,53 +848,12 @@ export const WrongView: React.FC<WrongViewProps> = ({
         );
       })}
 
-      {/* 转移错题分类 / 编辑复盘笔记弹窗 */}
-      <Modal
-        isOpen={Boolean(editingRecord)}
-        onClose={() => setEditingRecord(null)}
-        title="转移错题分类 / 编辑笔记"
-        closeDisabled={modalBusy}
-      >
-        {editingRecord && (
-          <form onSubmit={handleSaveRecordEdit} className="space-y-4">
-            {modalError && (
-              <p role="alert" className="text-xs text-alarm bg-alarm-light p-2.5 rounded-xl">
-                {modalError}
-              </p>
-            )}
-            <div>
-              <span className="block text-xs text-ink-muted font-medium mb-1.5">选择所属分类</span>
-              <SubjectCapsuleGrid
-                ariaLabel="转移错题所属分类"
-                columns={3}
-                disabled={modalBusy}
-                options={getSubjectOptions(state.subjectLabels, true)}
-                value={targetSubject}
-                onChange={val => setTargetSubject(val as StudySubject)}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-ink-muted font-medium mb-1" htmlFor="wrong-edit-note">
-                复盘原因与解题突破口（选填）
-              </label>
-              <textarea
-                id="wrong-edit-note"
-                aria-label="编辑复盘笔记"
-                rows={3}
-                maxLength={2000}
-                disabled={modalBusy}
-                value={noteDraft}
-                onChange={e => setNoteDraft(e.target.value)}
-                placeholder="记录错因、易错陷阱或解题关键点..."
-                className="w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-xs focus:outline-none focus:border-sage resize-none"
-              />
-            </div>
-            <Button type="submit" variant="primary" fullWidth disabled={modalBusy}>
-              {modalBusy ? '正在保存…' : '保存分类与笔记'}
-            </Button>
-          </form>
-        )}
-      </Modal>
+      <WrongRecordMoveModal
+        record={movingRecord}
+        isOpen={Boolean(movingRecord)}
+        onClose={() => setMovingRecord(null)}
+        onToast={onToast}
+      />
 
       {/* 编辑分类名称弹窗 */}
       <Modal

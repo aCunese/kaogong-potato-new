@@ -31,7 +31,7 @@ async function mountOverlayFixture(page: Page) {
   await page.locator('[data-fixture-day="2026-11-04"]').waitFor();
 }
 
-for (const kind of ['category rename', 'book transfer', 'wrong record edit', 'wrong category rename', 'standalone timer']) {
+for (const kind of ['category rename', 'book transfer', 'wrong record transfer', 'wrong category rename', 'standalone timer']) {
   it(`defers next-day countdown until the child overlay closes: ${kind}`, async () => {
     const { page, context } = await createHarnessPage(browser, harness);
     page.setDefaultTimeout(2000);
@@ -48,12 +48,12 @@ for (const kind of ['category rename', 'book transfer', 'wrong record edit', 'wr
           await page.getByRole('button', { name: '转移题本分类：Book', exact: true }).click();
           dialogName = '转移所属分类';
         }
-      } else if (kind === 'wrong record edit' || kind === 'wrong category rename') {
+      } else if (kind === 'wrong record transfer' || kind === 'wrong category rename') {
         await page.getByRole('button', { name: '错题', exact: true }).click();
-        if (kind === 'wrong record edit') {
+        if (kind === 'wrong record transfer') {
           await page.getByRole('button', { name: /^资料分析\s*1道/ }).click();
-          await page.getByRole('button', { name: '转移错题分类或编辑笔记', exact: true }).click();
-          dialogName = '转移错题分类 / 编辑笔记';
+          await page.getByRole('button', { name: '转移错题分类', exact: true }).click();
+          dialogName = '转移错题分类';
         } else {
           await page.getByRole('button', { name: '编辑分类名称：资料分析', exact: true }).click();
           dialogName = '编辑分类名称';

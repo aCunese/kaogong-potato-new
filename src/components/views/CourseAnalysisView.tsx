@@ -4,7 +4,8 @@ import { Card, ProgressBar } from '../common/UIComponents';
 import { SubjectGroups } from '../common/SubjectGroups';
 import { getCourseAnalysis } from '../../utils/courseAnalysis';
 import type { StudyRecord } from '../../types';
-export function CourseAnalysisView({ records }: {records:StudyRecord[]}) {
+import { DailyRecordHistory } from '../common/DailyRecordHistory';
+export function CourseAnalysisView({ records, rangeKey }: {records:StudyRecord[]; rangeKey:string}) {
   const {state}=useApp();const summary=getCourseAnalysis(state.courses,records);
   return <section className="space-y-3" aria-label="网课节数进度">
     <h2 className="text-base font-bold">网课节数进度</h2>
@@ -15,6 +16,12 @@ export function CourseAnalysisView({ records }: {records:StudyRecord[]}) {
       {!course.deleted&&<><div className="flex justify-between text-xs"><span>已完成 {course.completedLessons} / {course.totalLessons} 节</span><span className="text-sage font-mono">{course.totalLessons>0?Math.round(course.completedLessons/course.totalLessons*100):0}%</span></div><ProgressBar value={course.totalLessons>0?course.completedLessons/course.totalLessons*100:0}/><p className="text-xs text-ink-muted">累计听课 {course.cumulativeMinutes} 分钟</p></>}
       <p className="text-xs text-ink-muted">本期 {course.minutes} 分钟 · {course.lessons} 节 · {course.sessions} 次</p>
     </Card>}/>
-    <details className="bg-paper border border-line rounded-xl p-3"><summary className="text-xs text-sage cursor-pointer">每日听课记录（{summary.days.length}天）</summary><div className="max-h-64 overflow-y-auto mt-3 space-y-2">{summary.days.length?summary.days.map(day=><div key={day.date} className="flex justify-between text-xs"><span>{day.date}</span><span className="font-mono">{day.minutes} 分钟 · {day.lessons} 节</span></div>):<p className="text-xs text-ink-muted">本期暂无已完成的网课登记。</p>}</div></details>
+    <DailyRecordHistory
+      title="每日听课记录"
+      days={summary.days}
+      rangeKey={rangeKey}
+      emptyMessage="本期暂无已完成的网课登记。"
+      renderSummary={day => <><span className="font-mono">{day.minutes} 分钟</span><span className="font-mono">{day.lessons} 节</span></>}
+    />
   </section>;
 }

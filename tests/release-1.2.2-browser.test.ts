@@ -68,6 +68,7 @@ it('summarizes actual book registrations by day/source and updates corrections a
   try{
     await mount(page,'analysis'); await page.getByRole('button',{name:'题本学习',exact:true}).click();
     const card=page.getByRole('region',{name:'每日刷题记录'});await card.waitFor();
+    await card.getByRole('button',{name:/2026-11-04/}).click();
     const row=card.getByTestId('practice-2026-11-04-b1');
     expect(await row.textContent()).toContain('申论范文');expect(await row.getByTestId('questions').textContent()).toBe('30');expect(await row.getByTestId('correct').textContent()).toBe('25');
     expect(await card.textContent()).not.toContain('99');expect(await card.textContent()).not.toContain('2026-09-01');

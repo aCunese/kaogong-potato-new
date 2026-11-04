@@ -170,7 +170,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
           </div>
 
           <TimeDistribution records={overallRecords} sessions={state.timerSessions ?? []} range={range} today={activeDate} view={category} onViewChange={setCategory} subjectLabels={state.subjectLabels} onLegend={() => onOpenLegendDetail(overallRecords.filter(r => r.type === category), range === 'all' ? '全部记录' : `近${range}天`)} />
-          {category === 'course' && <CourseAnalysisView records={overallRecords.filter(r => r.type === 'course')} />}
+          {category === 'course' && <CourseAnalysisView records={overallRecords.filter(r => r.type === 'course')} rangeKey={range} />}
 
           {/* 各科每日正确率曲线 */}
           {category === 'book' && <Card className="p-4 bg-paper border-line">
@@ -281,7 +281,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
               </div>
             )}
           </Card>}
-          {category === 'book' && <DailyBookPractice state={state} records={overallRecords} />}
+          {category === 'book' && <DailyBookPractice state={state} records={overallRecords} rangeKey={range} />}
         </div>
       )}
 
