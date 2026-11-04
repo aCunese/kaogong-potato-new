@@ -26,6 +26,11 @@ ENV NODE_ENV=production \
 RUN (sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list || true) && \
     apt-get update -o Acquire::Retries=3 && apt-get install -y -o Acquire::Retries=3 --no-install-recommends \
     python3 \
+    python3-pil \
+    tesseract-ocr \
+    tesseract-ocr-osd \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-eng \
     make \
     g++ \
     && rm -rf /var/lib/apt/lists/*

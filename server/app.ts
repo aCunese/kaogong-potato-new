@@ -33,6 +33,7 @@ import { resetPasswordWithCode } from './admin';
 import { createSeedState } from '../src/utils/seedFactory';
 import { emailRouter } from './emailRoutes';
 import { sharingRouter } from './sharingRoutes';
+import { imageOrientationService, ImageOrientationError } from './imageOrientation';
 
 const app = express();
 
@@ -687,6 +688,34 @@ app.post('/api/media/upload', requireAuth, (req: AuthenticatedRequest, res: Resp
     deduplicated: result.deduplicated === true,
     message: result.deduplicated ? '图片已存在，直接复用既有附件' : '图片上传成功',
   });
+});
+
+app.post('/api/media/:id/orientation', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const mediaId = String(req.params.id);
+  // Ownership is checked before reading bytes or consulting the content cache.
+  const media = getUserMediaFile(req.user!.id, mediaId);
+  if (!media) {
+    res.status(404).json({ ok: false, code: 'NOT_FOUND', message: '图片不存在或无权访问' });
+    return;
+  }
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const endpoint = `orientation:${req.user!.id}`;
+  if (!checkEndpointRateLimit(endpoint, ip, 30, 60_000)) {
+    res.setHeader('Retry-After', '60');
+    res.status(429).json({ ok: false, code: 'ORIENTATION_RATE_LIMITED', message: '图片识别请求过于频繁，请稍后重试' });
+    return;
+  }
+  recordEndpointAttempt(endpoint, ip, 60_000);
+  try {
+    const orientation = await imageOrientationService.orient(media.diskPath);
+    res.json({ ok: true, mediaId, orientation });
+  } catch (error) {
+    const code = error instanceof ImageOrientationError ? error.code : 'ORIENTATION_UNAVAILABLE';
+    if (code === 'ORIENTATION_BUSY') res.setHeader('Retry-After', '2');
+    const status = code === 'ORIENTATION_BUSY' ? 429 : code === 'ORIENTATION_TIMEOUT' ? 504 : 503;
+    res.status(status).json({ ok: false, code, message: '图片方向暂未识别，请稍后重试' });
+  }
 });
 
 app.get('/api/media/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
