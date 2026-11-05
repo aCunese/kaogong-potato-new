@@ -30,6 +30,39 @@ test('native Chinese and English OCR returns the clockwise correction for every 
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
 
+for (const [language, top, bottom] of [['Chinese', 0, 180], ['English', 730, 1030]] as const) {
+  test(`sparse ${language} question text stays upright among large diagrams`, { timeout: 120_000 }, () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-diagram-orientation-'));
+    try {
+      const page = path.join(temp, 'question.png');
+      const generated = spawnSync(python, ['-c', `
+from PIL import Image, ImageDraw
+import sys
+source = Image.open(sys.argv[1])
+excerpt = source.crop((0, int(sys.argv[3]), source.width, int(sys.argv[4])))
+excerpt.thumbnail((1000, 250), Image.Resampling.LANCZOS)
+image = Image.new('RGB', (1200, 900), 'white')
+image.paste(excerpt, (80, 50))
+draw = ImageDraw.Draw(image)
+for row in range(2):
+    for column in range(5):
+        x, y = 100 + column * 200, 350 + row * 220
+        draw.rectangle((x, y, x + 180, y + 180), outline='black', width=3)
+        draw.ellipse((x + 20, y + 20, x + 160, y + 160), outline='black', width=4)
+        draw.line((x + 20, y + 20, x + 160, y + 160), fill='black', width=4)
+image.save(sys.argv[2])
+`, fixture, page, String(top), String(bottom)], { encoding: 'utf8' });
+      assert.equal(generated.status, 0, generated.stderr);
+      for (const [turn, expected] of [[0, 0], [90, 270], [180, 180], [270, 90]]) {
+        const candidate = path.join(temp, `${turn}.png`);
+        const rotated = spawnSync(python, ['-c', 'from PIL import Image; import sys; Image.open(sys.argv[1]).rotate(-int(sys.argv[3]),expand=True).save(sys.argv[2])', page, candidate, String(turn)], { encoding: 'utf8' });
+        assert.equal(rotated.status, 0, rotated.stderr);
+        assert.deepEqual(nativeOrientation(candidate), { status: 'resolved', rotation: expected, version: 1 }, `${language} input clockwise ${turn}`);
+      }
+    } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+  });
+}
+
 test('low text is unresolved and malformed images fail without returning a guessed orientation', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-lowtext-orientation-'));
   try {

@@ -84,16 +84,24 @@ def orient(filename):
         correction = osd_rotation(osd.stdout) if osd.returncode == 0 else None
         if correction is not None:
             return {'status': 'resolved', 'rotation': correction, 'version': VERSION}
-        candidates = []
-        for rotation in QUARTER_TURNS:
-            candidate = Path(directory) / f'{rotation}.png'
-            image.rotate(-rotation, expand=True).save(candidate)
-            result = run_tesseract(candidate, '-l', 'chi_sim+eng', '--psm', '6', 'tsv')
-            if result.returncode != 0:
-                raise RuntimeError('Native OCR unavailable')
-            confidence, count = weighted_confidence(result.stdout)
-            candidates.append((rotation, confidence, count))
-        return select_rotation(candidates)
+        # Chinese questions mix short text lines, diagrams and annotations.
+        # Sparse segmentation avoids forcing shapes into a paragraph; recognize
+        # Chinese first so English guesses for shapes do not obscure the text.
+        for language in ('chi_sim', 'chi_sim+eng'):
+            candidates = []
+            for rotation in QUARTER_TURNS:
+                candidate = Path(directory) / f'{rotation}.png'
+                if not candidate.exists():
+                    image.rotate(-rotation, expand=True).save(candidate)
+                result = run_tesseract(candidate, '-l', language, '--psm', '11', 'tsv')
+                if result.returncode != 0:
+                    raise RuntimeError('Native OCR unavailable')
+                confidence, count = weighted_confidence(result.stdout)
+                candidates.append((rotation, confidence, count))
+            result = select_rotation(candidates)
+            if result['status'] == 'resolved':
+                return result
+        return result
 
 
 if __name__ == '__main__':
