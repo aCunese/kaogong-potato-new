@@ -63,6 +63,10 @@ image.save(sys.argv[2])
   });
 }
 
+test('diagrams with only four option labels stay unresolved instead of rotating OCR guesses', () => {
+  assert.deepEqual(nativeOrientation(path.resolve('tests/fixtures/image-orientation/lowtext-diagrams.png')), { status: 'unresolved', rotation: 0, version: 1 });
+});
+
 test('low text is unresolved and malformed images fail without returning a guessed orientation', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-lowtext-orientation-'));
   try {

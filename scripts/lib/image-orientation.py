@@ -31,7 +31,7 @@ def osd_rotation(output):
     return None
 
 
-def weighted_confidence(tsv):
+def weighted_confidence(tsv, minimum_confidence=0):
     count = 0
     weighted = 0.0
     for row in csv.DictReader(io.StringIO(tsv), delimiter='\t', quoting=csv.QUOTE_NONE):
@@ -42,7 +42,7 @@ def weighted_confidence(tsv):
             confidence = float(row.get('conf', '-1'))
         except (ValueError, TypeError):
             continue
-        if chars and 0 <= confidence <= 100:
+        if chars and minimum_confidence <= confidence <= 100:
             count += chars
             weighted += confidence * chars
     return (weighted / count if count else 0.0), count
@@ -52,8 +52,10 @@ def select_rotation(candidates):
     # Each candidate has its own effective-character count; punctuation does not
     # make a short or uncertain image look like a substantial OCR sample.
     ordered = sorted(candidates, key=lambda candidate: candidate[1], reverse=True)
-    rotation, confidence, chars = ordered[0]
-    if chars >= 12 and confidence >= 45 and confidence - ordered[1][1] >= 10:
+    rotation, confidence, chars, trusted_chars = ordered[0]
+    # Sparse diagrams can create many moderately confident OCR guesses. Require
+    # enough clearly recognized text as well as the overall score and lead.
+    if chars >= 12 and trusted_chars >= 12 and confidence >= 45 and confidence - ordered[1][1] >= 10:
         return {'status': 'resolved', 'rotation': rotation, 'version': VERSION}
     return {'status': 'unresolved', 'rotation': 0, 'version': VERSION}
 
@@ -97,7 +99,8 @@ def orient(filename):
                 if result.returncode != 0:
                     raise RuntimeError('Native OCR unavailable')
                 confidence, count = weighted_confidence(result.stdout)
-                candidates.append((rotation, confidence, count))
+                _, trusted_count = weighted_confidence(result.stdout, 60)
+                candidates.append((rotation, confidence, count, trusted_count))
             result = select_rotation(candidates)
             if result['status'] == 'resolved':
                 return result

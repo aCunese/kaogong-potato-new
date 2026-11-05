@@ -24,3 +24,16 @@ for index, line in enumerate(lines):
     draw.text((45, 40 + index * 78), line, font=font, fill='black')
 image.save(root / 'study-page.png')
 Image.new('RGB', (400, 400), 'white').save(root / 'blank.png')
+
+# A diagram-only question with four option labels must not count as enough text.
+font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 28)
+image = Image.new('RGB', (1200, 900), 'white')
+draw = ImageDraw.Draw(image)
+for row in range(2):
+    for column in range(5 if row == 0 else 4):
+        x, y = 80 + column * 220, 100 + row * 420
+        if row == 1:
+            draw.text((x + 75, y + 220), 'ABCD'[column], font=font, fill='black')
+        draw.rectangle((x, y, x + 180, y + 180), outline='black', width=3)
+        draw.polygon([(x + 90, y + 20), (x + 155, y + 150), (x + 25, y + 150)], outline='black', width=4)
+image.save(root / 'lowtext-diagrams.png')
