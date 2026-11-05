@@ -85,12 +85,13 @@ it('offers repeatable wrong-note editing with cancellation and failed-save draft
   const {page,context}=await createHarnessPage(browser,harness);page.setDefaultTimeout(2500);
   try{
     await mount(page,'wrong');const detail=page.getByRole('dialog',{name:'错题复盘大图详情'});
-    await detail.getByRole('button',{name:'编辑',exact:true}).click();await detail.getByRole('textbox').fill('修改后的笔记');
-    await page.evaluate(()=>{(window as any).failSave=true;});await detail.getByRole('button',{name:'保存修改',exact:true}).click();
-    await detail.getByRole('alert').waitFor();expect(await detail.getByRole('textbox').inputValue()).toBe('修改后的笔记');
-    await page.evaluate(()=>{(window as any).failSave=false;});await detail.getByRole('button',{name:'保存修改',exact:true}).click();
-    await detail.getByRole('button',{name:'编辑',exact:true}).click();expect(await detail.getByRole('textbox').inputValue()).toBe('修改后的笔记');
-    await detail.getByRole('textbox').fill('取消这次');await detail.getByRole('button',{name:'取消',exact:true}).click();
+    const editor=page.getByRole('dialog',{name:'编辑复盘笔记',exact:true});
+    await detail.getByRole('button',{name:'编辑',exact:true}).click();await editor.getByRole('textbox').fill('修改后的笔记');
+    await page.evaluate(()=>{(window as any).failSave=true;});await editor.getByRole('button',{name:'保存修改',exact:true}).click();
+    await editor.getByRole('alert').waitFor();expect(await editor.getByRole('textbox').inputValue()).toBe('修改后的笔记');
+    await page.evaluate(()=>{(window as any).failSave=false;});await editor.getByRole('button',{name:'保存修改',exact:true}).click();
+    await detail.getByRole('button',{name:'编辑',exact:true}).click();expect(await editor.getByRole('textbox').inputValue()).toBe('修改后的笔记');
+    await editor.getByRole('textbox').fill('取消这次');await editor.getByRole('button',{name:'取消',exact:true}).click();
     expect(await detail.textContent()).toContain('修改后的笔记');expect(await detail.textContent()).not.toContain('取消这次');
   }finally{await context.close();}
 },15000);
@@ -121,9 +122,10 @@ it('keeps schedule, daily totals and wrong editing usable at 360, 393 and 412 pi
       await page.setViewportSize({width,height:844}); await page.addStyleTag({content:css});
       await mount(page,'wrong'); const detail=page.getByRole('dialog',{name:'错题复盘大图详情'});
       const edit=detail.getByRole('button',{name:'编辑',exact:true}); await edit.click();
-      const box=await detail.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x+box!.width).toBeLessThanOrEqual(width+1);
-      expect(await detail.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
-      await expect(detail.getByRole('button',{name:'保存修改'}).isVisible()).resolves.toBe(true);
+      const editor=page.getByRole('dialog',{name:'编辑复盘笔记',exact:true});
+      const box=await editor.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x+box!.width).toBeLessThanOrEqual(width+1);
+      expect(await editor.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+      await expect(editor.getByRole('button',{name:'保存修改'}).isVisible()).resolves.toBe(true);
       await page.screenshot({path:`output/release-1.2.2/wrong-edit-${width}.png`});
       await page.evaluate(()=>{(window as any).testRoot.unmount();}); await mount(page,'analysis');
       await page.getByRole('button',{name:'题本学习',exact:true}).click();

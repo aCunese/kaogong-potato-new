@@ -196,35 +196,58 @@ interface ModalProps {
   children: ReactNode;
   closeDisabled?: boolean;
   blocksReminders?: boolean;
+  layout?: 'default' | 'editor';
+  footer?: ReactNode;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false, blocksReminders = true }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, closeDisabled = false, blocksReminders = true, layout = 'default', footer }) => {
   useModalBack(isOpen, onClose, closeDisabled, blocksReminders);
+  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!isOpen || layout !== 'editor' || !window.visualViewport) return;
+    const visible = window.visualViewport;
+    // Follow the space above the mobile keyboard, including viewport panning.
+    const update = () => setViewport({ height: visible.height, top: visible.offsetTop });
+    update();
+    visible.addEventListener('resize', update);
+    visible.addEventListener('scroll', update);
+    return () => {
+      visible.removeEventListener('resize', update);
+      visible.removeEventListener('scroll', update);
+    };
+  }, [isOpen, layout]);
   if (!isOpen) return null;
+  const editor = layout === 'editor';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in ${editor ? 'sm:p-4' : 'p-4'}`}
+      style={editor && viewport ? { top: viewport.top, height: viewport.height, bottom: 'auto' } : undefined}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="bg-paper border border-line w-full max-w-lg rounded-2xl p-5 shadow-modal max-h-[90vh] overflow-y-auto flex flex-col"
+        className={editor
+          ? 'bg-paper border border-line w-full max-w-2xl h-full sm:h-[min(90dvh,760px)] max-h-full sm:rounded-2xl shadow-modal overflow-hidden flex flex-col'
+          : 'bg-paper border border-line w-full max-w-lg rounded-2xl p-5 shadow-modal max-h-[90vh] overflow-y-auto flex flex-col'}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between pb-3 border-b border-line mb-4">
+        <div className={`flex items-center justify-between border-b border-line ${editor ? 'shrink-0 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]' : 'pb-3 mb-4'}`}>
           <h3 className="text-lg font-bold text-ink-main">{title}</h3>
           <button
             onClick={onClose}
             disabled={closeDisabled}
             aria-label="关闭弹窗"
-            className="p-1 rounded-lg text-ink-muted hover:text-ink-main hover:bg-black/5"
+            className={`${editor ? 'p-2' : 'p-1'} rounded-lg text-ink-muted hover:text-ink-main hover:bg-black/5`}
           >
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className={`flex-1 overflow-y-auto ${editor ? 'min-h-0 p-4' : ''}`}>
           {children}
         </div>
+        {footer && <div className="shrink-0 border-t border-line bg-paper px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div>}
       </div>
     </div>
   );

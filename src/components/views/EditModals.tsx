@@ -1029,7 +1029,35 @@ export const WrongDetailModal: React.FC<{
 
   return (
     <>
-    <Modal isOpen={isOpen} onClose={onClose} title="错题复盘大图详情" closeDisabled={isSavingMeta}>
+    <Modal
+      isOpen={isOpen}
+      onClose={editingMeta ? () => setEditingMeta(false) : onClose}
+      title={editingMeta ? '编辑复盘笔记' : '错题复盘大图详情'}
+      closeDisabled={isSavingMeta}
+      layout={editingMeta ? 'editor' : 'default'}
+      footer={editingMeta ? <div className="flex gap-3">
+        <Button variant="secondary" fullWidth onClick={() => setEditingMeta(false)} disabled={isSavingMeta}>取消</Button>
+        <Button variant="primary" fullWidth onClick={handleSaveMeta} disabled={isSavingMeta}>{isSavingMeta ? '保存中...' : '保存修改'}</Button>
+      </div> : undefined}
+    >
+      {editingMeta ? <div className="h-full min-h-0 flex flex-col gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 text-xs">
+          <span className="min-w-0 truncate text-ink-muted">{subjectLabel} · {timeText}</span>
+          {activeImage && <button type="button" onClick={openZoomViewer} className="shrink-0 inline-flex items-center gap-1 text-sage font-bold py-1"><Eye size={14} />查看题图</button>}
+        </div>
+        <label htmlFor="wrong-note-editor" className="shrink-0 text-sm font-bold text-ink-main">复盘原因与解题突破口</label>
+        <FormError message={metaError} />
+        <textarea
+          id="wrong-note-editor"
+          value={editNote}
+          disabled={isSavingMeta}
+          onChange={e => setEditNote(e.target.value)}
+          maxLength={2000}
+          placeholder="记下错因、判断线索和下次解题的突破口…"
+          className="flex-1 min-h-[96px] w-full bg-card border border-line rounded-xl px-4 py-3 text-base leading-7 text-ink-main focus:outline-none focus:border-sage focus:ring-2 focus:ring-sage/15 resize-none select-text"
+        />
+        <p className="shrink-0 text-right text-xs text-ink-muted tabular-nums">{editNote.length} / 2000 字</p>
+      </div> : (
       <div className="space-y-4">
         {/* 大图显示与多图直接左右滑动切换 */}
         <div
@@ -1105,9 +1133,9 @@ export const WrongDetailModal: React.FC<{
           <div className="flex items-center gap-2">
           <button type="button" disabled={isSavingMeta} onClick={() => {
             setEditNote(liveRecord.note || ''); setMetaError('');
-            setEditingMeta(prev => !prev);
+            setEditingMeta(true);
           }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage-light text-sage font-bold border border-sage/25">
-            <Edit2 size={13} /><span>{editingMeta ? '收起编辑' : '编辑'}</span>
+            <Edit2 size={13} /><span>编辑</span>
           </button>
           <button type="button" disabled={isSavingMeta || editingMeta} onClick={() => setMovingRecord(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream text-ink-muted font-bold border border-line disabled:opacity-50">
             <ArrowRightLeft size={13} /><span>转移</span>
@@ -1121,45 +1149,18 @@ export const WrongDetailModal: React.FC<{
           {images.length > 1 && <Tag variant="gray">共 {images.length} 张图 · 左右滑动切换</Tag>}
         </div>
 
-        {editingMeta ? (
-          <div className="bg-cream/60 p-3.5 rounded-2xl border border-sage/35 space-y-3">
-            <FormError message={metaError} />
-            <div>
-              <label className="block text-xs font-bold text-ink-main mb-1.5">
-                复盘原因与解题突破口
-                <textarea
-                  value={editNote}
-                  disabled={isSavingMeta}
-                  onChange={e => setEditNote(e.target.value)}
-                  rows={2}
-                  maxLength={2000}
-                  placeholder="补充错因或解题突破口..."
-                  className="mt-1.5 w-full bg-card border border-line rounded-xl px-3 py-2 text-xs text-ink-main focus:outline-none focus:border-sage resize-none"
-                />
-              </label>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" fullWidth onClick={() => setEditingMeta(false)} disabled={isSavingMeta}>
-                取消
-              </Button>
-              <Button variant="primary" size="sm" fullWidth onClick={handleSaveMeta} disabled={isSavingMeta}>
-                {isSavingMeta ? '保存中...' : '保存修改'}
-              </Button>
-            </div>
-          </div>
-        ) : (
           <div className="bg-cream/60 p-3.5 rounded-2xl border border-line/80 space-y-1">
             <div className="text-xs font-bold text-ink-main">复盘原因与解题突破口</div>
             <p className="text-xs text-ink-muted leading-relaxed whitespace-pre-wrap">
               {liveRecord.note || '未填写复盘笔记'}
             </p>
           </div>
-        )}
 
         <Button variant="secondary" size="md" fullWidth onClick={onClose} disabled={isSavingMeta}>
           关闭
         </Button>
       </div>
+      )}
     </Modal>
     <WrongRecordMoveModal record={liveRecord} isOpen={movingRecord} onClose={() => setMovingRecord(false)} onToast={onToast} />
 

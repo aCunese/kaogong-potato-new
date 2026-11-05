@@ -63,6 +63,13 @@ function writePersistedViewMode(mode: ViewMode): void {
   }
 }
 
+function visiblePages(current: number, total: number): Array<number | 'start-gap' | 'end-gap'> {
+  if (total <= 5) return Array.from({ length: total }, (_, index) => index + 1);
+  if (current <= 3) return [1, 2, 3, 'end-gap', total];
+  if (current >= total - 2) return [1, 'start-gap', total - 2, total - 1, total];
+  return [1, 'start-gap', current, 'end-gap', total];
+}
+
 export const WrongView: React.FC<WrongViewProps> = ({
   onOpenImportModal,
   onOpenDetailModal,
@@ -784,27 +791,30 @@ export const WrongView: React.FC<WrongViewProps> = ({
                   </div>
                 )}
 
-                {/* 左右翻页控制栏（单屏展示 4 道错题，支持点击或左右滑动翻页） */}
+                {/* Keep at most five page slots so narrow screens never wrap. */}
                 {group.records.length > 0 && (
-                  <div className="pt-2 border-t border-line flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      disabled={currentPage <= 1}
-                      onClick={goPrev}
-                      className="px-2.5 py-1.5 rounded-xl bg-paper border border-line text-xs font-medium text-ink-main inline-flex items-center gap-1 active:bg-cream disabled:opacity-40"
-                    >
-                      <ChevronLeft size={14} />
-                      上一页
-                    </button>
+                  <nav aria-label={`${getSubjectLabel(group.subject, state.subjectLabels)}错题分页`} className="pt-3 border-t border-line space-y-1.5">
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        aria-label="上一页"
+                        title="上一页"
+                        disabled={currentPage <= 1}
+                        onClick={goPrev}
+                        className="w-9 h-9 shrink-0 rounded-xl bg-paper border border-line text-ink-main inline-flex items-center justify-center active:bg-cream disabled:opacity-40"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
 
-                    <div className="flex flex-col items-center gap-0.5">
-                      <div className="flex items-center gap-1 font-mono text-xs flex-wrap justify-center">
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                      <div className="flex items-center gap-1 font-mono text-xs min-w-0">
+                        {visiblePages(currentPage, totalPages).map(p => typeof p === 'number' ? (
                           <button
                             key={p}
                             type="button"
+                            aria-label={`第 ${p} 页`}
+                            aria-current={p === currentPage ? 'page' : undefined}
                             onClick={() => setPages(prev => ({ ...prev, [group.id]: p }))}
-                            className={`w-6 h-6 rounded-lg text-xs transition ${
+                            className={`min-w-8 h-9 px-1 rounded-lg text-xs transition ${
                               p === currentPage
                                 ? 'bg-sage text-white font-bold shadow-sm'
                                 : 'bg-paper border border-line text-ink-muted hover:text-ink-main'
@@ -812,25 +822,22 @@ export const WrongView: React.FC<WrongViewProps> = ({
                           >
                             {p}
                           </button>
-                        ))}
+                        ) : <span key={p} aria-hidden="true" className="w-8 h-9 inline-flex items-center justify-center text-ink-muted">…</span>)}
                       </div>
-                      {totalPages > 1 && (
-                        <span className="text-[10px] text-ink-muted">
-                          第 {currentPage}/{totalPages} 页 · 可左右滑动翻页
-                        </span>
-                      )}
-                    </div>
 
-                    <button
-                      type="button"
-                      disabled={currentPage >= totalPages}
-                      onClick={goNext}
-                      className="px-2.5 py-1.5 rounded-xl bg-paper border border-line text-xs font-medium text-ink-main inline-flex items-center gap-1 active:bg-cream disabled:opacity-40"
-                    >
-                      下一页
-                      <ChevronRight size={14} />
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        aria-label="下一页"
+                        title="下一页"
+                        disabled={currentPage >= totalPages}
+                        onClick={goNext}
+                        className="w-9 h-9 shrink-0 rounded-xl bg-paper border border-line text-ink-main inline-flex items-center justify-center active:bg-cream disabled:opacity-40"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </div>
+                    {totalPages > 1 && <p className="text-[10px] text-center text-ink-muted whitespace-nowrap" aria-live="polite">第 {currentPage}/{totalPages} 页 · 左右滑动翻页</p>}
+                  </nav>
                 )}
 
                 {/* 底部快速添加当前分类照片入口（无需滑回顶部） */}

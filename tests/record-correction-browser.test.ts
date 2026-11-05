@@ -92,12 +92,13 @@ it('continues editing a valid existing wrong-detail note longer than 200 charact
     await page.getByRole('button', { name: '查看错题大图', exact: true }).click();
     const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
-    const note = detail.getByRole('textbox');
+    const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
+    const note = editor.getByRole('textbox');
     expect(await note.getAttribute('maxlength')).toBe('2000');
     await note.evaluate((element: HTMLTextAreaElement) => { element.focus(); element.setSelectionRange(element.value.length, element.value.length); });
     await note.pressSequentially('more');
     expect(await note.inputValue()).toBe(`${'a'.repeat(201)}more`);
-    await detail.getByRole('button', { name: '保存修改', exact: true }).click();
+    await editor.getByRole('button', { name: '保存修改', exact: true }).click();
     await page.waitForFunction(() => (window as any).overlayValue.state.wrong[0].note.length === 205);
   } finally { await context.close(); }
 }, 10000);

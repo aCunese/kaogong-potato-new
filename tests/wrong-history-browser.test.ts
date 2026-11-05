@@ -15,9 +15,9 @@ beforeAll(async () => {
 });
 afterAll(async () => { await browser?.close(); });
 
-async function mount(page: Page, scene: 'detail' | 'cards' | 'analysis' | 'import' = 'analysis', dayCount = 9) {
+async function mount(page: Page, scene: 'detail' | 'cards' | 'analysis' | 'import' = 'analysis', dayCount = 9, wrongCount = 1) {
   await page.addStyleTag({ content: css });
-  await page.evaluate(({ scene, dayCount }) => {
+  await page.evaluate(({ scene, dayCount, wrongCount }) => {
     const w = window as any;
     const state = structuredClone(w.BLANK_STATE);
     state.books = [{ id: 'b', name: '数量练习', subject: '数量关系', total: 100, done: 0, errors: 0, minutes: 0, pages: 1 }];
@@ -30,7 +30,7 @@ async function mount(page: Page, scene: 'detail' | 'cards' | 'analysis' | 'impor
     drawing.fillText('Wrong question sample', 32, 60);
     drawing.fillText('12 x 8 = ?', 32, 120);
     const image = canvas.toDataURL();
-    state.wrong = [{ id: 'w', bookId: 'b', subject: '数量关系', date: '2026-11-04', createdAt: 1793782800000, note: '原笔记', image, images: [image, image], imageOrientations: [null, null] }];
+    state.wrong = Array.from({ length: wrongCount }, (_, index) => ({ id: index ? `w-${index}` : 'w', bookId: 'b', subject: '数量关系', date: '2026-11-04', createdAt: 1793782800000 - index, note: '原笔记', image, images: [image, image], imageOrientations: [null, null] }));
     state.records = [];
     for (let index = 0; index < dayCount; index++) {
       const date = new Date(Date.UTC(2026, 10, 4 - index)).toISOString().slice(0, 10);
@@ -85,8 +85,76 @@ async function mount(page: Page, scene: 'detail' | 'cards' | 'analysis' | 'impor
       ),
     ));
     w.renderFixture();
-  }, { scene, dayCount });
+  }, { scene, dayCount, wrongCount });
 }
+
+it('keeps five-page and long wrong-photo pagination on one row and reaches both ends', async () => {
+  for (const width of [320, 360, 393, 412]) {
+    const { page, context } = await createHarnessPage(browser, harness);
+    page.setDefaultTimeout(2000);
+    try {
+      await page.setViewportSize({ width, height: 844 });
+      await page.addStyleTag({ content: '#root { padding: 16px; }' });
+      await mount(page, 'cards', 9, 25);
+      await page.getByRole('button', { name: '3列', exact: true }).click();
+      const pager = page.getByRole('navigation', { name: '数量关系错题分页', exact: true });
+      const checkRow = async () => {
+        const boxes = await pager.getByRole('button').evaluateAll(elements => elements.map(el => {
+          const rect = el.getBoundingClientRect(); return { y: rect.y, right: rect.right, height: rect.height };
+        }));
+        expect(new Set(boxes.map(box => Math.round(box.y))).size).toBe(1);
+        expect(boxes.every(box => box.right <= width && box.height >= 36)).toBe(true);
+        expect(await pager.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      };
+      await pager.waitFor(); await checkRow();
+      await pager.getByRole('button', { name: '第 5 页', exact: true }).click();
+      expect(await pager.getByRole('button', { name: '下一页', exact: true }).isDisabled()).toBe(true);
+      await page.evaluate(() => {
+        const w = window as any, item = w.fixture.state.wrong[0];
+        w.fixture.state = { ...w.fixture.state, wrong: Array.from({ length: 120 }, (_, i) => ({ ...item, id: `long-${i}` })) };
+        w.renderFixture();
+      });
+      await pager.getByRole('button', { name: '第 20 页', exact: true }).waitFor();
+      await checkRow(); expect(await pager.getByText('…', { exact: true }).count()).toBe(2);
+      await pager.getByRole('button', { name: '第 20 页', exact: true }).click();
+      expect(await pager.getByRole('button', { name: '下一页', exact: true }).isDisabled()).toBe(true);
+      await pager.getByRole('button', { name: '第 1 页', exact: true }).click();
+      expect(await pager.getByRole('button', { name: '上一页', exact: true }).isDisabled()).toBe(true);
+      await pager.getByRole('button', { name: '下一页', exact: true }).click();
+      expect(await pager.getByRole('button', { name: '第 2 页', exact: true }).getAttribute('aria-current')).toBe('page');
+      await checkRow();
+      await pager.screenshot({ path: `output/wrong-history/pagination-${width}.png` });
+    } finally { await context.close(); }
+  }
+}, 20000);
+
+it('gives note editing a large workspace and keeps save visible when the viewport shrinks', async () => {
+  const { page, context } = await createHarnessPage(browser, harness);
+  page.setDefaultTimeout(2000);
+  try {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await mount(page, 'detail');
+    await page.getByRole('button', { name: '编辑', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
+    const note = editor.getByRole('textbox', { name: '复盘原因与解题突破口', exact: true });
+    await editor.waitFor();
+    expect((await note.boundingBox())!.height).toBeGreaterThan(320);
+    await note.fill('第一行错因\n'.repeat(120));
+    for (const height of [800, 420, 320]) {
+      await page.setViewportSize({ width: 360, height });
+      const save = editor.getByRole('button', { name: '保存修改', exact: true });
+      await page.waitForFunction(height => {
+        const save = Array.from(document.querySelectorAll('button')).find(button => button.textContent === '保存修改');
+        return save && save.getBoundingClientRect().bottom <= height;
+      }, height);
+      expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: '错题复盘大图详情', exact: true }).waitFor();
+    expect(await page.evaluate(() => (window as any).mutationCalls.length)).toBe(0);
+  } finally { await context.close(); }
+}, 12000);
 
 async function swipe(list: Locator, dx: number, dy = 0) {
   await list.dispatchEvent('touchstart', { touches: [{ identifier: 1, clientX: 220, clientY: 200 }] });
@@ -101,23 +169,24 @@ it('edits only the note while preserving category and book ownership, including 
     await mount(page, 'detail');
     const before = await page.evaluate(() => (window as any).fixture.state.wrong[0]);
     const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
+    const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
     expect(await detail.getByText('转移到分类', { exact: true }).count()).toBe(0);
-    await detail.getByRole('textbox').fill('新笔记');
+    await editor.getByRole('textbox').fill('新笔记');
     await page.evaluate(() => { (window as any).failMutation = true; });
-    await detail.getByRole('button', { name: '保存修改', exact: true }).click();
-    await detail.getByRole('alert').waitFor();
-    expect(await detail.getByRole('textbox').inputValue()).toBe('新笔记');
+    await editor.getByRole('button', { name: '保存修改', exact: true }).click();
+    await editor.getByRole('alert').waitFor();
+    expect(await editor.getByRole('textbox').inputValue()).toBe('新笔记');
     await page.evaluate(() => { (window as any).failMutation = false; });
-    await detail.getByRole('button', { name: '保存修改', exact: true }).click();
+    await editor.getByRole('button', { name: '保存修改', exact: true }).click();
     await detail.getByRole('button', { name: '编辑', exact: true }).waitFor();
     expect(await page.evaluate(() => (window as any).mutationCalls)).toEqual([{ note: '新笔记' }, { note: '新笔记' }]);
     expect(await page.evaluate(() => (window as any).fixture.state.wrong[0])).toEqual({ ...before, note: '新笔记' });
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
-    await detail.getByRole('textbox').fill('取消的内容');
-    await detail.getByRole('button', { name: '取消', exact: true }).click();
+    await editor.getByRole('textbox').fill('取消的内容');
+    await editor.getByRole('button', { name: '取消', exact: true }).click();
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
-    expect(await detail.getByRole('textbox').inputValue()).toBe('新笔记');
+    expect(await editor.getByRole('textbox').inputValue()).toBe('新笔记');
   } finally { await context.close(); }
 }, 12000);
 
@@ -313,10 +382,10 @@ it('keeps previews, history navigation and separate wrong actions usable at mobi
       await page.getByRole('button', { name: '查看错题大图', exact: true }).first().click();
       const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
       await detail.getByRole('button', { name: '编辑', exact: true }).click();
-      expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-      await detail.getByRole('button', { name: '保存修改', exact: true }).scrollIntoViewIfNeeded();
-      await detail.screenshot({ path: `output/wrong-history/edit-${width}.png` });
-      await detail.getByRole('button', { name: '取消', exact: true }).click();
+      const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
+      expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      await editor.screenshot({ path: `output/wrong-history/edit-${width}.png` });
+      await editor.getByRole('button', { name: '取消', exact: true }).click();
       await detail.getByRole('button', { name: '转移', exact: true }).click();
       const move = page.getByRole('dialog', { name: '转移错题分类', exact: true });
       expect(await move.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);

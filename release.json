@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.2.3",
-  "webBuild": "20261104.03",
+  "webVersion": "1.2.4",
+  "webBuild": "20261105.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-04T13:52:25Z",
-  "summary": "错题编辑与分类转移独立操作；分类快速添加直接归档；每日刷题与听课显示最近3天，历史记录每页5天并支持左右滑动。"
+  "deployedAt": "2026-11-05T02:55:10Z",
+  "summary": "错题分页保持单行并折叠过多页码；复盘笔记使用大面积编辑窗口，固定保存栏并适配键盘可视区域。"
 }
