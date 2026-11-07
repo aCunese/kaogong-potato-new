@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261108.01",
+  "webBuild": "20261108.02",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-07T16:05:00Z",
-  "summary": "上线学习伙伴实时学情、一键催学拍一拍与邮件督学机制，首页悬浮打气便签支持上滑收起与相册表情包选图。"
+  "deployedAt": "2026-11-07T16:45:00Z",
+  "summary": "修复督学邮件反垃圾投递机制，全面升级官方认证 SMTP SSL 通道、发件人别名规范与 RFC 消息信头，优化邮件设计与生产环境部署。"
 }

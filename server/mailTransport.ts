@@ -44,10 +44,28 @@ export function createSmtpMailSender(env: NodeJS.ProcessEnv = process.env): Mail
       const abort = () => { activeTransport.close(); transport = undefined; };
       message.signal?.addEventListener('abort', abort, { once: true });
       try {
+        const fromDomain = from!.split('@')[1] || 'work.ruyne.space';
+        const fromDisplayName = env.SMTP_FROM_NAME || '土豆考公';
+        const formattedFrom = from!.includes('<') ? from! : `"${fromDisplayName}" <${from}>`;
+        const normalizedMessageId = message.messageId
+          ? message.messageId.replace(/@potato\.local>?$/i, `@${fromDomain}>`)
+          : undefined;
+
         const result = await activeTransport.sendMail({
-          from, to: message.to, subject: message.subject, text: message.text,
+          from: formattedFrom,
+          to: message.to,
+          subject: message.subject,
+          text: message.text,
           html: message.html,
-          messageId: message.messageId, disableFileAccess: true, disableUrlAccess: true,
+          messageId: normalizedMessageId,
+          headers: {
+            'Auto-Submitted': 'auto-generated',
+            'X-Auto-Response-Suppress': 'All',
+            'X-Mailer': 'Potato-Study-Workspace',
+            'Reply-To': from!,
+          },
+          disableFileAccess: true,
+          disableUrlAccess: true,
         });
         if (!Array.isArray(result.accepted) || result.accepted.length === 0) throw new MailDeliveryError('permanent');
       } catch (error) {

@@ -23,14 +23,16 @@ export function sanitizeHeader(str: string): string {
   return str.replace(/[\r\n]/g, ' ').trim();
 }
 
-export function sanitizeUrl(urlStr: string): string {
-  try {
-    const parsed = new URL(urlStr);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return parsed.href;
-    }
-  } catch {}
-  return 'http://localhost:5174';
+export function sanitizeUrl(urlStr?: string): string {
+  if (urlStr) {
+    try {
+      const parsed = new URL(urlStr);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.href;
+      }
+    } catch {}
+  }
+  return process.env.PUBLIC_URL || 'https://work.ruyne.space';
 }
 
 export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailContent {
@@ -42,28 +44,28 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
 
   const senderHtml = escapeHtml(rawSender);
   const recipientHtml = escapeHtml(rawRecipient);
-  const appUrl = sanitizeUrl(params.loginUrl || 'http://localhost:5174');
+  const appUrl = sanitizeUrl(params.loginUrl);
   const appUrlAttr = escapeHtml(appUrl);
 
-  const subject = `⚡️【土豆考公】你的研友「${senderClean}」向你发来了一记夺命连环催！`;
+  const subject = `⚡️【土豆考公】你的研友「${senderClean}」向你发来了一记夺命连环催学提醒！`;
 
   const text = [
     `亲爱的 ${recipientClean} 同学：`,
     '',
-    `⚡️ 哔哔哔！收到来自研友「${senderClean}」的一记夺命连环催学令！`,
+    `⚡️ 哔哔哔！收到来自研友「${senderClean}」的备考催学提醒！`,
     '',
-    '“说好一起上岸，你怎么偷偷摸鱼啦？约定好的复习时间已经到了，今日任务还在等你打卡！”',
+    '“说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”',
     '',
-    '📚 行测的言语理解、资料分析速算公式背熟了吗？',
-    '📝 申论的大作文结构、概括归纳要点写完了吗？',
-    '放下手机，深呼吸，倒一杯水，现在坐回桌前学 25 分钟还不晚！🥔💨',
+    '📚 行测：言语理解抓中心、资料分析速算公式背熟了吗？',
+    '📝 申论：概括归纳要点找全、大作文思辨结构列出来了吗？',
+    '放下手机，深呼吸，倒一杯温水，现在坐回书桌前学 25 分钟还不晚！🥔💨',
     '',
     `👉 立即前往土豆考公工作台：${appUrl}`,
     '',
     '💡 土豆人备考格言：“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的研友正默默和你并肩作战，快来汇合吧！”',
     '',
     '----------------------------------------',
-    `此邮件由你的备考伙伴「${senderClean}」在土豆考公工作台手动点击「⚡️ 戳一下」触发。`,
+    `此邮件由你的备考伙伴「${senderClean}」在土豆考公工作台手动点击触发。`,
     '土豆考公工作台 · 陪伴每一位脚踏实地的考公人',
   ].join('\n');
 
@@ -88,7 +90,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
                 <tr>
                   <td>
                     <span style="display: inline-block; background-color: rgba(255,255,255,0.22); color: #FFFFFF; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 9999px; letter-spacing: 0.5px; margin-bottom: 6px;">
-                      研友督学专线 · 紧急催学令 ⚡️
+                      研友督学专线 · 学习打卡提醒 📖
                     </span>
                     <h1 style="margin: 4px 0 0; color: #FFFFFF; font-size: 20px; font-weight: 800; letter-spacing: -0.3px;">
                       🥔 土豆考公工作台
@@ -113,10 +115,10 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
               <!-- Alert Box -->
               <div style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-left: 4px solid #F59E0B; border-radius: 14px; padding: 16px 18px; margin-bottom: 24px;">
                 <div style="font-size: 14px; font-weight: 700; color: #92400E; margin-bottom: 6px;">
-                  ⚡️ 收到来自研友「${senderHtml}」的一记夺命连环催！
+                  ⚡️ 收到来自研友「${senderHtml}」的一记夺命连环催学提醒！
                 </div>
                 <div style="font-size: 13.5px; color: #B45309; line-height: 1.65;">
-                  “说好一起上岸，你怎么偷偷摸鱼啦？约定好的复习时间已经到了，今日任务还在等你打卡！”
+                  “说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”
                 </div>
               </div>
 

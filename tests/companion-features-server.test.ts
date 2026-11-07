@@ -228,6 +228,46 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
 
       // Malicious scheme URL must fallback to default safe url
       assert.doesNotMatch(html, /href="javascript:/);
+      assert.match(html, /https:\/\/work\.ruyne\.space/);
+    });
+
+    await t.test('createSmtpMailSender formats sender display name, normalizes messageId and attaches anti-spam headers', async () => {
+      const { createSmtpMailSender } = await import('../server/mailTransport');
+      const nodemailer = (await import('nodemailer')).default;
+      const original = nodemailer.createTransport;
+      let sentOptions: any = null;
+      nodemailer.createTransport = (() => ({
+        sendMail: async (opts: any) => {
+          sentOptions = opts;
+          return { accepted: [opts.to] };
+        },
+        close: () => {},
+      })) as any;
+
+      try {
+        const sender = createSmtpMailSender({
+          SMTP_HOST: 'smtp.qq.com',
+          SMTP_PORT: '465',
+          SMTP_USER: '946265043@qq.com',
+          SMTP_PASS: 'secret',
+          SMTP_FROM: '946265043@qq.com',
+        });
+        await sender.send({
+          to: 'target@example.com',
+          subject: '测试',
+          text: '内容',
+          messageId: '<nudge-12345@potato.local>',
+        });
+        assert.ok(sentOptions);
+        assert.equal(sentOptions.from, '"土豆考公" <946265043@qq.com>');
+        assert.equal(sentOptions.messageId, '<nudge-12345@qq.com>');
+        assert.equal(sentOptions.headers['Auto-Submitted'], 'auto-generated');
+        assert.equal(sentOptions.headers['X-Auto-Response-Suppress'], 'All');
+        assert.equal(sentOptions.headers['X-Mailer'], 'Potato-Study-Workspace');
+        assert.equal(sentOptions.headers['Reply-To'], '946265043@qq.com');
+      } finally {
+        nodemailer.createTransport = original;
+      }
     });
 
     await t.test('createCompanionNote strictly enforces generation isolation and ignores revoked grants', () => {

@@ -345,7 +345,7 @@ export async function pokeCompanion(
     const { subject, text, html } = generatePokeEmailContent({
       senderNickname,
       recipientNickname: targetNickname,
-      loginUrl: process.env.PUBLIC_URL || 'http://localhost:5174',
+      loginUrl: process.env.PUBLIC_URL || 'https://work.ruyne.space',
     });
     try {
       await mailSender.send({

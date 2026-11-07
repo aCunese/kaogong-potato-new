@@ -8,7 +8,7 @@ fs.mkdirSync(outputDir, { recursive: true });
 const email = generatePokeEmailContent({
   senderNickname: '阿土（研友）',
   recipientNickname: '946265043@qq.com',
-  loginUrl: 'https://kaogong-potato.example.com',
+  loginUrl: 'https://work.ruyne.space',
 });
 
 const htmlPath = path.join(outputDir, 'poke-email-preview.html');
