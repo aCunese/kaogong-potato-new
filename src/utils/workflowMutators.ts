@@ -764,12 +764,12 @@ export function applyDeleteWrongRecord(
 }
 
 /**
- * Updates a wrong question record's category (subject) and/or review note.
+ * Updates a wrong question record's category (subject), review note, and/or attached photos.
  */
 export function applyUpdateWrongRecord(
   draft: AppState,
   id: string,
-  updates: { subject?: StudySubject; note?: string }
+  updates: { subject?: StudySubject; note?: string; images?: string[] }
 ): MutatorReturn<WrongRecord> {
   const record = draft.wrong.find(w => w.id === id);
   if (!record) {
@@ -790,6 +790,30 @@ export function applyUpdateWrongRecord(
   }
   if (updates.note !== undefined) {
     record.note = updates.note;
+  }
+  if (updates.images !== undefined) {
+    if (!Array.isArray(updates.images)) {
+      return { error: { code: 'INVALID_IMAGES', message: '错题图片列表格式无效。' } };
+    }
+    const cleanImages = updates.images.filter(img => typeof img === 'string' && img.trim().length > 0);
+    if (cleanImages.length === 0) {
+      return { error: { code: 'EMPTY_IMAGES', message: '错题必须至少保留一张图片。' } };
+    }
+    if (cleanImages.length > 9) {
+      return { error: { code: 'TOO_MANY_IMAGES', message: '单道错题最多保存9张图片。' } };
+    }
+    const prevImages = getWrongRecordImages(record);
+    const prevOrientations = record.imageOrientations || [];
+    const newOrientations = cleanImages.map(newImg => {
+      const prevIdx = prevImages.indexOf(newImg);
+      if (prevIdx !== -1 && prevOrientations[prevIdx] !== undefined) {
+        return prevOrientations[prevIdx];
+      }
+      return null;
+    });
+    record.images = cleanImages;
+    record.image = cleanImages[0] || '';
+    record.imageOrientations = newOrientations;
   }
   return { nextState: draft, value: record };
 }

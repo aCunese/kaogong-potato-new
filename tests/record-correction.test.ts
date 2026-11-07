@@ -221,10 +221,33 @@ describe('saved registration correction', () => {
 
   it('validates a wrong record edit before changing its category or photos', () => {
     const state = fixture();
-    state.wrong = [{ id: 'w', bookId: 'b', subject: '判断推理', date: '2026-10-28', note: 'keep', image: 'media:w', images: ['media:w', 'media:w2'] }];
+    state.wrong = [{
+      id: 'w',
+      bookId: 'b',
+      subject: '判断推理',
+      date: '2026-10-28',
+      note: 'keep',
+      image: 'media:w',
+      images: ['media:w', 'media:w2'],
+      imageOrientations: [{ status: 'resolved', rotation: 90, version: 1 }, { status: 'resolved', rotation: 180, version: 1 }]
+    }];
     const before = structuredClone(state);
     expect('error' in applyUpdateWrongRecord(state, 'w', { subject: '其他', note: 'x'.repeat(2001) })).toBe(true);
+    expect('error' in applyUpdateWrongRecord(state, 'w', { images: [] })).toBe(true);
+    expect('error' in applyUpdateWrongRecord(state, 'w', { images: Array(10).fill('media:extra') })).toBe(true);
+    expect('error' in applyUpdateWrongRecord(state, 'w', { images: ['   '] })).toBe(true);
     expect(state).toEqual(before);
+
+    // Appending a third image preserves orientation of existing images and sets new one to null
+    const res = applyUpdateWrongRecord(state, 'w', { images: ['media:w', 'media:w2', 'media:w3'] });
+    expect('error' in res).toBe(false);
+    expect(state.wrong[0].images).toEqual(['media:w', 'media:w2', 'media:w3']);
+    expect(state.wrong[0].image).toBe('media:w');
+    expect(state.wrong[0].imageOrientations).toEqual([
+      { status: 'resolved', rotation: 90, version: 1 },
+      { status: 'resolved', rotation: 180, version: 1 },
+      null
+    ]);
   });
 
   it('rejects non-plain or overlong category label payloads', () => {

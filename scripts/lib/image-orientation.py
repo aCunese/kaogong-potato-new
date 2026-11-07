@@ -98,7 +98,7 @@ def orient(filename):
                 result = run_tesseract(candidate, '-l', language, '--psm', '11', 'tsv')
                 if result.returncode != 0:
                     raise RuntimeError('Native OCR unavailable')
-                confidence, count = weighted_confidence(result.stdout)
+                confidence, count = weighted_confidence(result.stdout, 35)
                 _, trusted_count = weighted_confidence(result.stdout, 60)
                 candidates.append((rotation, confidence, count, trusted_count))
             result = select_rotation(candidates)

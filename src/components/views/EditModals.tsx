@@ -8,7 +8,7 @@ import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject,
 import { CountdownReminderItem } from '../../utils/workflowPresentation';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Edit2, Sparkles } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Edit2, Sparkles, Plus } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 import {
@@ -950,6 +950,8 @@ export const WrongDetailModal: React.FC<{
   const [editingMeta, setEditingMeta] = useState(false);
   const [movingRecord, setMovingRecord] = useState(false);
   const [editNote, setEditNote] = useState('');
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState('');
   const gestureRef = useRef<{
@@ -993,8 +995,10 @@ export const WrongDetailModal: React.FC<{
     setEditingMeta(false);
     setMovingRecord(false);
     setMetaError('');
+    setIsCompressing(false);
     if (liveRecord) {
       setEditNote(liveRecord.note || '');
+      setEditImages(getWrongRecordImages(liveRecord));
     }
   }, [record?.id, isOpen]);
 
@@ -1012,20 +1016,125 @@ export const WrongDetailModal: React.FC<{
   const book = state.books.find(b => b.id === liveRecord.bookId);
   const timeText = formatWrongRecordTime(liveRecord);
 
+  const handleAppendImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const currentImages = getWrongRecordImages(liveRecord);
+    const maxAllowed = MAX_SINGLE_WRONG_IMAGES;
+    if (currentImages.length + files.length > maxAllowed) {
+      alert(`单道错题最多保存 ${maxAllowed} 张图片（已有 ${currentImages.length} 张，本次选了 ${files.length} 张）`);
+      e.target.value = '';
+      return;
+    }
+    const batchValidation = validateImageBatch(files);
+    if (!batchValidation.valid) {
+      alert(batchValidation.error || '图片批次校验未通过');
+      e.target.value = '';
+      return;
+    }
+    setIsCompressing(true);
+    const compressedList: string[] = [];
+    const failedItems: string[] = [];
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = file.name || `第 ${i + 1} 张图片`;
+        try {
+          const dataUrl = await compressWrongPhoto(file);
+          compressedList.push(dataUrl);
+        } catch (err: any) {
+          failedItems.push(`• ${fileName}: ${err?.message || '压缩失败'}`);
+        }
+      }
+      if (compressedList.length > 0) {
+        const updatedImages = [...currentImages, ...compressedList].slice(0, maxAllowed);
+        const res = await updateWrongRecord(liveRecord.id, { images: updatedImages });
+        if (res.ok) {
+          onToast?.(`已追加 ${compressedList.length} 张错题图片`);
+          setActiveIndex(updatedImages.length - 1);
+          setEditImages(updatedImages);
+          void requestWrongImageOrientations?.(liveRecord.id);
+        } else {
+          alert(res.message || '追加图片保存失败');
+        }
+      }
+      if (failedItems.length > 0) {
+        alert(`部分照片处理失败，未能添加：\n${failedItems.join('\n')}`);
+      }
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleEditFilesAppend = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const maxAllowed = MAX_SINGLE_WRONG_IMAGES;
+    if (editImages.length + files.length > maxAllowed) {
+      alert(`单道错题最多保存 ${maxAllowed} 张图片（已有 ${editImages.length} 张，本次选了 ${files.length} 张）`);
+      e.target.value = '';
+      return;
+    }
+    const batchValidation = validateImageBatch(files);
+    if (!batchValidation.valid) {
+      alert(batchValidation.error || '图片批次校验未通过');
+      e.target.value = '';
+      return;
+    }
+    setIsCompressing(true);
+    const compressedList: string[] = [];
+    const failedItems: string[] = [];
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = file.name || `第 ${i + 1} 张图片`;
+        try {
+          const dataUrl = await compressWrongPhoto(file);
+          compressedList.push(dataUrl);
+        } catch (err: any) {
+          failedItems.push(`• ${fileName}: ${err?.message || '压缩失败'}`);
+        }
+      }
+      if (compressedList.length > 0) {
+        setEditImages(prev => [...prev, ...compressedList].slice(0, maxAllowed));
+      }
+      if (failedItems.length > 0) {
+        alert(`部分照片处理失败，未能添加：\n${failedItems.join('\n')}`);
+      }
+    } finally {
+      setIsCompressing(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSaveMeta = async () => {
     if (isSavingMeta) return;
     setIsSavingMeta(true);
     setMetaError('');
     try {
-      const res = await updateWrongRecord(liveRecord.id, {
+      const originalImages = getWrongRecordImages(liveRecord);
+      const imagesChanged =
+        editImages.length !== originalImages.length ||
+        editImages.some((img, idx) => img !== originalImages[idx]);
+
+      const payload: { note: string; images?: string[] } = {
         note: editNote.trim(),
-      });
+      };
+      if (imagesChanged) {
+        payload.images = editImages;
+      }
+
+      const res = await updateWrongRecord(liveRecord.id, payload);
       if (!res.ok) {
         setMetaError(res.message);
         return;
       }
-      onToast?.('已更新复盘笔记');
+      onToast?.('已保存错题修改');
       setEditingMeta(false);
+      if (imagesChanged) {
+        void requestWrongImageOrientations?.(liveRecord.id);
+      }
     } catch (error) {
       setMetaError(error instanceof Error ? error.message : '保存失败，请重试');
     } finally {
@@ -1061,15 +1170,71 @@ export const WrongDetailModal: React.FC<{
       closeDisabled={isSavingMeta}
       layout={editingMeta ? 'editor' : 'default'}
       footer={editingMeta ? <div className="flex gap-3">
-        <Button variant="secondary" fullWidth onClick={() => setEditingMeta(false)} disabled={isSavingMeta}>取消</Button>
+        <Button variant="secondary" fullWidth onClick={() => {
+          setEditNote(liveRecord.note || '');
+          setEditImages(getWrongRecordImages(liveRecord));
+          setEditingMeta(false);
+        }} disabled={isSavingMeta}>取消</Button>
         <Button variant="primary" fullWidth onClick={handleSaveMeta} disabled={isSavingMeta}>{isSavingMeta ? '保存中...' : '保存修改'}</Button>
       </div> : undefined}
     >
       {editingMeta ? <div className="h-full min-h-0 flex flex-col gap-3">
         <div className="flex shrink-0 items-center justify-between gap-3 text-xs">
           <span className="min-w-0 truncate text-ink-muted">{subjectLabel} · {timeText}</span>
-          {activeImage && <button type="button" onClick={openZoomViewer} className="shrink-0 inline-flex items-center gap-1 text-sage font-bold py-1"><Eye size={14} />查看题图</button>}
+          <span className="text-ink-muted font-mono">{editImages.length} / {MAX_SINGLE_WRONG_IMAGES} 张图片</span>
         </div>
+
+        {/* 错题配图管理与追加入口 */}
+        <div className="space-y-1.5 shrink-0">
+          <div className="flex items-center justify-between text-xs">
+            <label className="font-bold text-ink-main">错题配图 / 题图</label>
+            {editImages.length < MAX_SINGLE_WRONG_IMAGES && (
+              <label className="inline-flex items-center gap-1 text-sage font-bold cursor-pointer hover:underline text-xs">
+                <Plus size={13} />
+                <span>追加图片</span>
+                <input type="file" accept="image/*" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
+              </label>
+            )}
+          </div>
+          {editImages.length > 0 ? (
+            <div className="grid grid-cols-4 gap-2 max-h-36 overflow-y-auto p-1.5 bg-cream/40 rounded-xl border border-line/60">
+              {editImages.map((img, idx) => (
+                <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-line group">
+                  <img src={img} alt={`图${idx + 1}`} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0.5 left-0.5 px-1 rounded bg-black/60 text-white text-[9px] font-bold">
+                    {idx === 0 ? '封面' : `图${idx + 1}`}
+                  </span>
+                  <button
+                    type="button"
+                    title="移除此图"
+                    aria-label={`移除第${idx + 1}张图片`}
+                    disabled={isSavingMeta}
+                    onClick={() => setEditImages(prev => prev.filter((_, i) => i !== idx))}
+                    className="absolute top-0.5 right-0.5 bg-alarm text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold shadow-sm"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-3 bg-cream/40 rounded-xl border border-dashed border-line text-center text-xs text-ink-muted">
+              <span>暂无图片。</span>
+              <label className="ml-1 text-sage font-bold cursor-pointer hover:underline">
+                点击追加照片
+                <input type="file" accept="image/*" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {isCompressing && (
+          <div className="flex items-center gap-1.5 text-xs text-sage shrink-0">
+            <Loader2 size={13} className="animate-spin" />
+            <span>正在压缩图片...</span>
+          </div>
+        )}
+
         <label htmlFor="wrong-note-editor" className="shrink-0 text-sm font-bold text-ink-main">复盘原因与解题突破口</label>
         <FormError message={metaError} />
         <textarea
@@ -1133,9 +1298,16 @@ export const WrongDetailModal: React.FC<{
               </span>
             </button>
           ) : (
-            <div className="py-16 text-center text-ink-muted text-xs">
-              <ImageIcon size={36} className="mx-auto text-sage/40 mb-2" />
-              <span>标准手稿演示图片</span>
+            <div className="py-12 text-center text-ink-muted text-xs space-y-2">
+              <ImageIcon size={36} className="mx-auto text-sage/40 mb-1" />
+              <span>暂无错题配图，需要补充题图？</span>
+              <div>
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage text-white font-bold cursor-pointer hover:bg-sage-dark transition shadow-sm">
+                  <Camera size={13} />
+                  <span>添加错题图片</span>
+                  <input type="file" accept="image/*" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
+                </label>
+              </div>
             </div>
           )}
 
@@ -1146,6 +1318,32 @@ export const WrongDetailModal: React.FC<{
           )}
         </div>
 
+        {/* 多图缩略图导航栏 */}
+        {images.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto py-1 px-0.5">
+            {images.map((img, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setActiveIndex(idx)}
+                className={`relative w-11 h-11 rounded-lg overflow-hidden shrink-0 border-2 transition ${
+                  idx === safeIndex ? 'border-sage shadow-sm' : 'border-line/70 opacity-60 hover:opacity-100'
+                }`}
+              >
+                <OrientedImage
+                  src={img}
+                  rotation={liveRecord.imageOrientations?.[idx]?.rotation}
+                  alt={`缩略图${idx + 1}`}
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute bottom-0 right-0 px-1 text-[9px] font-bold bg-black/60 text-white rounded-tl">
+                  {idx + 1}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {images.length > 0 && <div className="flex items-center justify-between gap-2 text-[11px] text-ink-muted" aria-live="polite">
           <span>{orientationActivity?.recordId === liveRecord.id && orientationActivity.index === safeIndex
             ? '正在自动摆正…'
@@ -1154,10 +1352,19 @@ export const WrongDetailModal: React.FC<{
           {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? <button type="button" className="shrink-0 text-sage font-bold px-2 py-1" onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}>重新识别</button> : null}
         </div>}
 
+        {isCompressing && (
+          <div className="flex items-center gap-1.5 text-xs text-sage">
+            <Loader2 size={13} className="animate-spin" />
+            <span>正在压缩并追加图片...</span>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-between text-xs gap-2">
           <div className="flex items-center gap-2">
           <button type="button" disabled={isSavingMeta} onClick={() => {
-            setEditNote(liveRecord.note || ''); setMetaError('');
+            setEditNote(liveRecord.note || '');
+            setEditImages(getWrongRecordImages(liveRecord));
+            setMetaError('');
             setEditingMeta(true);
           }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage-light text-sage font-bold border border-sage/25">
             <Edit2 size={13} /><span>编辑</span>
@@ -1165,6 +1372,12 @@ export const WrongDetailModal: React.FC<{
           <button type="button" disabled={isSavingMeta || editingMeta} onClick={() => setMovingRecord(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream text-ink-muted font-bold border border-line disabled:opacity-50">
             <ArrowRightLeft size={13} /><span>转移</span>
           </button>
+          {images.length < MAX_SINGLE_WRONG_IMAGES && (
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream text-ink-main font-bold border border-line cursor-pointer hover:border-sage transition">
+              <Camera size={13} className="text-sage" /><span>追加图片</span>
+              <input type="file" accept="image/*" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
+            </label>
+          )}
           </div>
           <span className="text-ink-muted font-mono font-semibold shrink-0">{timeText}</span>
         </div>

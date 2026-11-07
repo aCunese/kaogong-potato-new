@@ -190,7 +190,7 @@ export interface AppContextType {
   // Wrong records
   addWrongRecords: (bookId: string, note: string, images: string[], date?: string) => Promise<MutationResult<WrongRecord[]>>;
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
-  updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string }) => Promise<MutationResult<WrongRecord>>;
+  updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string; images?: string[] }) => Promise<MutationResult<WrongRecord>>;
   requestWrongImageOrientations: (id: string, force?: boolean) => Promise<void>;
   orientationActivity: { recordId: string; index: number } | null;
   orientationErrors: Record<string, string>;
@@ -1414,7 +1414,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   );
 
   const updateWrongRecord = useCallback(
-    async (id: string, updates: { subject?: StudySubject; note?: string }): Promise<MutationResult<WrongRecord>> => {
+    async (id: string, updates: { subject?: StudySubject; note?: string; images?: string[] }): Promise<MutationResult<WrongRecord>> => {
       return executeMutation(draft => applyUpdateWrongRecord(draft, id, updates), 'update_wrong_record');
     },
     [executeMutation]
