@@ -196,10 +196,21 @@ it('provides image append entries in wrong detail modal and note editor', async 
     await mount(page, 'detail');
     const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
     expect(await detail.getByText('追加图片', { exact: true }).isVisible()).toBe(true);
+    // Carousel toolbar includes '+' thumbnail card even for single image record
+    const carouselAppend = detail.getByRole('toolbar', { name: '错题图片缩略图导航与追加' }).getByTitle('追加错题图片');
+    expect(await carouselAppend.isVisible()).toBe(true);
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
     const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
     expect(await editor.getByText('错题配图 / 题图', { exact: true }).isVisible()).toBe(true);
     expect(await editor.getByText('追加图片', { exact: true }).isVisible()).toBe(true);
+    // Editor grid includes interactive '+' append card
+    expect(await editor.getByTitle('追加错题图片').isVisible()).toBe(true);
+    // When 2 images exist, removing one is allowed; once down to 1 image, delete is disabled
+    const deleteBtn2 = editor.getByRole('button', { name: '移除第2张图片' });
+    expect(await deleteBtn2.isDisabled()).toBe(false);
+    await deleteBtn2.click();
+    const deleteBtn1 = editor.getByRole('button', { name: '移除第1张图片' });
+    expect(await deleteBtn1.isDisabled()).toBe(true);
   } finally { await context.close(); }
 }, 12000);
 

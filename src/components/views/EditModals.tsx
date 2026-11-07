@@ -1206,16 +1206,41 @@ export const WrongDetailModal: React.FC<{
                   </span>
                   <button
                     type="button"
-                    title="移除此图"
+                    title={editImages.length <= 1 ? '错题需至少保留一张图片' : '移除此图'}
                     aria-label={`移除第${idx + 1}张图片`}
-                    disabled={isSavingMeta}
-                    onClick={() => setEditImages(prev => prev.filter((_, i) => i !== idx))}
-                    className="absolute top-0.5 right-0.5 bg-alarm text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold shadow-sm"
+                    disabled={isSavingMeta || editImages.length <= 1}
+                    onClick={() => {
+                      if (editImages.length <= 1) return;
+                      setEditImages(prev => prev.filter((_, i) => i !== idx));
+                    }}
+                    className={`absolute top-0.5 right-0.5 rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold shadow-sm ${
+                      editImages.length <= 1
+                        ? 'bg-ink-muted/40 text-white cursor-not-allowed opacity-50'
+                        : 'bg-alarm text-white hover:bg-alarm-dark'
+                    }`}
                   >
                     ×
                   </button>
                 </div>
               ))}
+              {editImages.length < MAX_SINGLE_WRONG_IMAGES && (
+                <label
+                  title="追加错题图片"
+                  aria-label="追加错题图片"
+                  className="aspect-square rounded-lg border-2 border-dashed border-sage/60 hover:border-sage flex flex-col items-center justify-center text-sage cursor-pointer bg-sage-light/20 hover:bg-sage-light/50 transition group"
+                >
+                  <Plus size={18} className="group-hover:scale-110 transition-transform" />
+                  <span className="text-[10px] font-bold mt-0.5">追加</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleEditFilesAppend}
+                    className="hidden"
+                    disabled={isCompressing || isSavingMeta}
+                  />
+                </label>
+              )}
             </div>
           ) : (
             <div className="p-3 bg-cream/40 rounded-xl border border-dashed border-line text-center text-xs text-ink-muted">
@@ -1318,9 +1343,9 @@ export const WrongDetailModal: React.FC<{
           )}
         </div>
 
-        {/* 多图缩略图导航栏 */}
-        {images.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto py-1 px-0.5">
+        {/* 多图缩略图导航栏与追加入口 */}
+        {images.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5" role="toolbar" aria-label="错题图片缩略图导航与追加">
             {images.map((img, idx) => (
               <button
                 key={idx}
@@ -1341,6 +1366,23 @@ export const WrongDetailModal: React.FC<{
                 </span>
               </button>
             ))}
+            {images.length < MAX_SINGLE_WRONG_IMAGES && (
+              <label
+                title="追加错题图片"
+                aria-label="追加错题图片"
+                className="relative w-11 h-11 rounded-lg border-2 border-dashed border-sage/60 hover:border-sage flex items-center justify-center text-sage cursor-pointer shrink-0 bg-sage-light/30 hover:bg-sage-light/60 transition"
+              >
+                <Plus size={16} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleAppendImages}
+                  className="hidden"
+                  disabled={isCompressing}
+                />
+              </label>
+            )}
           </div>
         )}
 

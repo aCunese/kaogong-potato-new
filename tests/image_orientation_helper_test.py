@@ -50,6 +50,11 @@ class OrientationBoundaryTests(unittest.TestCase):
             helper.select_rotation([(0, 72.2, 22, 14), (90, 66.3, 21, 14), (270, 61.5, 22, 13), (180, 59.6, 19, 6)]),
             {'status': 'unresolved', 'rotation': 0, 'version': 1}
         )
+        # Moderate lead where 2nd place has few chars but 3rd place has high chars must NOT falsely resolve
+        self.assertEqual(
+            helper.select_rotation([(0, 72.2, 34, 21), (90, 66.3, 10, 5), (270, 65.0, 30, 20), (180, 59.6, 10, 5)]),
+            {'status': 'unresolved', 'rotation': 0, 'version': 1}
+        )
 
     def test_reliable_character_count_excludes_punctuation_and_words_below_sixty_confidence(self):
         tsv = 'level\tconf\ttext\n5\t80\t学习能力\n5\t60\tab\n5\t59.99\tVIVIVIVIY\n5\t99\t，。!\n'

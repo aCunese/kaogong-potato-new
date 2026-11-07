@@ -62,8 +62,8 @@ def select_rotation(candidates):
     # in orthogonal orientations that compress the average-confidence margin. When the
     # candidate has moderate confidence lead (>= 5) AND substantially more reliable
     # text evidence than all runners-up, it is safely resolved.
-    runner_chars = ordered[1][2]
-    runner_trusted = ordered[1][3]
+    runner_chars = max(candidate[2] for candidate in ordered[1:])
+    runner_trusted = max(candidate[3] for candidate in ordered[1:])
     if (has_text and lead >= 5 and
             chars >= runner_chars + 8 and
             trusted_chars >= runner_trusted + 5):
