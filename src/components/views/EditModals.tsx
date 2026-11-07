@@ -1,5 +1,5 @@
 import { OrientedImage } from '../common/OrientedImage';
-import { rememberScheduleSelection, resolveScheduleSelection } from '../../utils/scheduleSelection';
+import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection } from '../../utils/scheduleSelection';
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -56,11 +56,13 @@ export const AddPlanModal: React.FC<{
 }> = ({ isOpen, onClose, onToast, onOpenCustomAdd, initialLibraryId }) => {
   const { state, addPlan, addCustomPlan, currentUser } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
-  const initial = state.library.find(l => l.id === initialLibraryId) ?? state.library[0];
-  const [type, setType] = useState(initial?.type ?? 'book');
-  const [subject, setSubject] = useState('all');
+  const initial = initialLibraryId ? state.library.find(l => l.id === initialLibraryId) : undefined;
+  const storedSelection = readScheduleSelection(currentUser?.id);
+  const initialType = initial?.type ?? (initialLibraryId ? (state.library[0]?.type ?? 'book') : storedSelection.type);
+  const [type, setType] = useState(initialType);
+  const [subject, setSubject] = useState(initial?.subject ?? (initialType === 'custom' ? storedSelection.custom.subject : (storedSelection[initialType]?.subject ?? 'all')));
   const [customName, setCustomName] = useState(initial?.type === 'custom' ? initial.name : '');
-  const [customSubject, setCustomSubject] = useState<StudySubject>(initial?.type === 'custom' ? initial.subject : '其他');
+  const [customSubject, setCustomSubject] = useState<StudySubject>(initial?.type === 'custom' ? initial.subject : storedSelection.custom.subject);
   const [selectedLibId, setSelectedLibId] = useState(initial?.id ?? '');
   const [minutes, setMinutes] = useState(String(initial?.defaultMinutes ?? 30));
   const [lessons, setLessons] = useState('1');
@@ -76,16 +78,28 @@ export const AddPlanModal: React.FC<{
   const select = (id: string) => { setSelectedLibId(id); setMinutes(String(state.library.find(l => l.id === id)?.defaultMinutes ?? 30)); setLessons('1'); setErrorMsg(''); };
   const restoreSelection = (requestedType?: 'book' | 'course' | 'custom', explicitId?: string) => {
     if (requestedType === 'custom') {
-      setType('custom'); setSubject('all'); setMinutes('30'); setErrorMsg('');
-      rememberScheduleSelection(currentUser?.id, 'custom', 'all', '');
+      const stored = readScheduleSelection(currentUser?.id);
+      const customSub = stored.custom?.subject ?? '其他';
+      setType('custom');
+      setSubject(customSub);
+      setCustomSubject(customSub);
+      setCustomName('');
+      setMinutes('30');
+      setErrorMsg('');
+      rememberScheduleSelection(currentUser?.id, 'custom', customSub, '');
       return;
     }
     const restored = resolveScheduleSelection(state.library, currentUser?.id, explicitId, requestedType);
-    setType(restored.type); setSubject(restored.subject); select(restored.item?.id ?? '');
+    setType(restored.type);
+    setSubject(restored.subject);
+    select(restored.item?.id ?? '');
     rememberScheduleSelection(currentUser?.id, restored.type, restored.subject, restored.item?.id ?? '');
     if (restored.type === 'custom') {
       setCustomName(restored.item?.name ?? '');
-      setCustomSubject(restored.item?.subject ?? '其他');
+      setCustomSubject((restored.item?.subject as StudySubject) ?? (restored.subject as StudySubject) ?? '其他');
+      if (!restored.item) {
+        setMinutes('30');
+      }
     }
   };
   useEffect(() => {
@@ -102,6 +116,9 @@ export const AddPlanModal: React.FC<{
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validItem || !validMinutes || !validLessons) { setErrorMsg('请填写有效事项、大于0的整数分钟；网课节数不能超过剩余数量。'); return; }
+    if (type === 'custom') {
+      rememberScheduleSelection(currentUser?.id, 'custom', customSubject, '');
+    }
     void save(() => type === 'custom'
       ? addCustomPlan(customName.trim(), customSubject, Number(minutes))
       : addPlan(selectedLibId, Number(minutes), type === 'course' ? Number(lessons) : undefined), '已成功添加到今日日程！');
@@ -123,7 +140,11 @@ export const AddPlanModal: React.FC<{
             disabled={isSaving}
             options={getSubjectOptions(state.subjectLabels, true)}
             value={customSubject}
-            onChange={val => setCustomSubject(val as StudySubject)}
+            onChange={val => {
+              const nextSub = val as StudySubject;
+              setCustomSubject(nextSub);
+              rememberScheduleSelection(currentUser?.id, 'custom', nextSub, '');
+            }}
           />
         </div>
         <label className="block text-xs text-ink-muted">事项名称<input aria-label="事项名称" type="text" required maxLength={200} disabled={isSaving} value={customName} onChange={e => setCustomName(e.target.value)} placeholder="例如：晨读时政、整理错题" className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></label>

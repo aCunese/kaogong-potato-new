@@ -1,6 +1,6 @@
 {
-  "webVersion": "1.2.5",
-  "webBuild": "20261105.02",
+  "webVersion": "1.2.6",
+  "webBuild": "20261107.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-05T05:51:35Z",
-  "summary": "改进错题照片自动转正：图形题、批注和留白较多的照片也能识别阅读方向，横拍或倒置时自动摆正。"
+  "deployedAt": "2026-11-07T04:06:00Z",
+  "summary": "修复今日日程自定义事项科目持久化及事项名称默认输入问题。"
 }

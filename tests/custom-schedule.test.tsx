@@ -9,6 +9,7 @@ import { buildGuestMigration } from '../src/utils/guestMigration';
 import { AddPlanModal, CustomAddModal, OverallLegendModal } from '../src/components/views/EditModals';
 import { AnalysisView } from '../src/components/views/AnalysisView';
 import { TimeDistribution } from '../src/components/views/TimeDistribution';
+import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection } from '../src/utils/scheduleSelection';
 
 const date = '2026-10-28';
 const noop = () => {};
@@ -124,3 +125,32 @@ it('includes other in legends and monthly totals with no fabricated accuracy', (
   expect(monthly).toContain('65');
   expect(monthly).toContain('无题量');
 });
+
+it('persists custom subject selection across schedule modal opens and defaults custom title to empty', () => {
+  const userId = 'user-test-custom-schedule';
+  rememberScheduleSelection(userId, 'custom', '数量关系', '');
+  const stored = readScheduleSelection(userId);
+  expect(stored.type).toBe('custom');
+  expect(stored.custom.subject).toBe('数量关系');
+
+  const state = fresh();
+  // Standard initial custom item "每日晨读人民日报时评" in library
+  state.library.push({ id: 'lib-custom-1', type: 'custom', sourceId: '', name: '每日晨读人民日报时评', subject: '政治理论', defaultMinutes: 20 });
+
+  const resolved = resolveScheduleSelection(state.library, userId);
+  expect(resolved.type).toBe('custom');
+  expect(resolved.subject).toBe('数量关系');
+  expect(resolved.item).toBeUndefined();
+
+  // Rendering without initialLibraryId with persisted custom selection
+  const html = renderToStaticMarkup(
+    <AppContext.Provider value={{ state, activeDate: date, currentUser: { id: userId, username: 'test' } } as any}>
+      <AddPlanModal isOpen onClose={noop} onToast={noop} onOpenCustomAdd={noop} />
+    </AppContext.Provider>
+  );
+  expect(html).toContain('aria-label="事项名称"');
+  expect(html).toContain('value=""');
+  expect(html).not.toContain('value="每日晨读人民日报时评"');
+  expect(html).toContain('数量关系');
+});
+
