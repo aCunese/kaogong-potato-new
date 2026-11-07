@@ -39,6 +39,18 @@ class OrientationBoundaryTests(unittest.TestCase):
             self.assertEqual(helper.select_rotation([(180, 55, 30, trusted_chars), (0, 35, 20, 2), (90, 0, 0, 0), (270, 0, 0, 0)]), {'status': 'unresolved', 'rotation': 0, 'version': 1})
         self.assertEqual(helper.select_rotation([(180, 55, 30, 12), (0, 35, 20, 2), (90, 0, 0, 0), (270, 0, 0, 0)]), {'status': 'resolved', 'rotation': 180, 'version': 1})
 
+    def test_diagram_question_with_substantial_reliable_text_lead_resolves_with_moderate_confidence_margin(self):
+        # 34 chars, 21 trusted vs runner-up 21 chars, 14 trusted with lead 5.9 (real diagram question case)
+        self.assertEqual(
+            helper.select_rotation([(0, 72.2, 34, 21), (90, 66.3, 21, 14), (270, 61.5, 22, 13), (180, 59.6, 19, 6)]),
+            {'status': 'resolved', 'rotation': 0, 'version': 1}
+        )
+        # Moderate lead (5.9) without sufficient text difference remains unresolved
+        self.assertEqual(
+            helper.select_rotation([(0, 72.2, 22, 14), (90, 66.3, 21, 14), (270, 61.5, 22, 13), (180, 59.6, 19, 6)]),
+            {'status': 'unresolved', 'rotation': 0, 'version': 1}
+        )
+
     def test_reliable_character_count_excludes_punctuation_and_words_below_sixty_confidence(self):
         tsv = 'level\tconf\ttext\n5\t80\t学习能力\n5\t60\tab\n5\t59.99\tVIVIVIVIY\n5\t99\t，。!\n'
         self.assertAlmostEqual(helper.weighted_confidence(tsv, 60)[0], 220 / 3)

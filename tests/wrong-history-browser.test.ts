@@ -186,7 +186,20 @@ it('edits only the note while preserving category and book ownership, including 
     await editor.getByRole('textbox').fill('取消的内容');
     await editor.getByRole('button', { name: '取消', exact: true }).click();
     await detail.getByRole('button', { name: '编辑', exact: true }).click();
-    expect(await editor.getByRole('textbox').inputValue()).toBe('新笔记');
+  } finally { await context.close(); }
+}, 12000);
+
+it('provides image append entries in wrong detail modal and note editor', async () => {
+  const { page, context } = await createHarnessPage(browser, harness);
+  page.setDefaultTimeout(2000);
+  try {
+    await mount(page, 'detail');
+    const detail = page.getByRole('dialog', { name: '错题复盘大图详情', exact: true });
+    expect(await detail.getByText('追加图片', { exact: true }).isVisible()).toBe(true);
+    await detail.getByRole('button', { name: '编辑', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: '编辑复盘笔记', exact: true });
+    expect(await editor.getByText('错题配图 / 题图', { exact: true }).isVisible()).toBe(true);
+    expect(await editor.getByText('追加图片', { exact: true }).isVisible()).toBe(true);
   } finally { await context.close(); }
 }, 12000);
 

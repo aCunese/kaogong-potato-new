@@ -53,9 +53,20 @@ def select_rotation(candidates):
     # make a short or uncertain image look like a substantial OCR sample.
     ordered = sorted(candidates, key=lambda candidate: candidate[1], reverse=True)
     rotation, confidence, chars, trusted_chars = ordered[0]
-    # Sparse diagrams can create many moderately confident OCR guesses. Require
-    # enough clearly recognized text as well as the overall score and lead.
-    if chars >= 12 and trusted_chars >= 12 and confidence >= 45 and confidence - ordered[1][1] >= 10:
+    lead = confidence - ordered[1][1]
+    has_text = chars >= 12 and trusted_chars >= 12 and confidence >= 45
+    # Standard resolution: clear confidence lead
+    if has_text and lead >= 10:
+        return {'status': 'resolved', 'rotation': rotation, 'version': VERSION}
+    # Diagram-question optimization: geometric diagram lines can produce noisy OCR guesses
+    # in orthogonal orientations that compress the average-confidence margin. When the
+    # candidate has moderate confidence lead (>= 5) AND substantially more reliable
+    # text evidence than all runners-up, it is safely resolved.
+    runner_chars = ordered[1][2]
+    runner_trusted = ordered[1][3]
+    if (has_text and lead >= 5 and
+            chars >= runner_chars + 8 and
+            trusted_chars >= runner_trusted + 5):
         return {'status': 'resolved', 'rotation': rotation, 'version': VERSION}
     return {'status': 'unresolved', 'rotation': 0, 'version': VERSION}
 
