@@ -89,21 +89,23 @@ def orient(filename):
         # Chinese questions mix short text lines, diagrams and annotations.
         # Sparse segmentation avoids forcing shapes into a paragraph; recognize
         # Chinese first so English guesses for shapes do not obscure the text.
-        for language in ('chi_sim', 'chi_sim+eng'):
-            candidates = []
-            for rotation in QUARTER_TURNS:
-                candidate = Path(directory) / f'{rotation}.png'
-                if not candidate.exists():
-                    image.rotate(-rotation, expand=True).save(candidate)
-                result = run_tesseract(candidate, '-l', language, '--psm', '11', 'tsv')
-                if result.returncode != 0:
-                    raise RuntimeError('Native OCR unavailable')
-                confidence, count = weighted_confidence(result.stdout, 35)
-                _, trusted_count = weighted_confidence(result.stdout, 60)
-                candidates.append((rotation, confidence, count, trusted_count))
-            result = select_rotation(candidates)
-            if result['status'] == 'resolved':
-                return result
+        # If sparse segmentation fails to resolve due to diagram noise, fallback to uniform text block (PSM 6).
+        for psm in ('11', '6'):
+            for language in ('chi_sim', 'chi_sim+eng'):
+                candidates = []
+                for rotation in QUARTER_TURNS:
+                    candidate = Path(directory) / f'{rotation}.png'
+                    if not candidate.exists():
+                        image.rotate(-rotation, expand=True).save(candidate)
+                    result = run_tesseract(candidate, '-l', language, '--psm', psm, 'tsv')
+                    if result.returncode != 0:
+                        raise RuntimeError('Native OCR unavailable')
+                    confidence, count = weighted_confidence(result.stdout, 35)
+                    _, trusted_count = weighted_confidence(result.stdout, 60)
+                    candidates.append((rotation, confidence, count, trusted_count))
+                result = select_rotation(candidates)
+                if result['status'] == 'resolved':
+                    return result
         return result
 
 
