@@ -152,5 +152,19 @@ it('persists custom subject selection across schedule modal opens and defaults c
   expect(html).toContain('value=""');
   expect(html).not.toContain('value="每日晨读人民日报时评"');
   expect(html).toContain('数量关系');
+
+  // Verify that if stored type is book but library only has courses, it falls back to course
+  const courseOnlyState = fresh();
+  courseOnlyState.library = [{ id: 'lib-course-1', type: 'course', sourceId: 'c1', name: '系统强化班', subject: '资料分析', defaultMinutes: 45 }];
+  courseOnlyState.courses = [{ id: 'c1', name: '系统强化班', subject: '资料分析', totalLessons: 20, completedLessons: 0, minutes: 0, url: '' }];
+  const bookUser = 'user-book-default';
+  const resolvedCourse = resolveScheduleSelection(courseOnlyState.library, bookUser);
+  expect(resolvedCourse.type).toBe('course');
+  expect(resolvedCourse.item?.id).toBe('lib-course-1');
+
+  // But if stored type is custom, custom is always preserved even if library has other items
+  const customResolved = resolveScheduleSelection(courseOnlyState.library, userId);
+  expect(customResolved.type).toBe('custom');
+  expect(customResolved.subject).toBe('数量关系');
 });
 

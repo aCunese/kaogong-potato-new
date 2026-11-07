@@ -57,14 +57,17 @@ export const AddPlanModal: React.FC<{
   const { state, addPlan, addCustomPlan, currentUser } = useApp();
   const { save, isSaving, errorMsg, setErrorMsg } = useSaveMutation(onClose, onToast);
   const initial = initialLibraryId ? state.library.find(l => l.id === initialLibraryId) : undefined;
-  const storedSelection = readScheduleSelection(currentUser?.id);
-  const initialType = initial?.type ?? (initialLibraryId ? (state.library[0]?.type ?? 'book') : storedSelection.type);
-  const [type, setType] = useState(initialType);
-  const [subject, setSubject] = useState(initial?.subject ?? (initialType === 'custom' ? storedSelection.custom.subject : (storedSelection[initialType]?.subject ?? 'all')));
+  const resolvedInitial = resolveScheduleSelection(state.library, currentUser?.id, initialLibraryId);
+  const [type, setType] = useState(resolvedInitial.type);
+  const [subject, setSubject] = useState(resolvedInitial.subject);
   const [customName, setCustomName] = useState(initial?.type === 'custom' ? initial.name : '');
-  const [customSubject, setCustomSubject] = useState<StudySubject>(initial?.type === 'custom' ? initial.subject : storedSelection.custom.subject);
-  const [selectedLibId, setSelectedLibId] = useState(initial?.id ?? '');
-  const [minutes, setMinutes] = useState(String(initial?.defaultMinutes ?? 30));
+  const [customSubject, setCustomSubject] = useState<StudySubject>(
+    resolvedInitial.type === 'custom'
+      ? (resolvedInitial.subject as StudySubject)
+      : (readScheduleSelection(currentUser?.id).custom.subject)
+  );
+  const [selectedLibId, setSelectedLibId] = useState(resolvedInitial.item?.id ?? '');
+  const [minutes, setMinutes] = useState(String(resolvedInitial.item?.defaultMinutes ?? 30));
   const [lessons, setLessons] = useState('1');
   const selectedItem = state.library.find(l => l.id === selectedLibId);
   const course = state.courses.find(c => selectedItem?.type === 'course' && c.id === selectedItem.sourceId);
@@ -84,6 +87,7 @@ export const AddPlanModal: React.FC<{
       setSubject(customSub);
       setCustomSubject(customSub);
       setCustomName('');
+      setSelectedLibId('');
       setMinutes('30');
       setErrorMsg('');
       rememberScheduleSelection(currentUser?.id, 'custom', customSub, '');

@@ -70,7 +70,10 @@ export function rememberScheduleSelection(userId: string | undefined, type: Sche
 export function resolveScheduleSelection(library: LibraryItem[], userId?: string, initialId?: string, requestedType?: ScheduleType) {
   const stored = readScheduleSelection(userId);
   const explicit = initialId ? library.find(item => item.id === initialId) : undefined;
-  const type = explicit?.type ?? requestedType ?? stored.type;
+  let type = explicit?.type ?? requestedType ?? stored.type;
+  if (!explicit && !requestedType && type !== 'custom' && library.length > 0 && !library.some(item => item.type === type)) {
+    type = library[0].type;
+  }
   if (type === 'custom') {
     const customSubject = (explicit?.subject as StudySubject) ?? stored.custom?.subject ?? '其他';
     return { type, subject: customSubject, item: explicit };
