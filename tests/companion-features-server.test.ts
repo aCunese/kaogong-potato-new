@@ -62,7 +62,7 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
         loginUrl: 'https://potato.study',
       });
       assert.match(subject, /阿土同学/);
-      assert.match(subject, /夺命连环催/);
+      assert.match(subject, /学习打卡/);
       assert.match(text, /小豆子/);
       assert.match(text, /行测/);
       assert.match(text, /申论/);
@@ -100,12 +100,12 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(sentMails.length, 1);
       assert.equal(sentMails[0].to, 'bean@example.com');
       assert.match(sentMails[0].subject, /阿土同学/);
-      assert.match(sentMails[0].html, /夺命连环催/);
+      assert.match(sentMails[0].html, /学习打卡提醒/);
 
       // Verify a companion note was also automatically created for the recipient
       const notes = listCompanionNotes(receiver.id);
       assert.equal(notes.notes.length >= 1, true);
-      assert.match(notes.notes[0].message, /夺命连环催/);
+      assert.match(notes.notes[0].message, /催学提醒/);
 
       // 2. Second poke within 30 min: must throw SharingError with status 429
       await assert.rejects(
@@ -261,7 +261,6 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
         assert.ok(sentOptions);
         assert.equal(sentOptions.from, '"土豆考公" <946265043@qq.com>');
         assert.equal(sentOptions.messageId, '<nudge-12345@qq.com>');
-        assert.equal(sentOptions.headers['Auto-Submitted'], 'auto-generated');
         assert.equal(sentOptions.headers['X-Auto-Response-Suppress'], 'All');
         assert.equal(sentOptions.headers['X-Mailer'], 'Potato-Study-Workspace');
         assert.equal(sentOptions.headers['Reply-To'], '946265043@qq.com');

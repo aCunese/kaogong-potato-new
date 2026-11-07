@@ -317,7 +317,7 @@ export async function pokeCompanion(
   const targetNickname = displayName(targetRow?.nickname, '备考同学', 64);
 
   const noteId = crypto.randomUUID();
-  const noteMsg = `⚡️ 叮咚！你的考公研友向你发来了一记夺命连环催：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
+  const noteMsg = `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
   db.prepare(`
     INSERT INTO companion_notes (id, from_user_id, to_user_id, grant_id, message, hearts, created_at)
     VALUES (?, ?, ?, ?, ?, 0, ?)

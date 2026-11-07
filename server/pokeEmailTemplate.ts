@@ -47,12 +47,12 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
   const appUrl = sanitizeUrl(params.loginUrl);
   const appUrlAttr = escapeHtml(appUrl);
 
-  const subject = `⚡️【土豆考公】你的研友「${senderClean}」向你发来了一记夺命连环催学提醒！`;
+  const subject = `【土豆考公】你的研友「${senderClean}」提醒你回书桌前学习打卡啦 🥔`;
 
   const text = [
     `亲爱的 ${recipientClean} 同学：`,
     '',
-    `⚡️ 哔哔哔！收到来自研友「${senderClean}」的备考催学提醒！`,
+    `📖 哔哔哔！收到来自研友「${senderClean}」的备考催学打卡提醒！`,
     '',
     '“说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”',
     '',
@@ -115,7 +115,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
               <!-- Alert Box -->
               <div style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-left: 4px solid #F59E0B; border-radius: 14px; padding: 16px 18px; margin-bottom: 24px;">
                 <div style="font-size: 14px; font-weight: 700; color: #92400E; margin-bottom: 6px;">
-                  ⚡️ 收到来自研友「${senderHtml}」的一记夺命连环催学提醒！
+                  📖 收到来自研友「${senderHtml}」的学习打卡提醒！
                 </div>
                 <div style="font-size: 13.5px; color: #B45309; line-height: 1.65;">
                   “说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”

@@ -26,10 +26,14 @@ if os.path.exists(env_file):
 
 smtp_host = os.environ.get('SMTP_HOST', config.get('SMTP_HOST', 'smtp.qq.com'))
 smtp_port = int(os.environ.get('SMTP_PORT', config.get('SMTP_PORT', '465')))
-smtp_user = os.environ.get('SMTP_USER', config.get('SMTP_USER', '946265043@qq.com'))
-smtp_pass = os.environ.get('SMTP_PASS', config.get('SMTP_PASS', 'xdhedcyfbacibdhh'))
+smtp_user = os.environ.get('SMTP_USER', config.get('SMTP_USER', ''))
+smtp_pass = os.environ.get('SMTP_PASS', config.get('SMTP_PASS', ''))
 smtp_from = os.environ.get('SMTP_FROM', config.get('SMTP_FROM', smtp_user))
-from_name = os.environ.get('SMTP_FROM_NAME', '土豆考公')
+from_name = os.environ.get('SMTP_FROM_NAME', config.get('SMTP_FROM_NAME', '土豆考公'))
+
+if not smtp_user or not smtp_pass:
+    print("Error: SMTP_USER and SMTP_PASS must be provided in environment or .env.smtp.local")
+    sys.exit(1)
 
 recipient = sys.argv[1] if len(sys.argv) > 1 else '946265043@qq.com'
 preview_html_path = os.path.join(os.path.dirname(__file__), '../output/poke-email-preview.html')
@@ -43,20 +47,19 @@ with open(preview_html_path, 'r', encoding='utf-8') as f:
 
 # Build multipart/alternative (Plain text + Rich HTML)
 msg = MIMEMultipart('alternative')
-msg['Subject'] = Header('⚡️【土豆考公】你的研友「阿土（研友）」向你发来了一记夺命连环催学提醒！', 'utf-8')
+msg['Subject'] = Header('【土豆考公】你的研友「阿土（研友）」喊你回书桌前学习打卡啦 🥔', 'utf-8')
 msg['From'] = formataddr((str(Header(from_name, 'utf-8')), smtp_from))
 msg['To'] = recipient
 msg['Reply-To'] = smtp_from
 msg['Date'] = formatdate(localtime=True)
 from_domain = smtp_from.split('@')[1] if '@' in smtp_from else 'qq.com'
 msg['Message-ID'] = make_msgid(domain=from_domain)
-msg['Auto-Submitted'] = 'auto-generated'
 msg['X-Auto-Response-Suppress'] = 'All'
 msg['X-Mailer'] = 'Potato-Study-Workspace'
 
 plain_text = f"""亲爱的 {recipient} 同学：
 
-⚡️ 哔哔哔！收到来自研友「阿土（研友）」的备考催学提醒！
+📖 哔哔哔！收到来自研友「阿土（研友）」的备考催学打卡提醒！
 “说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”
 
 📚 行测：言语理解抓中心、资料分析速算公式背熟了吗？

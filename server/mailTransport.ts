@@ -59,7 +59,6 @@ export function createSmtpMailSender(env: NodeJS.ProcessEnv = process.env): Mail
           html: message.html,
           messageId: normalizedMessageId,
           headers: {
-            'Auto-Submitted': 'auto-generated',
             'X-Auto-Response-Suppress': 'All',
             'X-Mailer': 'Potato-Study-Workspace',
             'Reply-To': from!,
