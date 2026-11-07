@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { SUBJECTS } from '../../types';
@@ -79,6 +80,62 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [listLoading, setListLoading] = useState(true);
+  const [showDemoPartners, setShowDemoPartners] = useState(false);
+  const [poking, setPoking] = useState<Record<string, boolean>>({});
+  const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const hasCooldown = Object.values(cooldowns).some(c => c > 0);
+    if (!hasCooldown) return;
+    const timer = setInterval(() => {
+      setCooldowns(prev => {
+        const next: Record<string, number> = {};
+        for (const [id, count] of Object.entries(prev)) {
+          if (count > 1) next[id] = count - 1;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldowns]);
+
+  const handlePoke = async (grant: SharedGrant) => {
+    if (poking[grant.id]) return;
+    setPoking(prev => ({ ...prev, [grant.id]: true }));
+    setError('');
+
+    try {
+      if (grant.id.startsWith('demo-')) {
+        // Demo simulation
+        await new Promise(r => setTimeout(r, 600));
+        setCooldowns(prev => ({ ...prev, [grant.id]: 1800 }));
+        onToast?.(`⚡️ 已向「${grant.nickname}」发送催学提醒邮件！`);
+        return;
+      }
+
+      const res = await fetch('/api/sharing/nudge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken,
+        },
+        body: JSON.stringify({ grantId: grant.id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || '催学提醒发送失败');
+      }
+
+      setCooldowns(prev => ({ ...prev, [grant.id]: data.cooldownSeconds || 1800 }));
+      onToast?.(data.message || `⚡️ 已向「${grant.nickname}」发送催学邮件！`);
+    } catch (err: any) {
+      setError(err.message || '催学提醒发送失败');
+      onToast?.(err.message || '催学提醒发送失败');
+    } finally {
+      setPoking(prev => ({ ...prev, [grant.id]: false }));
+    }
+  };
 
   // 学情查看状态
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -353,27 +410,141 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                     </form>
                   ) : <Button variant="primary" fullWidth onClick={() => { setAddingPartner(true); setError(''); }} disabled={busy}><Plus size={16} />添加学习伙伴</Button>}
                   <div aria-label="可查看的学习伙伴" className="space-y-3">
-                    <h4 className="text-sm font-bold text-ink-main">伙伴列表<span className="ml-2 text-xs font-normal text-ink-muted">{listLoading ? '' : `${received.length} 位`}</span></h4>
-                    {listLoading ? <p role="status" className="py-5 text-center text-xs text-ink-muted">正在读取伙伴列表…</p> : received.length === 0 ? <div className="py-6 text-center"><span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-potato-light text-potato-dark"><Users size={23} /></span><p className="text-sm font-medium text-ink-main">还没有学习伙伴</p><p className="mt-1.5 text-xs leading-5 text-ink-muted">收到朋友的分享码后，即可添加并查看学情。</p></div> : <ul className="divide-y divide-line">{received.map(grant => <li key={grant.id} className="flex items-center justify-between gap-3 py-3">
-                      <div className="min-w-0"><p className="break-words text-sm font-bold text-ink-main">{grant.nickname}</p><p className="mt-1 text-[11px] text-ink-muted">已授权 · 只读</p></div>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        className="shrink-0"
-                        disabled={busy}
-                        onClick={() => {
-                          setPage(1);
-                          setSelectedDate(todayStr);
-                          setPartnerTab('daily');
-                          setShowCalendar(false);
-                          setCalYear(initialYear);
-                          setCalMonth(initialMonth);
-                          setSelectedId(grant.id);
-                        }}
-                      >
-                        <Eye size={13} />查看学情
-                      </Button>
-                    </li>)}</ul>}
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-ink-main">
+                        伙伴列表
+                        <span className="ml-2 text-xs font-normal text-ink-muted">
+                          {listLoading ? '' : `${received.length > 0 ? received.length : showDemoPartners ? 2 : 0} 位`}
+                        </span>
+                      </h4>
+                    </div>
+
+                    {listLoading ? (
+                      <p role="status" className="py-5 text-center text-xs text-ink-muted">正在读取伙伴列表…</p>
+                    ) : (received.length === 0 && !showDemoPartners) ? (
+                      <div className="py-6 text-center space-y-3">
+                        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-potato-light text-potato-dark">
+                          <Users size={23} />
+                        </span>
+                        <div>
+                          <p className="text-sm font-medium text-ink-main">还没有学习伙伴</p>
+                          <p className="mt-1 text-xs leading-5 text-ink-muted">收到朋友的分享码后，即可添加并查看学情。</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setShowDemoPartners(true)}
+                          className="text-xs text-sage"
+                        >
+                          👀 体验学情督学（阿土 & 小豆子）
+                        </Button>
+                      </div>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {(received.length > 0 ? received : [
+                          {
+                            id: 'demo-atu',
+                            nickname: '阿土同学',
+                            createdAt: new Date().toISOString(),
+                            liveStatus: {
+                              state: 'focusing',
+                              focusTitle: '行测真题 5000 题',
+                              focusMinutes: 34,
+                              canPoke: false,
+                            },
+                          },
+                          {
+                            id: 'demo-bean',
+                            nickname: '小豆子',
+                            createdAt: new Date().toISOString(),
+                            liveStatus: {
+                              state: 'missed',
+                              scheduledTime: '14:00',
+                              overdueHours: 2,
+                              missedText: '约定 14:00 学习，已超 2 小时未学',
+                              canPoke: true,
+                              hasEmailBinding: true,
+                            },
+                          },
+                        ] as SharedGrant[]).map(grant => (
+                          <li key={grant.id} className="py-3.5 space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="break-words text-sm font-bold text-ink-main">{grant.nickname}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cream text-ink-muted border border-line/60">
+                                    已授权 · 只读
+                                  </span>
+                                </div>
+
+                                {/* 实时学情展示：正在专注 或 约定时间未打卡 */}
+                                {grant.liveStatus?.state === 'focusing' ? (
+                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-xl px-2.5 py-1 w-fit font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                                    <span>🟢 正在专注《{grant.liveStatus.focusTitle || '行测真题 5000 题'}》已学 {grant.liveStatus.focusMinutes ?? 34} 分钟</span>
+                                  </div>
+                                ) : grant.liveStatus?.state === 'missed' ? (
+                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-xl px-2.5 py-1 w-fit font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                                    <span>🟠 {grant.liveStatus.missedText || `约定 ${grant.liveStatus.scheduledTime || '14:00'} 学习，已超 ${grant.liveStatus.overdueHours || 2} 小时未学`}</span>
+                                  </div>
+                                ) : grant.liveStatus?.state === 'completed' ? (
+                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-sage bg-sage-light/40 border border-sage/20 rounded-xl px-2.5 py-0.5 w-fit font-medium">
+                                    <span>👏 今日任务已打卡完成</span>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-[11px] text-ink-muted">
+                                    今日暂无学习动态
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 右侧动作按钮 */}
+                              <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+                                {/* 约定时间未打卡：高亮呈现「⚡️ 戳一下」按钮；正在专注则保持极简干净，无送能量按钮 */}
+                                {grant.liveStatus?.state === 'missed' && (
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    className="bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs"
+                                    disabled={busy || poking[grant.id] || (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0}
+                                    onClick={() => handlePoke(grant)}
+                                    title="给对方邮箱发送催学邮件"
+                                  >
+                                    <Zap size={13} className="fill-current" />
+                                    <span>
+                                      {poking[grant.id]
+                                        ? '发送中…'
+                                        : (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0
+                                        ? `${Math.ceil((cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
+                                        : '⚡️ 戳一下'}
+                                    </span>
+                                  </Button>
+                                )}
+
+                                <Button
+                                  size="sm"
+                                  variant="light"
+                                  className="shrink-0"
+                                  disabled={busy || grant.id.startsWith('demo-')}
+                                  onClick={() => {
+                                    setPage(1);
+                                    setSelectedDate(todayStr);
+                                    setPartnerTab('daily');
+                                    setShowCalendar(false);
+                                    setCalYear(initialYear);
+                                    setCalMonth(initialMonth);
+                                    setSelectedId(grant.id);
+                                  }}
+                                >
+                                  <Eye size={13} />查看学情
+                                </Button>
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </section>
               ) : (

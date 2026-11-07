@@ -3,6 +3,7 @@ import { requireAuth, checkEndpointRateLimit, recordEndpointAttempt, type Authen
 import {
   cancelSharingCode, createSharingCode, getSharedStudyOverview, listSharingGrants,
   redeemSharingCode, revokeSharingGrant, SharingError,
+  pokeCompanion, listCompanionNotes, createCompanionNote, heartCompanionNote,
 } from './sharing';
 
 export const sharingRouter = Router();
@@ -53,4 +54,22 @@ sharingRouter.delete('/api/sharing/grants/:id', limited('revoke', 30, 120), hand
 }));
 sharingRouter.get('/api/sharing/grants/:id/overview', limited('overview', 120, 300, 60_000), handle((req, res) => {
   res.json({ ok: true, overview: getSharedStudyOverview(req.user!.id, String(req.params.id), req.query) });
+}));
+sharingRouter.post('/api/sharing/nudge', limited('nudge', 30, 100), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await pokeCompanion(req.user!.id, String(req.body?.grantId));
+    res.json(result);
+  } catch (error) {
+    if (error instanceof SharingError) res.status(error.status).json({ ok: false, code: error.code, message: error.message });
+    else next(error);
+  }
+});
+sharingRouter.get('/api/sharing/notes', limited('notes_list', 120, 300, 60_000), handle((req, res) => {
+  res.json(listCompanionNotes(req.user!.id));
+}));
+sharingRouter.post('/api/sharing/notes', limited('notes_post', 30, 100), handle((req, res) => {
+  res.json({ ok: true, note: createCompanionNote(req.user!.id, req.body) });
+}));
+sharingRouter.post('/api/sharing/notes/:id/heart', limited('notes_heart', 120, 300, 60_000), handle((req, res) => {
+  res.json({ ok: true, hearts: heartCompanionNote(req.user!.id, String(req.params.id)) });
 }));

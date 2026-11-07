@@ -22,5 +22,5 @@ it('the service worker reports the same new release and uses a separate shell ca
   vm.runInNewContext(fs.readFileSync('public/sw.js', 'utf8'), {self: {addEventListener: (type: string, handler: any) => handlers.set(type, handler)}});
   let identity: any;
   handlers.get('message')!({data: {type: 'GET_RELEASE_INFO'}, ports: [{postMessage: (message: any) => {identity = message;}}]});
-  expect(identity).toMatchObject({version: '1.2.6', build: '20261107.04', cacheName: 'kaogong-shell-v5-1.2.6-20261107.04'});
+  expect(identity).toMatchObject({version: CURRENT_WEB_VERSION, build: CURRENT_WEB_BUILD, cacheName: `kaogong-shell-v5-${CURRENT_WEB_VERSION}-${CURRENT_WEB_BUILD}`});
 });

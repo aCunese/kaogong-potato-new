@@ -11,10 +11,23 @@ export interface CreatedSharingCode extends SharingCodeMetadata {
   value: string;
 }
 
+export interface PartnerLiveStatus {
+  state: 'focusing' | 'missed' | 'idle' | 'completed';
+  focusTitle?: string;
+  focusMinutes?: number;
+  scheduledTime?: string;
+  overdueHours?: number;
+  missedText?: string;
+  hasEmailBinding?: boolean;
+  canPoke?: boolean;
+  cooldownSeconds?: number;
+}
+
 export interface SharedGrant {
   id: string;
   nickname: string;
   createdAt: string;
+  liveStatus?: PartnerLiveStatus;
 }
 
 export interface SharingGrantsResponse {

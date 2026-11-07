@@ -10,7 +10,7 @@
 // ==============================================================================
 
 const RELEASE_VERSION = '1.2.6';
-const RELEASE_BUILD = '20261107.04';
+const RELEASE_BUILD = '20261108.01';
 const CACHE_NAME = `kaogong-shell-v5-${RELEASE_VERSION}-${RELEASE_BUILD}`;
 
 // 注意：这里绝对不能包含 /version.json（R16：版本响应不允许被缓存）

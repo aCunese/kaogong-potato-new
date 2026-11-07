@@ -1,6 +1,6 @@
 {
   "version": "1.2.6",
-  "build": "20261107.04",
+  "build": "20261108.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-07T08:45:00Z",
-  "summary": "错题大图缩略栏及编辑网格补齐+号追加入口；完善图形题全方向字符比较与识别摆正修复。"
+  "deployedAt": "2026-11-07T16:05:00Z",
+  "summary": "上线学习伙伴实时学情、一键催学拍一拍与邮件督学机制，首页悬浮打气便签支持上滑收起与相册表情包选图。"
 }

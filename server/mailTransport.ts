@@ -4,6 +4,7 @@ export interface MailMessage {
   to: string;
   subject: string;
   text: string;
+  html?: string;
   messageId: string;
   signal?: AbortSignal;
 }
@@ -45,6 +46,7 @@ export function createSmtpMailSender(env: NodeJS.ProcessEnv = process.env): Mail
       try {
         const result = await activeTransport.sendMail({
           from, to: message.to, subject: message.subject, text: message.text,
+          html: message.html,
           messageId: message.messageId, disableFileAccess: true, disableUrlAccess: true,
         });
         if (!Array.isArray(result.accepted) || result.accepted.length === 0) throw new MailDeliveryError('permanent');

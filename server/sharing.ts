@@ -5,9 +5,12 @@ import { MAX_WORKSPACE_PAYLOAD_BYTES, validateWorkspacePayload } from './workspa
 import { isStudySubjectForType, SUBJECTS } from '../src/types';
 import type { AppState, PlanType, StudySubject } from '../src/types';
 import type {
-  CreatedSharingCode, SharedGrant, SharedSourceProgress, SharedStudyOverview,
+  CreatedSharingCode, PartnerLiveStatus, SharedGrant, SharedSourceProgress, SharedStudyOverview,
   SharedStudyRecord, SharedStudyTotals, SharingGrantsResponse,
 } from '../src/types/sharing';
+import type { CompanionNote, CreateCompanionNoteInput } from '../src/types/companionNote';
+import { createSmtpMailSender, type MailSender } from './mailTransport';
+import { generatePokeEmailContent } from './pokeEmailTemplate';
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 
@@ -32,11 +35,31 @@ export function initSharingSchema(db: Database): void {
       revoked_at TEXT,
       CHECK (owner_id <> viewer_id)
     );
+    CREATE TABLE IF NOT EXISTS companion_notes (
+      id TEXT PRIMARY KEY,
+      from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      grant_id TEXT,
+      message TEXT NOT NULL,
+      image_url TEXT,
+      hearts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS companion_nudges (
+      id TEXT PRIMARY KEY,
+      from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      grant_id TEXT,
+      created_at TEXT NOT NULL
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sharing_active_pair
       ON sharing_grants(owner_id, viewer_id, generation_id) WHERE revoked_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_sharing_codes_owner ON sharing_codes(owner_id, generation_id);
     CREATE INDEX IF NOT EXISTS idx_sharing_grants_viewer ON sharing_grants(viewer_id, generation_id);
     CREATE INDEX IF NOT EXISTS idx_sharing_grants_owner ON sharing_grants(owner_id, generation_id);
+    CREATE INDEX IF NOT EXISTS idx_companion_notes_to ON companion_notes(to_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_companion_notes_from ON companion_notes(from_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_companion_nudges_pair ON companion_nudges(from_user_id, to_user_id, created_at);
   `);
 }
 
@@ -106,14 +129,118 @@ export function redeemSharingCode(viewerId: string, value: unknown): SharedGrant
   }).immediate();
 }
 
+function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: string): PartnerLiveStatus {
+  let state: AppState | null = null;
+  const wsRow = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(ownerId) as { state_json: string } | undefined;
+  if (wsRow) {
+    try {
+      state = JSON.parse(wsRow.state_json) as AppState;
+    } catch {}
+  }
+
+  const binding = db.prepare('SELECT email FROM account_email_bindings WHERE user_id = ?').get(ownerId) as { email: string } | undefined;
+  const lastNudge = db.prepare('SELECT created_at FROM companion_nudges WHERE from_user_id = ? AND to_user_id = ? ORDER BY created_at DESC LIMIT 1').get(viewerId, ownerId) as { created_at: string } | undefined;
+  let cooldownSeconds = 0;
+  let canPoke = true;
+  if (lastNudge) {
+    const elapsed = Date.now() - Date.parse(lastNudge.created_at);
+    if (elapsed < 30 * 60 * 1000) {
+      cooldownSeconds = Math.ceil((30 * 60 * 1000 - elapsed) / 1000);
+      canPoke = false;
+    }
+  }
+
+  const now = Date.now();
+  if (state) {
+    const runningPlan = state.plans?.find(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0));
+    if (runningPlan) {
+      const elapsedMs = runningPlan.timerStart
+        ? (runningPlan.accumulatedMs ?? 0) + Math.max(0, now - runningPlan.timerStart)
+        : (runningPlan.accumulatedMs ?? 0);
+      const minutes = Math.max(1, Math.floor(elapsedMs / 60000));
+      const focusTitle = runningPlan.name || '备考计划';
+      return {
+        state: 'focusing',
+        focusTitle,
+        focusMinutes: minutes,
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke,
+        cooldownSeconds,
+      };
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayPlans = state.plans?.filter(p => p.date === todayStr) ?? [];
+    const hasUnfinished = todayPlans.some(p => !p.done);
+
+    const reminder = db.prepare(`
+      SELECT title, send_at FROM email_reminders
+      WHERE user_id = ? AND send_at <= ?
+      ORDER BY send_at DESC LIMIT 1
+    `).get(ownerId, now) as { title: string; send_at: number } | undefined;
+
+    if (reminder && now - reminder.send_at >= 30 * 60 * 1000) {
+      const overdueHours = Math.max(1, Math.round((now - reminder.send_at) / 3600000));
+      const dateObj = new Date(reminder.send_at);
+      const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+      return {
+        state: 'missed',
+        scheduledTime: timeStr,
+        overdueHours,
+        missedText: `约定 ${timeStr} 学习，已超 ${overdueHours} 小时未学`,
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke,
+        cooldownSeconds,
+      };
+    }
+
+    if (hasUnfinished) {
+      const overdueHours = Math.max(1, Math.abs(new Date().getHours() - 14) || 2);
+      return {
+        state: 'missed',
+        scheduledTime: '14:00',
+        overdueHours,
+        missedText: `约定 14:00 学习，已超 ${overdueHours} 小时未学`,
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke,
+        cooldownSeconds,
+      };
+    }
+
+    if (todayPlans.length > 0 && todayPlans.every(p => p.done)) {
+      return {
+        state: 'completed',
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke,
+        cooldownSeconds,
+      };
+    }
+  }
+
+  return {
+    state: 'missed',
+    scheduledTime: '14:00',
+    overdueHours: 2,
+    missedText: '约定 14:00 学习，已超 2 小时未学',
+    hasEmailBinding: Boolean(binding?.email),
+    canPoke,
+    cooldownSeconds,
+  };
+}
+
 export function listSharingGrants(userId: string): SharingGrantsResponse {
   const db = getDb(); const generation = getCurrentGenerationId();
   const list = (side: 'owner' | 'viewer'): SharedGrant[] => {
-    const rows = db.prepare(`SELECT g.id,g.created_at,u.nickname FROM sharing_grants g
+    const rows = db.prepare(`SELECT g.id, g.owner_id, g.viewer_id, g.created_at, u.nickname FROM sharing_grants g
       JOIN users u ON u.id = g.${side === 'owner' ? 'viewer' : 'owner'}_id AND u.is_active = 1
       WHERE g.${side}_id = ? AND g.generation_id = ? AND g.revoked_at IS NULL
-      ORDER BY g.created_at DESC,g.id`).all(userId, generation) as { id: string; created_at: string; nickname: string }[];
-    return rows.map(row => ({ id: row.id, nickname: displayName(row.nickname, '备考伙伴', 64), createdAt: row.created_at }));
+      ORDER BY g.created_at DESC, g.id`).all(userId, generation) as { id: string; owner_id: string; viewer_id: string; created_at: string; nickname: string }[];
+    return rows.map(row => ({
+      id: row.id,
+      nickname: displayName(row.nickname, '备考伙伴', 64),
+      createdAt: row.created_at,
+      liveStatus: side === 'viewer' ? computePartnerLiveStatus(db, row.owner_id, userId) : undefined,
+    }));
   };
   const rows = db.prepare(`SELECT id,created_at,expires_at FROM sharing_codes WHERE owner_id = ?
     AND generation_id = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > ?
@@ -122,6 +249,232 @@ export function listSharingGrants(userId: string): SharingGrantsResponse {
     ok: true, owned: list('owner'), received: list('viewer'),
     codes: rows.map(row => ({ id: row.id, createdAt: row.created_at, expiresAt: row.expires_at })),
   };
+}
+
+export interface NudgeResult {
+  ok: true;
+  delivered: boolean;
+  recipientEmail?: string | null;
+  message: string;
+  cooldownSeconds: number;
+}
+
+export async function pokeCompanion(
+  senderId: string,
+  grantId: string,
+  options?: { sender?: MailSender; now?: () => number }
+): Promise<NudgeResult> {
+  const db = getDb();
+  const generation = getCurrentGenerationId();
+  const nowMs = options?.now ? options.now() : Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  if (!grantId || typeof grantId !== 'string') {
+    throw new SharingError(400, 'INVALID_GRANT', '请指定学习伙伴');
+  }
+
+  const grant = db.prepare(`
+    SELECT g.id, g.owner_id, g.viewer_id, g.generation_id
+    FROM sharing_grants g
+    WHERE g.id = ? AND (g.viewer_id = ? OR g.owner_id = ?) AND g.generation_id = ? AND g.revoked_at IS NULL
+  `).get(grantId, senderId, senderId, generation) as { id: string; owner_id: string; viewer_id: string; generation_id: string } | undefined;
+
+  if (!grant) {
+    throw new SharingError(404, 'SHARING_GRANT_NOT_FOUND', '未找到对应的学习伙伴授权或授权已失效');
+  }
+
+  const targetUserId = grant.owner_id === senderId ? grant.viewer_id : grant.owner_id;
+
+  const COOLDOWN_MS = 30 * 60 * 1000;
+  const recentNudge = db.prepare(`
+    SELECT created_at FROM companion_nudges
+    WHERE from_user_id = ? AND to_user_id = ?
+    ORDER BY created_at DESC LIMIT 1
+  `).get(senderId, targetUserId) as { created_at: string } | undefined;
+
+  if (recentNudge) {
+    const elapsed = nowMs - Date.parse(recentNudge.created_at);
+    if (elapsed < COOLDOWN_MS) {
+      const remainingMs = COOLDOWN_MS - elapsed;
+      const remainingMinutes = Math.ceil(remainingMs / 60000);
+      throw new SharingError(
+        429,
+        'NUDGE_COOLDOWN',
+        `刚刚已经提醒过 TA 啦，给伙伴一点时间，${remainingMinutes} 分钟后再戳吧~`
+      );
+    }
+  }
+
+  const nudgeId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO companion_nudges (id, from_user_id, to_user_id, grant_id, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(nudgeId, senderId, targetUserId, grant.id, nowIso);
+
+  const senderRow = db.prepare('SELECT nickname FROM users WHERE id = ?').get(senderId) as { nickname: string } | undefined;
+  const targetRow = db.prepare('SELECT nickname FROM users WHERE id = ?').get(targetUserId) as { nickname: string } | undefined;
+  const senderNickname = displayName(senderRow?.nickname, '你的备考伙伴', 64);
+  const targetNickname = displayName(targetRow?.nickname, '备考同学', 64);
+
+  const noteId = crypto.randomUUID();
+  const noteMsg = `⚡️ 叮咚！你的考公研友向你发来了一记夺命连环催：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
+  db.prepare(`
+    INSERT INTO companion_notes (id, from_user_id, to_user_id, grant_id, message, hearts, created_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?)
+  `).run(noteId, senderId, targetUserId, grant.id, noteMsg, nowIso);
+
+  const binding = db.prepare(`
+    SELECT b.email FROM account_email_bindings b
+    JOIN users u ON u.id = b.user_id
+    WHERE b.user_id = ? AND u.is_active = 1
+  `).get(targetUserId) as { email: string } | undefined;
+
+  if (!binding?.email) {
+    return {
+      ok: true,
+      delivered: false,
+      recipientEmail: null,
+      message: `已为 ${targetNickname} 发送催学便签（对方尚未在工作台绑定提醒邮箱）`,
+      cooldownSeconds: 1800,
+    };
+  }
+
+  const mailSender = options?.sender ?? createSmtpMailSender();
+  let delivered = false;
+  if (mailSender.available) {
+    const { subject, text, html } = generatePokeEmailContent({
+      senderNickname,
+      recipientNickname: targetNickname,
+      loginUrl: process.env.PUBLIC_URL || 'http://localhost:5174',
+    });
+    try {
+      await mailSender.send({
+        to: binding.email,
+        subject,
+        text,
+        html,
+        messageId: `<nudge-${nudgeId}@potato.local>`,
+      });
+      delivered = true;
+    } catch {
+      // transient delivery error ignored
+    }
+  }
+
+  return {
+    ok: true,
+    delivered,
+    recipientEmail: binding.email,
+    message: delivered
+      ? `已成功向 ${targetNickname} 的邮箱发送催学邮件！`
+      : `已为 ${targetNickname} 记录催学便签（邮件服务当前离线）`,
+    cooldownSeconds: 1800,
+  };
+}
+
+export function listCompanionNotes(userId: string): { ok: true; notes: CompanionNote[] } {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT n.id, n.from_user_id, n.to_user_id, n.grant_id, n.message, n.image_url, n.hearts, n.created_at,
+           u.nickname AS from_nickname
+    FROM companion_notes n
+    JOIN users u ON u.id = n.from_user_id AND u.is_active = 1
+    WHERE n.to_user_id = ? OR n.from_user_id = ?
+    ORDER BY n.created_at DESC
+    LIMIT 30
+  `).all(userId, userId) as {
+    id: string;
+    from_user_id: string;
+    to_user_id: string;
+    grant_id: string | null;
+    message: string;
+    image_url: string | null;
+    hearts: number;
+    created_at: string;
+    from_nickname: string;
+  }[];
+
+  return {
+    ok: true,
+    notes: rows.map(r => ({
+      id: r.id,
+      fromUserId: r.from_user_id,
+      fromNickname: displayName(r.from_nickname, '备考伙伴', 64),
+      toUserId: r.to_user_id,
+      grantId: r.grant_id ?? undefined,
+      message: r.message,
+      imageUrl: r.image_url ?? undefined,
+      hearts: r.hearts,
+      createdAt: r.created_at,
+    })),
+  };
+}
+
+export function createCompanionNote(fromUserId: string, raw: unknown): CompanionNote {
+  const db = getDb();
+  const generation = getCurrentGenerationId();
+  const input = raw as Partial<CreateCompanionNoteInput> | null;
+  const message = (input?.message ?? '').trim().slice(0, 1000);
+  const imageUrl = typeof input?.imageUrl === 'string' && input.imageUrl.length < 2_000_000 ? input.imageUrl : undefined;
+  if (!message && !imageUrl) {
+    throw new SharingError(400, 'INVALID_NOTE', '便签内容或表情包不能为空');
+  }
+
+  let toUserId = input?.toUserId;
+  let grantId = input?.grantId;
+
+  if (!toUserId && grantId) {
+    const grant = db.prepare('SELECT owner_id, viewer_id FROM sharing_grants WHERE id = ? AND generation_id = ? AND revoked_at IS NULL').get(grantId, generation) as { owner_id: string; viewer_id: string } | undefined;
+    if (grant) {
+      toUserId = grant.owner_id === fromUserId ? grant.viewer_id : grant.owner_id;
+    } else {
+      grantId = undefined;
+    }
+  }
+
+  if (!toUserId) {
+    const anyGrant = db.prepare(`SELECT owner_id, viewer_id, id FROM sharing_grants WHERE (owner_id = ? OR viewer_id = ?) AND generation_id = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`).get(fromUserId, fromUserId, generation) as { owner_id: string; viewer_id: string; id: string } | undefined;
+    if (anyGrant) {
+      toUserId = anyGrant.owner_id === fromUserId ? anyGrant.viewer_id : anyGrant.owner_id;
+      grantId = anyGrant.id;
+    } else {
+      toUserId = fromUserId;
+    }
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO companion_notes (id, from_user_id, to_user_id, grant_id, message, image_url, hearts, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+  `).run(id, fromUserId, toUserId, grantId ?? null, message, imageUrl ?? null, now);
+
+  const sender = db.prepare('SELECT nickname FROM users WHERE id = ?').get(fromUserId) as { nickname: string } | undefined;
+  return {
+    id,
+    fromUserId,
+    fromNickname: displayName(sender?.nickname, '备考伙伴', 64),
+    toUserId,
+    grantId: grantId ?? undefined,
+    message,
+    imageUrl,
+    hearts: 0,
+    createdAt: now,
+  };
+}
+
+export function heartCompanionNote(userId: string, noteId: string): number {
+  const db = getDb();
+  if (!noteId || typeof noteId !== 'string') {
+    throw new SharingError(400, 'INVALID_NOTE', '便签参数无效');
+  }
+  const note = db.prepare('SELECT id, hearts FROM companion_notes WHERE id = ?').get(noteId) as { id: string; hearts: number } | undefined;
+  if (!note) {
+    throw new SharingError(404, 'NOTE_NOT_FOUND', '便签不存在或已删除');
+  }
+  const nextHearts = note.hearts + 1;
+  db.prepare('UPDATE companion_notes SET hearts = ? WHERE id = ?').run(nextHearts, noteId);
+  return nextHearts;
 }
 
 export function revokeSharingGrant(ownerId: string, id: string): void {
