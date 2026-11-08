@@ -46,8 +46,12 @@ export function loadCompanionNoteDraft(
     let raw = storage.getItem(primaryKey);
 
     // Fallback: if not found by primaryKey, check alternate key by grantId / recipientId
-    if (!raw && recipientId && grantId) {
+    if (!raw && grantId) {
       const altKey = getCompanionNoteDraftKey(userId, grantId);
+      raw = storage.getItem(altKey);
+    }
+    if (!raw && recipientId) {
+      const altKey = getCompanionNoteDraftKey(userId, recipientId);
       raw = storage.getItem(altKey);
     }
 

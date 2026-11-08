@@ -590,7 +590,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                   partner.liveStatus?.state === 'focusing' ? 'bg-emerald-400' : 'bg-amber-400'
                 }`} />
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                <span className={`relative inline-flex rounded-full h-2 w-2 animate-pulse ${
                   partner.liveStatus?.state === 'focusing' ? 'bg-emerald-500' : 'bg-amber-500'
                 }`} />
               </span>
@@ -607,11 +607,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <div
                   role="region"
                   aria-label="研友实时学情详情"
-                  className="absolute left-0 top-full mt-1.5 z-40 w-[290px] xs:w-[320px] max-w-[calc(100vw-24px)] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-center justify-between gap-2 backdrop-blur-md animate-in fade-in zoom-in-95"
-                  onClick={(e) => e.stopPropagation()}
+                  className="absolute left-0 top-full mt-1.5 z-40 w-[290px] sm:w-[320px] max-w-[calc(100vw-24px)] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-center justify-between gap-2 backdrop-blur-md animate-pop-in cursor-pointer select-none"
+                  onClick={() => setShowStatusDetail(false)}
+                  title="点击可收起"
                 >
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs ${
                       partner.liveStatus?.state === 'focusing' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'
                     }`} />
                     <span className="text-xs text-ink-main font-medium truncate">
@@ -623,7 +624,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
                   {partner.liveStatus?.state === 'focusing' ? (
                     <span
-                      className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
+                      className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
                       title="研友正在专注学习中，请勿打扰"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />

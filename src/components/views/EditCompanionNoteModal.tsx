@@ -144,6 +144,9 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
 
   const handleMessageChange = (val: string) => {
     setMessage(val);
+    if (!val.trim() && !imageUrl) {
+      setHasDraftRestored(false);
+    }
     saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
       message: val,
       imageUrl,
@@ -163,6 +166,9 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
   const handleRemoveImage = () => {
     setImageUrl(null);
     setImageName('');
+    if (!message.trim()) {
+      setHasDraftRestored(false);
+    }
     saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
       message,
       imageUrl: null,

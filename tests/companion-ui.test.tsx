@@ -367,6 +367,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(focusingHtml).toContain('bg-emerald-50 text-emerald-800');
     expect(focusingHtml).toContain('bg-emerald-500');
     expect(focusingHtml).toContain('animate-ping');
+    expect(focusingHtml).toContain('animate-pulse');
     // Action buttons group has ml-auto for elegant right alignment
     expect(focusingHtml).toContain('ml-auto');
     expect(focusingHtml).toContain('便签箱');
@@ -388,6 +389,8 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(detailHtml).toContain('正在专注《粉笔行测真题 5000 题》45m');
     expect(detailHtml).toContain('专注中');
     expect(detailHtml).toContain('bg-emerald-50 text-emerald-700');
+    expect(detailHtml).toContain('animate-pop-in');
+    expect(detailHtml).toContain('rounded-full bg-emerald-50 text-emerald-700');
 
     // 3. Not focusing state: yellow breathing light labeled "未学习"
     const idlePartner: SharedGrant = {
@@ -504,6 +507,12 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(draft?.message).toBe('这是未发送成功的考公骚话！');
     expect(draft?.imageUrl).toBe('data:image/png;base64,test-sticker-data');
     expect(draft?.imageName).toBe('🔥 刷题狂魔');
+
+    // 2b. Alternate lookup by grantId fallback
+    saveCompanionNoteDraft('u2', undefined, 'g1', {
+      message: '通过授权ID保存的草稿',
+    });
+    expect(loadCompanionNoteDraft('u2', 'any-recipient', 'g1')?.message).toBe('通过授权ID保存的草稿');
 
     // 3. EditCompanionNoteModal automatically restores draft when opened
     const htmlWithDraft = render(

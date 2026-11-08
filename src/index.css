@@ -54,3 +54,11 @@ body {
 .pose-5 { background-position: 33.333% 100%; }
 .pose-6 { background-position: 66.666% 100%; }
 .pose-7 { background-position: 100% 100%; }
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-pop-in {
+  animation: popIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
