@@ -45,9 +45,11 @@ app.disable('x-powered-by');
 // 细粒度 Body-Parser：防范 50MB 内存炸弹穿透打崩 512MB 容器内存
 app.use((req: Request, res: Response, next: NextFunction) => {
   // 仅工作区全量同步端点放行大体积 JSON (50MB，内部还有 12MiB 工作区字节上限)，
+  // 研友便签支持附带表情包与相册压缩图片（放行 10MB，内部单图上限 5MB）
   // 其余端点（含 /api/workspace/init-choice）严格限制为 64KB
   const isWorkspaceSync = req.path === '/api/workspace';
-  const limit = isWorkspaceSync ? '50mb' : '64kb';
+  const isCompanionNote = req.path === '/api/sharing/notes' || req.path.startsWith('/api/sharing/notes');
+  const limit = isWorkspaceSync ? '50mb' : isCompanionNote ? '10mb' : '64kb';
   express.json({ limit })(req, res, next);
 });
 app.use(cookieParser());
@@ -832,10 +834,10 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     statusCode = 400;
     errorCode = 'BAD_JSON_PAYLOAD';
     clientMessage = '请求数据格式错误，无法解析 JSON 载荷';
-  } else if (err.code === 'LIMIT_FILE_SIZE') {
+  } else if (err.type === 'entity.too.large' || err.code === 'LIMIT_FILE_SIZE') {
     statusCode = 413;
-    errorCode = 'FILE_TOO_LARGE';
-    clientMessage = '上传的文件体积超出系统允许的上限 (10MB)';
+    errorCode = 'PAYLOAD_TOO_LARGE';
+    clientMessage = '上传的数据或图片体积超出系统允许的上限 (10MB)';
   } else if (err.status && typeof err.status === 'number') {
     statusCode = err.status;
   }

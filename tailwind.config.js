@@ -45,6 +45,8 @@ export default {
         'btn': '14px',
       },
       boxShadow: {
+        '2xs': '0 1px 2px 0 rgba(0, 0, 0, 0.03)',
+        'xs': '0 1px 3px 0 rgba(0, 0, 0, 0.05)',
         'soft': '0 4px 20px -2px rgba(97, 121, 79, 0.06)',
         'modal': '0 20px 40px -10px rgba(52, 60, 47, 0.16)',
         'sheet': '0 -10px 30px rgba(52, 60, 47, 0.08)',

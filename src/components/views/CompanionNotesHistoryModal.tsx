@@ -228,7 +228,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
 
                   {/* 便签文字正文：支持长文自动折叠与展开/收起 */}
                   <div className="px-1 space-y-1">
-                    <div className={`text-xs font-medium text-ink-main leading-relaxed whitespace-pre-wrap ${!isExpanded && isLongText ? 'line-clamp-3' : ''}`}>
+                    <div className={`text-xs font-medium text-ink-main leading-relaxed whitespace-pre-wrap break-words ${!isExpanded && isLongText ? 'line-clamp-3' : ''}`}>
                       {message}
                     </div>
                     {isLongText && (
@@ -312,7 +312,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
         {/* 大图预览弹窗 */}
         {previewImage && (
           <div
-            className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs animate-fade-in"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-fade-in"
             onClick={() => setPreviewImage(null)}
           >
             <div className="max-w-md w-full bg-paper rounded-2xl p-3 space-y-2 shadow-2xl" onClick={e => e.stopPropagation()}>

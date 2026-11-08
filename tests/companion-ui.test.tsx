@@ -357,31 +357,33 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     );
 
     // Responsive container with flex-wrap and gap
-    expect(html).toContain('flex flex-wrap items-center justify-between gap-2 px-0.5 mb-1');
-    // Partner capsule has min-w boundary to prevent excessive compression on mobile
-    expect(html).toContain('min-w-[200px]');
+    expect(html).toContain('flex flex-wrap items-center justify-between');
+    // Partner capsule has adaptive min-w boundary to prevent excessive compression on mobile
+    expect(html).toContain('min-w-[120px]');
     // Nickname has max-w and truncate
-    expect(html).toContain('truncate max-w-[80px]');
+    expect(html).toContain('truncate max-w-[65px]');
     // Live status text has truncate and min-w-0
     expect(html).toContain('truncate min-w-0 flex-1');
-    // Solid emerald badge for focusing state prevents text bleed-through
+    // Solid emerald badge for focusing state prevents text bleed-through and has whitespace-nowrap
     expect(html).toContain('bg-emerald-50 text-emerald-700');
     expect(html).toContain('专注中');
+    expect(html).toContain('whitespace-nowrap');
     // Action buttons group has ml-auto for elegant alignment
     expect(html).toContain('ml-auto');
     expect(html).toContain('便签箱');
     expect(html).toContain('写便签');
   });
 
-  it('verifies CompanionNotesHistoryModal scheme 1: 55vh fixed height container, long text folding, and pagination', () => {
-    // Generate 7 notes (exceeding PAGE_SIZE 5) with both short and very long messages
+  it('verifies CompanionNotesHistoryModal scheme 1: 55vh fixed height container, long text folding, break-words, and pagination', () => {
+    // Generate 7 notes (exceeding PAGE_SIZE 5) with both short and very long messages including unbroken strings
     const todayNotes: CompanionNote[] = [
       {
         id: 'n-long-1',
         fromUserId: 'u2',
         fromNickname: '阿土',
-        message: '亲爱的研友，这是为你写的一段非常非常长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长的备考打气长文！一定要坚持下去，胜利属于我们！',
+        message: '亲爱的研友，这是为你写的一段非常非常长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长的备考打气长文！一定要坚持下去，胜利属于我们！' + 'a'.repeat(80),
         hearts: 3,
+        imageUrl: 'https://example.com/sticker.png',
         createdAt: '2026-10-28T09:00:00.000Z',
       },
       {
@@ -412,8 +414,9 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     // 1. Container max-h-[55vh]
     expect(html).toContain('max-h-[55vh]');
 
-    // 2. Long text folding: long note gets line-clamp-3 and '展开全文' button
+    // 2. Long text folding & break-words: long note gets line-clamp-3, break-words and '展开全文' button
     expect(html).toContain('line-clamp-3');
+    expect(html).toContain('break-words');
     expect(html).toContain('展开全文');
 
     // 3. Pagination: since 7 > PAGE_SIZE 5, renders '加载更早便签 (剩余 2 条)'

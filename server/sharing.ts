@@ -582,7 +582,13 @@ export function createCompanionNote(fromUserId: string, raw: unknown): Companion
   const generation = getCurrentGenerationId();
   const input = raw as Partial<CreateCompanionNoteInput> | null;
   const message = (input?.message ?? '').trim().slice(0, 1000);
-  const imageUrl = typeof input?.imageUrl === 'string' && input.imageUrl.length < 2_000_000 ? input.imageUrl : undefined;
+  const rawImageUrl = typeof input?.imageUrl === 'string' ? input.imageUrl.trim() : '';
+  if (rawImageUrl && rawImageUrl.length > 5_000_000) {
+    throw new SharingError(400, 'IMAGE_TOO_LARGE', '表情包或图片体积过大，请选择较小的图片');
+  }
+  const imageUrl = rawImageUrl && (rawImageUrl.startsWith('data:image/') || rawImageUrl.startsWith('http://') || rawImageUrl.startsWith('https://'))
+    ? rawImageUrl
+    : undefined;
   if (!message && !imageUrl) {
     throw new SharingError(400, 'INVALID_NOTE', '便签内容或表情包不能为空');
   }

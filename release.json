@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261108.07",
+  "webBuild": "20261108.08",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-08T07:48:00Z",
-  "summary": "修复移动端顶部研友状态胶囊与便签箱操作组排版重叠截断问题，支持自适应优雅折行；实现打气便签箱方案1（55vh定高容器限制、长文折叠展开/收起、分页加载更早便签）。"
+  "deployedAt": "2026-11-08T08:18:00Z",
+  "summary": "优化顶部研友状态栏自适应响应式布局与防重合保护，修复Tailwind样式缺失与便签长串溢出隐患；落实便签箱方案1（55vh定高、长文折叠展开、分页加载）。"
 }

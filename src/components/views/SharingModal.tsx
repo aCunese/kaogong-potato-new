@@ -540,7 +540,7 @@ function SharingSession({
                     size="sm"
                     variant="secondary"
                     className="px-2.5 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
-                    onClick={() => setNoteTarget({ id: selectedId, nickname: selectedNickname || '研友' })}
+                    onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '研友' })}
                   >
                     <MessageSquarePlus size={13} />
                     <span>贴便签</span>

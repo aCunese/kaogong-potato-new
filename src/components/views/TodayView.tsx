@@ -560,11 +560,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
       )}
 
       {/* 研友胶囊状态栏与便签箱/贴便签入口 */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-0.5 mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 px-0.5 mb-1">
         {partner ? (
           <div
             onClick={openSharing}
-            className="flex-1 min-w-[200px] sm:min-w-[240px] flex items-center justify-between gap-2 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer overflow-hidden shadow-2xs"
+            className="flex-1 min-w-[120px] sm:min-w-[160px] flex items-center justify-between gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer overflow-hidden shadow-2xs"
             title="点击进入学习伙伴查看学情"
           >
             <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
@@ -573,19 +573,19 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   ? 'bg-emerald-500 animate-pulse'
                   : 'bg-ink-muted/30'
               }`} />
-              <span className="text-xs font-bold text-ink-main truncate max-w-[80px] sm:max-w-[120px] shrink-0">
+              <span className="text-xs font-bold text-ink-main truncate max-w-[65px] xs:max-w-[80px] sm:max-w-[120px] shrink-0">
                 {getCompanionDisplayName(partner.id, partner.nickname)}
               </span>
               <span className="text-[11px] text-ink-muted truncate min-w-0 flex-1">
                 {partner.liveStatus?.state === 'focusing'
-                  ? `🟢 正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
+                  ? `正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
                   : '未在学习'}
               </span>
             </div>
 
             {partner.liveStatus?.state === 'focusing' ? (
               <span
-                className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs"
+                className="shrink-0 px-1.5 sm:px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
                 title="研友正在专注学习中，请勿打扰"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
@@ -599,7 +599,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   setPokeModalOpen(true);
                 }}
                 disabled={poking || pokeCooldown > 0}
-                className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50"
+                className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50 whitespace-nowrap"
                 title="向研友发送小猫催学信"
               >
                 <Zap size={11} className="fill-current text-potato" />
@@ -611,18 +611,18 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <button
             type="button"
             onClick={openSharing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition shadow-2xs whitespace-nowrap"
           >
             <span>👥</span>
             <span>添加学习伙伴</span>
           </button>
         )}
 
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto">
           <button
             type="button"
             onClick={() => setHistoryModalOpen(true)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-ink-main hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+            className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-ink-main hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95 whitespace-nowrap"
             title="打开便签箱 · 查看今日与往常所有便签"
           >
             <Archive size={13} className="text-sage" />
@@ -632,7 +632,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <button
             type="button"
             onClick={() => setEditModalOpen(true)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+            className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95 whitespace-nowrap"
             title="给研友写打气便签"
           >
             <span>💌</span>
@@ -642,7 +642,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <button
               type="button"
               onClick={restoreBanner}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] text-xs font-medium text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] text-xs font-medium text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95 whitespace-nowrap"
               aria-label="重新展开打气便签"
               title="重新展开置顶打气便签"
             >
