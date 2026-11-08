@@ -54,7 +54,7 @@ if os.path.exists(preview_txt_path):
 else:
     plain_text = f"""亲爱的 {recipient} 同学：
 
-📖 收到来自研友「阿土（研友）」的学习打卡提醒！
+📖 收到来自学友「阿土（学友）」的学习打卡提醒！
 “说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”
 
 01 [行测] 言语理解抓中心、资料分析速算公式背熟了吗？
@@ -64,10 +64,10 @@ else:
 
 👉 立即前往土豆考公工作台：https://work.ruyne.space
 
-💡 土豆人备考格言：“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的研友正默默和你并肩作战，快来汇合吧！”
+💡 土豆人备考格言：“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的学友正默默和你并肩作战，快来汇合吧！”
 
 ----------------------------------------
-此邮件由你的备考伙伴「阿土（研友）」在土豆考公工作台手动点击触发。
+此邮件由你的备考伙伴「阿土（学友）」在土豆考公工作台手动点击触发。
 土豆考公工作台 · 陪伴每一位脚踏实地的考公人
 """
 
@@ -78,7 +78,7 @@ else:
 #   │     └── text/html (referencing cid:xxx)
 #   └── inline images (cid:cat_poke.png, etc.)
 msg = MIMEMultipart('related')
-msg['Subject'] = Header('【土豆考公】你的研友「阿土（研友）」喊你回书桌前学习打卡啦 🥔', 'utf-8')
+msg['Subject'] = Header('【土豆考公】你的学友「阿土（学友）」喊你回书桌前学习打卡啦 🥔', 'utf-8')
 msg['From'] = formataddr((str(Header(from_name, 'utf-8')), smtp_from))
 msg['To'] = recipient
 msg['Reply-To'] = smtp_from

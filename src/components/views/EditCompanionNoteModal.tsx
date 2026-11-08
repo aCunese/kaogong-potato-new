@@ -322,7 +322,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
           </div>
           <span className="flex items-center gap-1 text-sage font-medium shrink-0">
             <Sparkles size={13} />
-            <span>研友专属打气</span>
+            <span>学友专属打气</span>
           </span>
         </div>
 

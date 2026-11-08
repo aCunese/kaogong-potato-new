@@ -6,7 +6,7 @@ const outputDir = path.resolve('output');
 fs.mkdirSync(outputDir, { recursive: true });
 
 const email = generatePokeEmailContent({
-  senderNickname: '阿土（研友）',
+  senderNickname: '阿土（学友）',
   recipientNickname: '下一站上岸',
   loginUrl: 'https://work.ruyne.space',
   useCid: true,

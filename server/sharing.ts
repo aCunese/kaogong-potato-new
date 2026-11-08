@@ -428,7 +428,7 @@ export async function pokeCompanion(
   // Enforce rule: forbidden to poke when target is focusing
   const targetStatus = computePartnerLiveStatus(db, targetUserId, senderId);
   if (targetStatus.state === 'focusing') {
-    throw new SharingError(400, 'PARTNER_FOCUSING', '研友正在专注学习中，请勿打扰~');
+    throw new SharingError(400, 'PARTNER_FOCUSING', '学友正在专注学习中，请勿打扰~');
   }
 
   const COOLDOWN_MS = 30 * 60 * 1000;
@@ -465,8 +465,8 @@ export async function pokeCompanion(
   const customMessage = options?.customMessage?.trim();
   const noteId = crypto.randomUUID();
   const noteMsg = customMessage
-    ? `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：“${customMessage}”🥔💨`
-    : `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
+    ? `⚡️ 叮咚！你的考公学友向你发来了一记催学提醒：“${customMessage}”🥔💨`
+    : `⚡️ 叮咚！你的考公学友向你发来了一记催学提醒：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
   db.prepare(`
     INSERT INTO companion_notes (id, from_user_id, to_user_id, grant_id, message, hearts, created_at)
     VALUES (?, ?, ?, ?, ?, 0, ?)

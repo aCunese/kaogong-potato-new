@@ -46,7 +46,7 @@ describe('Floating Companion Note Banner & Modals', () => {
     );
     // Absolute floating banner
     expect(html).toContain('role="banner"');
-    expect(html).toContain('aria-label="研友打气便签"');
+    expect(html).toContain('aria-label="学友打气便签"');
     expect(html).toContain('阿土同学');
     expect(html).toContain('打气便签');
     expect(html).toContain('今天行测刷满100题');
@@ -70,7 +70,7 @@ describe('Floating Companion Note Banner & Modals', () => {
       />
     );
     expect(html).not.toContain('role="banner"');
-    expect(html).not.toContain('aria-label="研友打气便签"');
+    expect(html).not.toContain('aria-label="学友打气便签"');
     expect(html).toContain('今日已累计学习');
   });
 
@@ -95,7 +95,7 @@ describe('Floating Companion Note Banner & Modals', () => {
       />
     );
 
-    expect(html).toContain('研友打气便签');
+    expect(html).toContain('学友打气便签');
     expect(html).toContain('阿土同学');
     expect(html).toContain('行测必须破75分！晚上互相抽背！');
     expect(html).toContain('src="data:image/png;base64,sampleSticker"');
@@ -138,7 +138,7 @@ describe('Floating Companion Note Banner & Modals', () => {
 
     // Sticky note writing entry on TodayView
     expect(html).toContain('写便签');
-    expect(html).toContain('给研友写打气便签');
+    expect(html).toContain('给学友写打气便签');
     // Partner entrance capsule
     expect(html).toContain('添加学习伙伴');
     // Ensure 65-min card is present and visible
@@ -183,7 +183,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
       />
     );
     expect(focusingHtml).toContain('专注中');
-    expect(focusingHtml).toContain('研友正在专注学习中，请勿打扰~');
+    expect(focusingHtml).toContain('学友正在专注学习中，请勿打扰~');
 
     const idleHtml = render(
       <CompanionNoteDetailModal
@@ -441,7 +441,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
         id: 'n-long-1',
         fromUserId: 'u2',
         fromNickname: '阿土',
-        message: '亲爱的研友，这是为你写的一段非常非常长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长的备考打气长文！一定要坚持下去，胜利属于我们！' + 'a'.repeat(80),
+        message: '亲爱的学友，这是为你写的一段非常非常长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长的备考打气长文！一定要坚持下去，胜利属于我们！' + 'a'.repeat(80),
         hearts: 3,
         imageUrl: 'https://example.com/sticker.png',
         createdAt: '2026-10-28T09:00:00.000Z',
@@ -519,7 +519,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
       <EditCompanionNoteModal
         isOpen
         onClose={() => {}}
-        defaultRecipientNickname="研友小豆"
+        defaultRecipientNickname="学友小豆"
         defaultRecipientId="p1"
       />
     );
@@ -541,7 +541,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
       <EditCompanionNoteModal
         isOpen
         onClose={() => {}}
-        defaultRecipientNickname="研友小豆"
+        defaultRecipientNickname="学友小豆"
         defaultRecipientId="p1"
       />
     );

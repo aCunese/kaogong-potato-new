@@ -45,7 +45,7 @@ app.disable('x-powered-by');
 // 细粒度 Body-Parser：防范 50MB 内存炸弹穿透打崩 512MB 容器内存
 app.use((req: Request, res: Response, next: NextFunction) => {
   // 仅工作区全量同步端点放行大体积 JSON (50MB，内部还有 12MiB 工作区字节上限)，
-  // 研友便签支持附带表情包与相册压缩图片（放行 10MB，内部单图上限 5MB）
+  // 学友便签支持附带表情包与相册压缩图片（放行 10MB，内部单图上限 5MB）
   // 其余端点（含 /api/workspace/init-choice）严格限制为 64KB
   const isWorkspaceSync = req.path === '/api/workspace';
   const isCompanionNote = req.path === '/api/sharing/notes' || req.path.startsWith('/api/sharing/notes');

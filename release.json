@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261108.10",
+  "webBuild": "20261108.11",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-08T09:20:00Z",
-  "summary": "完善研友实时学情呼吸灯双向脉冲动画与微弹层交互，支持点击弹层收起与平滑入场，修复草稿辅助查询与大图便签稳定发送。"
+  "deployedAt": "2026-11-08T09:35:00Z",
+  "summary": "统一全站学习伙伴称谓为「学友」（学友打气便签、学友实时学情、学友督学提醒信等）。"
 }

@@ -120,7 +120,7 @@ export const PokeCustomModal: React.FC<PokeCustomModalProps> = ({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-ink-main flex items-center gap-1">
-              <span>💌 研友来信正文</span>
+              <span>💌 学友来信正文</span>
               <span className="text-[10px] text-ink-muted font-normal">(支持编辑自定义)</span>
             </label>
             <span className="text-[10px] text-ink-muted font-mono">{message.length}/200</span>
@@ -131,7 +131,7 @@ export const PokeCustomModal: React.FC<PokeCustomModalProps> = ({
             onChange={e => setMessage(e.target.value.slice(0, 200))}
             rows={3}
             className="w-full rounded-xl border border-line bg-paper px-3 py-2 text-xs text-ink-main leading-relaxed focus:border-sage focus:outline-none focus:ring-1 focus:ring-sage resize-none"
-            placeholder="写下你想对研友说的督学话语…"
+            placeholder="写下你想对学友说的督学话语…"
             disabled={isSending}
           />
 

@@ -104,12 +104,12 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
     resolvedCheckItems = defaultCheckItems;
   }
 
-  const subject = `【土豆考公】你的研友「${senderClean}」提醒你回书桌前学习打卡啦 🥔`;
+  const subject = `【土豆考公】你的学友「${senderClean}」提醒你回书桌前学习打卡啦 🥔`;
 
   const textLines = [
     `亲爱的 ${recipientClean} 同学：`,
     '',
-    `📖 收到研友「${senderClean}」的学习打卡提醒！`,
+    `📖 收到学友「${senderClean}」的学习打卡提醒！`,
     `“${customMessage}”`,
     '',
     '今日自查 · BEFORE YOU START',
@@ -119,7 +119,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
     '',
     `👉 立即回桌前开始学习：${appUrl}`,
     '',
-    '💡 土豆人备考格言：“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的研友正默默和你并肩作战，快来汇合吧！”',
+    '💡 土豆人备考格言：“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的学友正默默和你并肩作战，快来汇合吧！”',
     '',
     '----------------------------------------',
     `此邮件由你的备考伙伴「${senderClean}」在土豆考公工作台手动点击「戳一下」触发。`,
@@ -156,7 +156,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
     <tr><td style="padding:26px 40px 0 40px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:11px;letter-spacing:3px;color:#77816b;font-weight:bold;">研友督学专线 · 学习打卡提醒</td>
+          <td style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:11px;letter-spacing:3px;color:#77816b;font-weight:bold;">学友督学专线 · 学习打卡提醒</td>
           <td align="right" style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:11px;letter-spacing:2px;color:#a39a83;">${escapeHtml(sendDate)}</td>
         </tr>
       </table>
@@ -164,7 +164,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #2e3a26;font-size:0;line-height:4px;">&nbsp;</td></tr></table>
     </td></tr>
 
-    <!-- 品牌行：左边印章+字，右边抬爪小猫——替研友“戳一下” -->
+    <!-- 品牌行：左边印章+字，右边抬爪小猫——替学友“戳一下” -->
     <tr><td style="padding:16px 40px 0 40px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td valign="middle">
@@ -187,12 +187,12 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
       亲爱的 <span style="border-bottom:2px solid #d8c98f;padding-bottom:1px;font-weight:bold;color:#2e3a26;">${recipientHtml}</span> 同学：
     </td></tr>
 
-    <!-- 研友来信：右上角猫爪印 -->
+    <!-- 学友来信：右上角猫爪印 -->
     <tr><td style="padding:18px 40px 0 40px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf7ec;border-left:4px solid #5c6e4e;border-radius:4px;">
         <tr>
           <td style="padding:20px 12px 20px 22px;">
-            <div style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:12px;letter-spacing:2px;color:#5c6e4e;font-weight:bold;">研友来信 — 来自「${senderHtml}」· 小猫代戳</div>
+            <div style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:12px;letter-spacing:2px;color:#5c6e4e;font-weight:bold;">学友来信 — 来自「${senderHtml}」· 小猫代戳</div>
             <div style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;font-weight:bold;color:#232b1e;margin-top:8px;">收到学习打卡提醒 📖</div>
             <div style="font-family:'Songti SC','SimSun',serif;font-size:15px;line-height:1.9;color:#4a4638;margin-top:8px;white-space:pre-wrap;">“${messageHtml}”</div>
           </td>
@@ -236,7 +236,7 @@ export function generatePokeEmailContent(params: PokeEmailParams): PokeEmailCont
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td valign="top" style="padding-top:16px;">
           <div style="font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:11px;letter-spacing:3px;color:#a39a83;font-weight:bold;">土豆人备考格言</div>
-          <div style="font-family:'Songti SC','SimSun',serif;font-size:14px;line-height:2;color:#6b6a5c;padding-top:8px;">“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的研友正默默和你并肩作战，快来汇合吧！”</div>
+          <div style="font-family:'Songti SC','SimSun',serif;font-size:14px;line-height:2;color:#6b6a5c;padding-top:8px;">“上岸的人不是最聪明的，而是每天最耐得住寂寞坐在桌前的那一个。你的学友正默默和你并肩作战，快来汇合吧！”</div>
         </td>
         <td width="186" valign="bottom" align="right" style="padding-top:10px;">
           <img src="${catSleepSrc}" width="178" alt="趴在书上睡着的小猫" style="display:block;border:0;max-width:178px;">

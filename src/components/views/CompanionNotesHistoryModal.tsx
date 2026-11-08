@@ -160,7 +160,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
               </p>
               <p className="text-xs text-ink-muted mt-1 leading-relaxed max-w-[260px] mx-auto">
                 {activeTab === 'today'
-                  ? '研友贴的打气便签会第一眼展现在这里，你也可以主动给研友贴一张！'
+                  ? '学友贴的打气便签会第一眼展现在这里，你也可以主动给学友贴一张！'
                   : '收到过的鼓励便签都会永久妥善保存在这里，见证共同奋斗的日夜。'}
               </p>
             </div>
@@ -187,7 +187,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-bold text-ink-main truncate">{displayName}</span>
                           <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E5ECD9] text-[#4F6344] font-semibold">
-                            研友打气
+                            学友打气
                           </span>
                         </div>
                         <div className="flex items-center gap-1 text-[10px] text-ink-muted mt-0.5">

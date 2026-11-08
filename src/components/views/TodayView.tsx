@@ -490,7 +490,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
       {!bannerDismissed && activeNote && (
         <div
           role="banner"
-          aria-label="研友打气便签"
+          aria-label="学友打气便签"
           className={`transition-all duration-300 ease-out select-none mb-2 ${
             isDismissing ? '-translate-y-4 opacity-0 max-h-0 pointer-events-none' : 'translate-y-0 opacity-100'
           }`}
@@ -520,7 +520,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   <span className="text-xs font-bold text-ink-main truncate">
                     {getCompanionDisplayName(
                       activeNote.fromUserId,
-                      activeNote.fromNickname || partner?.nickname || '研友',
+                      activeNote.fromNickname || partner?.nickname || '学友',
                       partner?.id
                     )}
                   </span>
@@ -571,15 +571,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       )}
 
-      {/* 研友学习状态指示与便签箱/贴便签入口 */}
+      {/* 学友学习状态指示与便签箱/贴便签入口 */}
       <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-0.5 mb-1">
         {partner ? (
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowStatusDetail(prev => !prev)}
-              aria-label={partner.liveStatus?.state === 'focusing' ? '研友学习中，点击查看详情' : '研友未学习，点击查看详情'}
-              title={partner.liveStatus?.state === 'focusing' ? '研友正在专注学习，点击查看学情' : '研友当前未在学习，点击查看状态'}
+              aria-label={partner.liveStatus?.state === 'focusing' ? '学友学习中，点击查看详情' : '学友未学习，点击查看详情'}
+              title={partner.liveStatus?.state === 'focusing' ? '学友正在专注学习，点击查看学情' : '学友当前未在学习，点击查看状态'}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl border text-xs font-bold transition active:scale-95 shadow-2xs whitespace-nowrap ${
                 partner.liveStatus?.state === 'focusing'
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/80'
@@ -606,7 +606,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 />
                 <div
                   role="region"
-                  aria-label="研友实时学情详情"
+                  aria-label="学友实时学情详情"
                   className="absolute left-0 top-full mt-1.5 z-40 w-[290px] sm:w-[320px] max-w-[calc(100vw-24px)] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-center justify-between gap-2 backdrop-blur-md animate-pop-in cursor-pointer select-none"
                   onClick={() => setShowStatusDetail(false)}
                   title="点击可收起"
@@ -625,7 +625,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   {partner.liveStatus?.state === 'focusing' ? (
                     <span
                       className="shrink-0 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
-                      title="研友正在专注学习中，请勿打扰"
+                      title="学友正在专注学习中，请勿打扰"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
                       <span>专注中</span>
@@ -640,7 +640,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       }}
                       disabled={poking || pokeCooldown > 0}
                       className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50 whitespace-nowrap"
-                      title="向研友发送小猫催学信"
+                      title="向学友发送小猫催学信"
                     >
                       <Zap size={11} className="fill-current text-potato" />
                       <span>{poking ? '发送中' : pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分` : '戳一下'}</span>
@@ -676,7 +676,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             type="button"
             onClick={() => setEditModalOpen(true)}
             className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95 whitespace-nowrap"
-            title="给研友写打气便签"
+            title="给学友写打气便签"
           >
             <span>💌</span>
             <span>写便签</span>
@@ -1038,7 +1038,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         defaultRecipientId={partner?.partnerId || (partner?.id?.startsWith('demo-') ? partner.id : activeNote?.fromUserId)}
         defaultGrantId={partner?.id || activeNote?.grantId}
         onNoteSent={note => {
-          onToast?.(`已成功为 ${partner?.nickname || activeNote?.fromNickname || '研友'} 贴上打气便签！💌`);
+          onToast?.(`已成功为 ${partner?.nickname || activeNote?.fromNickname || '学友'} 贴上打气便签！💌`);
         }}
         onToast={onToast}
       />

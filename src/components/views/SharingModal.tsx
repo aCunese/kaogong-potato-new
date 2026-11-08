@@ -540,7 +540,7 @@ function SharingSession({
                     size="sm"
                     variant="secondary"
                     className="px-2.5 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
-                    onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '研友' })}
+                    onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '学友' })}
                   >
                     <MessageSquarePlus size={13} />
                     <span>贴便签</span>
@@ -552,7 +552,7 @@ function SharingSession({
                         variant="ghost"
                         disabled
                         className="px-2.5 py-1 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center gap-1"
-                        title="研友正在专注学习中，请勿打扰~"
+                        title="学友正在专注学习中，请勿打扰~"
                       >
                         <Zap size={13} />
                         <span>专注中</span>
@@ -564,7 +564,7 @@ function SharingSession({
                         className="font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white"
                         disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
                         onClick={() => handlePoke(selectedGrant)}
-                        title="向研友发送小猫催学信"
+                        title="向学友发送小猫催学信"
                       >
                         <Zap size={13} className="fill-current" />
                         <span>
@@ -678,7 +678,7 @@ function SharingSession({
                     </div>
 
                     <p className="text-[11px] leading-relaxed text-ink-muted">
-                      设定你的每日开学时刻。未在此时前开始学习，研友可随时点击「戳一戳」向你发送小猫催学信。
+                      设定你的每日开学时刻。未在此时前开始学习，学友可随时点击「戳一戳」向你发送小猫催学信。
                     </p>
 
                     {/* 时间快捷选项与自定义时间录入 */}
@@ -768,8 +768,8 @@ function SharingSession({
                       <div className="mt-2 pt-2 border-t border-sage/20 text-[11px] leading-5 text-ink-muted space-y-1 bg-paper/60 p-2.5 rounded-xl">
                         <p className="font-bold text-ink-main">💡 约定时间与戳一戳机制说明：</p>
                         <p>1. <strong className="text-ink-main">约定时间自由设置</strong>：可点选常用时段或点击「自定义时间」输入任意开学时间，云端自动保持同步。</p>
-                        <p>2. <strong className="text-ink-main">学习中禁止戳</strong>：当研友正在专注做题或计时打卡时，系统禁止戳一戳打扰，守护专注流。</p>
-                        <p>3. <strong className="text-ink-main">未在学习随时戳</strong>：研友没在学习时，你可根据情况随时点击「⚡️ 戳一戳」投递小猫督学信，可自定义邮件内容并选择快捷打气短句。</p>
+                        <p>2. <strong className="text-ink-main">学习中禁止戳</strong>：当学友正在专注做题或计时打卡时，系统禁止戳一戳打扰，守护专注流。</p>
+                        <p>3. <strong className="text-ink-main">未在学习随时戳</strong>：学友没在学习时，你可根据情况随时点击「⚡️ 戳一戳」投递小猫督学信，可自定义邮件内容并选择快捷打气短句。</p>
                         <p>4. <strong className="text-ink-main">防打扰机制</strong>：每次戳一戳后有 30 分钟冷却期，避免频繁打扰；对方一旦开始学习立即解除状态。</p>
                       </div>
                     )}
@@ -914,7 +914,7 @@ function SharingSession({
                                               setRemarkInput(getCompanionRemark(partnerKey, grant.id));
                                             }}
                                             className="text-ink-muted hover:text-sage text-[10px] flex items-center gap-0.5"
-                                            title="修改研友备注名"
+                                            title="修改学友备注名"
                                           >
                                             <Edit3 size={10} />
                                             <span>备注</span>
@@ -922,7 +922,7 @@ function SharingSession({
                                         </>
                                       )}
                                       <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage font-medium shrink-0">
-                                        研友
+                                        学友
                                       </span>
                                     </div>
 
@@ -978,7 +978,7 @@ function SharingSession({
                                     variant="ghost"
                                     disabled
                                     className="h-8 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center justify-center gap-1"
-                                    title="研友正在专注备考中，请勿打扰~"
+                                    title="学友正在专注备考中，请勿打扰~"
                                   >
                                     <Zap size={13} />
                                     <span>专注中</span>
@@ -990,7 +990,7 @@ function SharingSession({
                                     className="h-8 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center justify-center gap-1 shadow-2xs"
                                     disabled={busy || poking[grant.id] || (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0}
                                     onClick={() => handlePoke(grant)}
-                                    title="向研友发送小猫催学信"
+                                    title="向学友发送小猫催学信"
                                   >
                                     <Zap size={13} className="fill-current" />
                                     <span>

@@ -58,6 +58,6 @@ export function setCompanionRemark(partnerKey: string, remark: string, alternate
 
 export function getCompanionDisplayName(partnerKey: string, defaultNickname: string, alternateKey?: string): string {
   const remark = getCompanionRemark(partnerKey, alternateKey);
-  return remark || defaultNickname || '研友';
+  return remark || defaultNickname || '学友';
 }
 

@@ -358,7 +358,7 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
     await t.test('generatePokeEmailContent sanitizes malicious tags and CRLF headers', () => {
       const { subject, text, html } = generatePokeEmailContent({
         senderNickname: '黑客<script>alert(1)</script>\r\nBcc: evil@victim.com',
-        recipientNickname: '研友" onmouseover="alert(2)" <test@test.com>',
+        recipientNickname: '学友" onmouseover="alert(2)" <test@test.com>',
         loginUrl: 'javascript:alert(1)',
       });
 

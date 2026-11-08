@@ -56,7 +56,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
   const handleSaveRemark = () => {
     setCompanionRemark(note.fromUserId, remarkInput, note.grantId);
     setIsEditingRemark(false);
-    onToast?.(`已将研友备注名更新为「${remarkInput.trim() || note.fromNickname}」`);
+    onToast?.(`已将学友备注名更新为「${remarkInput.trim() || note.fromNickname}」`);
   };
 
   const handleSendHeart = async () => {
@@ -104,7 +104,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
   };
 
   return (
-    <Modal isOpen onClose={onClose} title="💌 研友打气便签">
+    <Modal isOpen onClose={onClose} title="💌 学友打气便签">
       <div className="space-y-4">
         {/* Cute Polaroid / Note Paper Container */}
         <div className="relative rounded-[22px] border border-[#DEE6D5] bg-[#FDFBF7] p-4 shadow-sm overflow-hidden">
@@ -151,7 +151,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
                     </>
                   )}
                   <span className="rounded-full bg-sage-light px-2 py-0.5 text-[10px] font-semibold text-sage">
-                    研友打气
+                    学友打气
                   </span>
                 </div>
                 <div className="text-[11px] text-ink-muted mt-0.5">
@@ -219,7 +219,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
               size="sm"
               disabled
               className="py-2 px-1 text-xs flex items-center justify-center gap-1 border border-line/60 bg-cream/40 opacity-60 text-ink-muted cursor-not-allowed"
-              title="研友正在专注学习中，请勿打扰~"
+              title="学友正在专注学习中，请勿打扰~"
             >
               <Zap size={14} className="text-ink-muted/50" />
               <span>专注中</span>
@@ -232,7 +232,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
               disabled={pokeCooldown > 0}
               onClick={handlePokeClick}
               className="py-2 px-1 text-xs flex items-center justify-center gap-1 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold transition disabled:opacity-50"
-              title="向研友发送小猫催学信"
+              title="向学友发送小猫催学信"
             >
               <Zap size={14} className="fill-current text-amber-600" />
               <span>{pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分后` : '戳一戳'}</span>
@@ -252,7 +252,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
           </Button>
         </div>
 
-        {/* 便签箱入口 & 研友学情与督学直达 */}
+        {/* 便签箱入口 & 学友学情与督学直达 */}
         <div className="space-y-2">
           {onOpenHistory && (
             <button
@@ -287,7 +287,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
         <div className="rounded-xl bg-sage-light/25 border border-sage/20 p-2.5 text-[11px] leading-relaxed text-ink-muted flex items-start gap-1.5">
           <Sparkles size={14} className="text-sage shrink-0 mt-0.5" />
           <span>
-            <strong>💡 陪伴与督学说明</strong>：打气便签每日打开 App 第一眼可见；研友未在学习时可「戳一戳」发送小猫催学信，正在专注学习时请勿打扰哦！
+            <strong>💡 陪伴与督学说明</strong>：打气便签每日打开 App 第一眼可见；学友未在学习时可「戳一戳」发送小猫催学信，正在专注学习时请勿打扰哦！
           </span>
         </div>
       </div>
