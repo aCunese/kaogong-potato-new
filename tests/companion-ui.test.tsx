@@ -10,6 +10,11 @@ import { SharingModal } from '../src/components/views/SharingModal';
 import { CompanionNotesHistoryModal } from '../src/components/views/CompanionNotesHistoryModal';
 import { PokeCustomModal } from '../src/components/views/PokeCustomModal';
 import type { CompanionNote } from '../src/types/companionNote';
+import {
+  saveCompanionNoteDraft,
+  loadCompanionNoteDraft,
+  clearCompanionNoteDraft,
+} from '../src/utils/companionNoteDraft';
 
 const render = (element: React.ReactElement, state: any = structuredClone(BLANK_STATE), currentUser: any = { id: 'u1', nickname: '我' }, csrfToken = 'test-token') =>
   renderToStaticMarkup(
@@ -331,8 +336,8 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(focusHtml).toContain('学习伙伴');
   });
 
-  it('renders TodayView top companion bar with responsive flex-wrap, truncated nickname, and ml-auto action buttons', () => {
-    const samplePartner: SharedGrant = {
+  it('renders TodayView companion live status on left with breathing light (green for 学习中, yellow for 未学习) and shows screenshot 3 detail on click', () => {
+    const focusingPartner: SharedGrant = {
       id: 'demo-atu',
       nickname: '阿土同学超长测试昵称',
       avatar: 'pose-1',
@@ -345,33 +350,85 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
       },
     };
 
-    const html = render(
+    // 1. Focusing state: compact green breathing light labeled "学习中"
+    const focusingHtml = render(
       <TodayView
         onOpenAddPlan={() => {}}
         onOpenFocus={() => {}}
         onOpenComplete={() => {}}
         onOpenCountdownEdit={() => {}}
         onAddCountdown={() => {}}
-        initialPartner={samplePartner}
+        initialPartner={focusingPartner}
       />
     );
 
-    // Responsive container with flex-wrap and gap
-    expect(html).toContain('flex flex-wrap items-center justify-between');
-    // Partner capsule has adaptive min-w boundary to prevent excessive compression on mobile
-    expect(html).toContain('min-w-[120px]');
-    // Nickname has max-w and truncate
-    expect(html).toContain('truncate max-w-[65px]');
-    // Live status text has truncate and min-w-0
-    expect(html).toContain('truncate min-w-0 flex-1');
-    // Solid emerald badge for focusing state prevents text bleed-through and has whitespace-nowrap
-    expect(html).toContain('bg-emerald-50 text-emerald-700');
-    expect(html).toContain('专注中');
-    expect(html).toContain('whitespace-nowrap');
-    // Action buttons group has ml-auto for elegant alignment
-    expect(html).toContain('ml-auto');
-    expect(html).toContain('便签箱');
-    expect(html).toContain('写便签');
+    // Left indicator has green breathing light and "学习中" label
+    expect(focusingHtml).toContain('学习中');
+    expect(focusingHtml).toContain('bg-emerald-50 text-emerald-800');
+    expect(focusingHtml).toContain('bg-emerald-500');
+    expect(focusingHtml).toContain('animate-ping');
+    // Action buttons group has ml-auto for elegant right alignment
+    expect(focusingHtml).toContain('ml-auto');
+    expect(focusingHtml).toContain('便签箱');
+    expect(focusingHtml).toContain('写便签');
+
+    // 2. Clicked into (showStatusDetail): displays Screenshot 3 content without jumping to friend space
+    const detailHtml = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+        initialPartner={focusingPartner}
+        initialShowStatusDetail={true}
+      />
+    );
+
+    expect(detailHtml).toContain('正在专注《粉笔行测真题 5000 题》45m');
+    expect(detailHtml).toContain('专注中');
+    expect(detailHtml).toContain('bg-emerald-50 text-emerald-700');
+
+    // 3. Not focusing state: yellow breathing light labeled "未学习"
+    const idlePartner: SharedGrant = {
+      id: 'demo-idle',
+      nickname: '小敏同学',
+      createdAt: new Date().toISOString(),
+      liveStatus: {
+        state: 'idle',
+        canPoke: true,
+      },
+    };
+
+    const idleHtml = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+        initialPartner={idlePartner}
+      />
+    );
+
+    expect(idleHtml).toContain('未学习');
+    expect(idleHtml).toContain('bg-amber-50 text-amber-800');
+    expect(idleHtml).toContain('bg-amber-500');
+
+    // Idle detail shows partner not studying + poke action
+    const idleDetailHtml = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+        initialPartner={idlePartner}
+        initialShowStatusDetail={true}
+      />
+    );
+    expect(idleDetailHtml).toContain('小敏同学 未在学习');
+    expect(idleDetailHtml).toContain('戳一下');
   });
 
   it('verifies CompanionNotesHistoryModal scheme 1: 55vh fixed height container, long text folding, break-words, and pagination', () => {
@@ -429,7 +486,61 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     // Note 6 is on next page, so it is NOT rendered in initial 5-item slice
     expect(html).not.toContain('便签6（第六条应分页）');
   });
+
+  it('saves and restores companion note draft, retaining unsent edits and clearing only on success', () => {
+    // 1. Initial state: no draft
+    clearCompanionNoteDraft('u1', 'p1');
+    expect(loadCompanionNoteDraft('u1', 'p1')).toBeNull();
+
+    // 2. User edits draft with text and sticker image
+    saveCompanionNoteDraft('u1', 'p1', undefined, {
+      message: '这是未发送成功的考公骚话！',
+      imageUrl: 'data:image/png;base64,test-sticker-data',
+      imageName: '🔥 刷题狂魔',
+    });
+
+    const draft = loadCompanionNoteDraft('u1', 'p1');
+    expect(draft).not.toBeNull();
+    expect(draft?.message).toBe('这是未发送成功的考公骚话！');
+    expect(draft?.imageUrl).toBe('data:image/png;base64,test-sticker-data');
+    expect(draft?.imageName).toBe('🔥 刷题狂魔');
+
+    // 3. EditCompanionNoteModal automatically restores draft when opened
+    const htmlWithDraft = render(
+      <EditCompanionNoteModal
+        isOpen
+        onClose={() => {}}
+        defaultRecipientNickname="研友小豆"
+        defaultRecipientId="p1"
+      />
+    );
+
+    expect(htmlWithDraft).toContain('已自动恢复未发送内容');
+    expect(htmlWithDraft).toContain('这是未发送成功的考公骚话！');
+    expect(htmlWithDraft).toContain('🔥 刷题狂魔');
+    expect(htmlWithDraft).toContain('data:image/png;base64,test-sticker-data');
+
+    // 4. Closing or canceling preserves the draft (not cleared)
+    expect(loadCompanionNoteDraft('u1', 'p1')).not.toBeNull();
+
+    // 5. Successful send triggers clearCompanionNoteDraft
+    clearCompanionNoteDraft('u1', 'p1');
+    expect(loadCompanionNoteDraft('u1', 'p1')).toBeNull();
+
+    // Next time opening: clean blank state without restored badge
+    const htmlClean = render(
+      <EditCompanionNoteModal
+        isOpen
+        onClose={() => {}}
+        defaultRecipientNickname="研友小豆"
+        defaultRecipientId="p1"
+      />
+    );
+    expect(htmlClean).not.toContain('已自动恢复未发送内容');
+    expect(htmlClean).not.toContain('这是未发送成功的考公骚话！');
+  });
 });
+
 
 
 

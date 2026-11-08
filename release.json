@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261108.08",
+  "webBuild": "20261108.09",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-08T08:18:00Z",
-  "summary": "优化顶部研友状态栏自适应响应式布局与防重合保护，修复Tailwind样式缺失与便签长串溢出隐患；落实便签箱方案1（55vh定高、长文折叠展开、分页加载）。"
+  "deployedAt": "2026-11-08T08:50:00Z",
+  "summary": "首页研友学习状态改为呼吸灯紧凑指示（学习中为绿灯，未学习为黄灯），点击仅弹窗展示正在专注详情不跳转空间；便签发送支持草稿自动保存与大图表情包稳定发送。"
 }

@@ -21,7 +21,12 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
   initSharingSchema(db);
 
   const app = express();
-  app.use(express.json());
+  app.use((req, res, next) => {
+    const isWorkspaceSync = req.path === '/api/workspace';
+    const isCompanionNote = req.path === '/api/sharing/notes' || req.path.startsWith('/api/sharing/notes');
+    const limit = isWorkspaceSync ? '50mb' : isCompanionNote ? '10mb' : '64kb';
+    express.json({ limit })(req, res, next);
+  });
   app.use(cookieParser());
   app.use(sharingRouter);
 
@@ -483,6 +488,62 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
         body: JSON.stringify({ targetStudyTime: 'invalid' }),
       });
       assert.equal(putBad.status, 400);
+    });
+
+    await t.test('API route POST /api/sharing/notes accepts companion note with large image (>100KB)', async () => {
+      const sender = createUser('拍照土豆');
+      const receiver = createUser('收信豆子');
+      const grantId = createGrant(receiver, sender);
+
+      // A 150KB base64 JPEG payload (which definitely exceeds the default 64KB body parser limit)
+      const largeBase64Image = 'data:image/jpeg;base64,' + 'B'.repeat(150_000);
+
+      const res = await fetch(`${base}/api/sharing/notes`, {
+        method: 'POST',
+        headers: sender.headers,
+        body: JSON.stringify({
+          toUserId: receiver.id,
+          grantId,
+          message: '复习累了吃点好吃的，给你发张高清真题图！',
+          imageUrl: largeBase64Image,
+        }),
+      });
+
+      assert.equal(res.status, 200);
+      const data = await res.json() as any;
+      assert.equal(data.ok, true);
+      assert.equal(data.note.imageUrl, largeBase64Image);
+      assert.equal(data.note.message, '复习累了吃点好吃的，给你发张高清真题图！');
+
+      // Reject image exceeding 5,000,000 chars
+      const oversizedImage = 'data:image/jpeg;base64,' + 'C'.repeat(5_000_100);
+      const resOversized = await fetch(`${base}/api/sharing/notes`, {
+        method: 'POST',
+        headers: sender.headers,
+        body: JSON.stringify({
+          toUserId: receiver.id,
+          grantId,
+          message: '超大图测试',
+          imageUrl: oversizedImage,
+        }),
+      });
+      assert.equal(resOversized.status, 400);
+      const errData = await resOversized.json() as any;
+      assert.equal(errData.code, 'IMAGE_TOO_LARGE');
+
+      // Empty message and empty imageUrl rejected
+      const resEmpty = await fetch(`${base}/api/sharing/notes`, {
+        method: 'POST',
+        headers: sender.headers,
+        body: JSON.stringify({
+          toUserId: receiver.id,
+          grantId,
+          message: '   ',
+        }),
+      });
+      assert.equal(resEmpty.status, 400);
+      const emptyErr = await resEmpty.json() as any;
+      assert.equal(emptyErr.code, 'INVALID_NOTE');
     });
 
   } finally {

@@ -34,6 +34,7 @@ interface TodayViewProps {
   onToast?: (msg: string) => void;
   initialCompanionNote?: CompanionNote | null;
   initialPartner?: SharedGrant | null;
+  initialShowStatusDetail?: boolean;
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({
@@ -51,6 +52,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onToast,
   initialCompanionNote,
   initialPartner,
+  initialShowStatusDetail = false,
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser, csrfToken } = useApp();
   const [, setTick] = useState(0);
@@ -143,6 +145,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [pokeModalOpen, setPokeModalOpen] = useState(false);
+  const [showStatusDetail, setShowStatusDetail] = useState(Boolean(initialShowStatusDetail));
+
+  useEffect(() => {
+    if (!showStatusDetail) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowStatusDetail(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showStatusDetail]);
 
   const [partner, setPartner] = useState<SharedGrant | null>(initialPartner ?? null);
   const [poking, setPoking] = useState(false);
@@ -559,59 +571,89 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       )}
 
-      {/* 研友胶囊状态栏与便签箱/贴便签入口 */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 px-0.5 mb-1">
+      {/* 研友学习状态指示与便签箱/贴便签入口 */}
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-0.5 mb-1">
         {partner ? (
-          <div
-            onClick={openSharing}
-            className="flex-1 min-w-[120px] sm:min-w-[160px] flex items-center justify-between gap-1.5 sm:gap-2 px-2.5 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer overflow-hidden shadow-2xs"
-            title="点击进入学习伙伴查看学情"
-          >
-            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowStatusDetail(prev => !prev)}
+              aria-label={partner.liveStatus?.state === 'focusing' ? '研友学习中，点击查看详情' : '研友未学习，点击查看详情'}
+              title={partner.liveStatus?.state === 'focusing' ? '研友正在专注学习，点击查看学情' : '研友当前未在学习，点击查看状态'}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl border text-xs font-bold transition active:scale-95 shadow-2xs whitespace-nowrap ${
                 partner.liveStatus?.state === 'focusing'
-                  ? 'bg-emerald-500 animate-pulse'
-                  : 'bg-ink-muted/30'
-              }`} />
-              <span className="text-xs font-bold text-ink-main truncate max-w-[65px] xs:max-w-[80px] sm:max-w-[120px] shrink-0">
-                {getCompanionDisplayName(partner.id, partner.nickname)}
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/80'
+                  : 'bg-amber-50 text-amber-800 border-amber-200/90 hover:bg-amber-100/80'
+              }`}
+            >
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  partner.liveStatus?.state === 'focusing' ? 'bg-emerald-400' : 'bg-amber-400'
+                }`} />
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                  partner.liveStatus?.state === 'focusing' ? 'bg-emerald-500' : 'bg-amber-500'
+                }`} />
               </span>
-              <span className="text-[11px] text-ink-muted truncate min-w-0 flex-1">
-                {partner.liveStatus?.state === 'focusing'
-                  ? `正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
-                  : '未在学习'}
-              </span>
-            </div>
+              <span>{partner.liveStatus?.state === 'focusing' ? '学习中' : '未学习'}</span>
+            </button>
 
-            {partner.liveStatus?.state === 'focusing' ? (
-              <span
-                className="shrink-0 px-1.5 sm:px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
-                title="研友正在专注学习中，请勿打扰"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                <span>专注中</span>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setPokeModalOpen(true);
-                }}
-                disabled={poking || pokeCooldown > 0}
-                className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50 whitespace-nowrap"
-                title="向研友发送小猫催学信"
-              >
-                <Zap size={11} className="fill-current text-potato" />
-                <span>{poking ? '发送中' : pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分` : '戳一下'}</span>
-              </button>
+            {showStatusDetail && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setShowStatusDetail(false)}
+                  aria-hidden="true"
+                />
+                <div
+                  role="region"
+                  aria-label="研友实时学情详情"
+                  className="absolute left-0 top-full mt-1.5 z-40 w-[290px] xs:w-[320px] max-w-[calc(100vw-24px)] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-center justify-between gap-2 backdrop-blur-md animate-in fade-in zoom-in-95"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${
+                      partner.liveStatus?.state === 'focusing' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'
+                    }`} />
+                    <span className="text-xs text-ink-main font-medium truncate">
+                      {partner.liveStatus?.state === 'focusing'
+                        ? `正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
+                        : `${getCompanionDisplayName(partner.id, partner.nickname)} 未在学习`}
+                    </span>
+                  </div>
+
+                  {partner.liveStatus?.state === 'focusing' ? (
+                    <span
+                      className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs whitespace-nowrap"
+                      title="研友正在专注学习中，请勿打扰"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                      <span>专注中</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowStatusDetail(false);
+                        setPokeModalOpen(true);
+                      }}
+                      disabled={poking || pokeCooldown > 0}
+                      className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                      title="向研友发送小猫催学信"
+                    >
+                      <Zap size={11} className="fill-current text-potato" />
+                      <span>{poking ? '发送中' : pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分` : '戳一下'}</span>
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
         ) : (
           <button
             type="button"
             onClick={openSharing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition shadow-2xs whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition shadow-2xs whitespace-nowrap shrink-0"
           >
             <span>👥</span>
             <span>添加学习伙伴</span>

@@ -1,8 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Modal, Button } from '../common/UIComponents';
 import { useApp } from '../../context/AppContext';
 import { Image as ImageIcon, X, Sparkles, Send, Upload, Heart } from 'lucide-react';
 import type { CompanionNote } from '../../types/companionNote';
+import {
+  loadCompanionNoteDraft,
+  saveCompanionNoteDraft,
+  clearCompanionNoteDraft,
+} from '../../utils/companionNoteDraft';
 
 export interface EditCompanionNoteModalProps {
   isOpen: boolean;
@@ -66,7 +71,10 @@ export async function compressImageToDataUrl(file: File): Promise<string> {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        let dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        if (dataUrl.length > 1_500_000) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+        }
         resolve(dataUrl);
       };
       img.src = reader.result as string;
@@ -85,14 +93,82 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
   onToast,
 }) => {
   const { currentUser, csrfToken } = useApp();
-  const [message, setMessage] = useState('');
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageName, setImageName] = useState<string>('');
+  const [hasDraftRestored, setHasDraftRestored] = useState(() => {
+    if (!isOpen) return false;
+    const draft = loadCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+    return Boolean(draft && (draft.message.trim() || draft.imageUrl));
+  });
+
+  const [message, setMessage] = useState(() => {
+    if (!isOpen) return '';
+    const draft = loadCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+    return draft?.message || '';
+  });
+  const [imageUrl, setImageUrl] = useState<string | null>(() => {
+    if (!isOpen) return null;
+    const draft = loadCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+    return draft?.imageUrl || null;
+  });
+  const [imageName, setImageName] = useState<string>(() => {
+    if (!isOpen) return '';
+    const draft = loadCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+    return draft?.imageName || '';
+  });
   const [isCompressing, setIsCompressing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevIsOpenRef = useRef(false);
+
+  // 监听模态框打开事件：若上次未成功发送且存在草稿，自动恢复用户上一次编辑的内容
+  useEffect(() => {
+    if (isOpen && !prevIsOpenRef.current) {
+      const draft = loadCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+      if (draft && (draft.message.trim() || draft.imageUrl)) {
+        setMessage(draft.message || '');
+        setImageUrl(draft.imageUrl || null);
+        setImageName(draft.imageName || '');
+        setHasDraftRestored(true);
+      } else {
+        setMessage('');
+        setImageUrl(null);
+        setImageName('');
+        setHasDraftRestored(false);
+      }
+    } else if (!isOpen && prevIsOpenRef.current) {
+      setHasDraftRestored(false);
+    }
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, currentUser?.id, defaultRecipientId, defaultGrantId]);
 
   if (!isOpen) return null;
+
+  const handleMessageChange = (val: string) => {
+    setMessage(val);
+    saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+      message: val,
+      imageUrl,
+      imageName,
+    });
+  };
+
+  const handlePickPhrase = (phrase: string) => {
+    setMessage(phrase);
+    saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+      message: phrase,
+      imageUrl,
+      imageName,
+    });
+  };
+
+  const handleRemoveImage = () => {
+    setImageUrl(null);
+    setImageName('');
+    saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+      message,
+      imageUrl: null,
+      imageName: '',
+    });
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -103,11 +179,21 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
       return;
     }
 
+    if (file.size > 20 * 1024 * 1024) {
+      onToast?.('图片文件过大，请选择 20MB 以内的图片');
+      return;
+    }
+
     try {
       setIsCompressing(true);
       const compressed = await compressImageToDataUrl(file);
       setImageUrl(compressed);
       setImageName(file.name);
+      saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+        message,
+        imageUrl: compressed,
+        imageName: file.name,
+      });
     } catch {
       onToast?.('图片读取失败，请重试');
     } finally {
@@ -136,8 +222,14 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
       ctx.font = 'bold 20px sans-serif';
       ctx.fillStyle = '#4B6240';
       ctx.fillText(sticker.label.replace(/^.*? /, ''), 120, 175);
-      setImageUrl(canvas.toDataURL('image/png'));
+      const url = canvas.toDataURL('image/png');
+      setImageUrl(url);
       setImageName(sticker.label);
+      saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+        message,
+        imageUrl: url,
+        imageName: sticker.label,
+      });
     }
   };
 
@@ -189,10 +281,18 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
         };
       }
 
+      // 关键规则：只有发送成功了才会重置内容与草稿
+      clearCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
+      setMessage('');
+      setImageUrl(null);
+      setImageName('');
+      setHasDraftRestored(false);
+
       onToast?.(`已为 ${defaultRecipientNickname} 贴上打气便签！💌`);
       onNoteSent?.(createdNote);
       onClose();
     } catch (err: any) {
+      // 发送失败时绝对不重置编辑内容与草稿，避免用户丢失内容
       onToast?.(err.message || '发送便签失败，请检查网络');
     } finally {
       setSubmitting(false);
@@ -204,10 +304,17 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
       <div className="space-y-4">
         {/* Recipient Header */}
         <div className="flex items-center justify-between rounded-xl bg-cream/70 px-3.5 py-2.5 text-xs text-ink-muted">
-          <span>
-            发送给：<strong className="text-ink-main text-sm">{defaultRecipientNickname}</strong>
-          </span>
-          <span className="flex items-center gap-1 text-sage font-medium">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="truncate">
+              发送给：<strong className="text-ink-main text-sm">{defaultRecipientNickname}</strong>
+            </span>
+            {hasDraftRestored && (
+              <span className="text-[10px] text-sage bg-sage-light border border-sage/30 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                已自动恢复未发送内容
+              </span>
+            )}
+          </div>
+          <span className="flex items-center gap-1 text-sage font-medium shrink-0">
             <Sparkles size={13} />
             <span>研友专属打气</span>
           </span>
@@ -223,7 +330,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
             rows={3}
             maxLength={500}
             value={message}
-            onChange={e => setMessage(e.target.value)}
+            onChange={e => handleMessageChange(e.target.value)}
             placeholder="写下你想对TA说的鼓励、打气或互相监督的话吧…"
             className="w-full rounded-2xl border border-line bg-paper px-3.5 py-2.5 text-sm text-ink-main placeholder:text-ink-muted/60 focus:border-sage focus:outline-none transition-colors"
           />
@@ -241,7 +348,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
               <button
                 key={idx}
                 type="button"
-                onClick={() => setMessage(phrase)}
+                onClick={() => handlePickPhrase(phrase)}
                 className="rounded-xl border border-line/60 bg-white/70 px-2.5 py-1 text-left text-xs text-ink-main hover:border-sage hover:bg-sage-light transition-colors"
               >
                 {phrase}
@@ -280,10 +387,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
                 <p className="text-[11px] text-sage mt-1">已就绪，便签中将大图展示</p>
                 <button
                   type="button"
-                  onClick={() => {
-                    setImageUrl(null);
-                    setImageName('');
-                  }}
+                  onClick={handleRemoveImage}
                   className="mt-1.5 text-xs text-alarm hover:underline flex items-center gap-0.5"
                 >
                   <X size={12} />
@@ -332,7 +436,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
             type="button"
             variant="primary"
             onClick={handleSend}
-            disabled={submitting || (!message.trim() && !imageUrl)}
+            disabled={submitting || isCompressing || (!message.trim() && !imageUrl)}
             className="flex items-center gap-1.5 px-5"
           >
             <Send size={14} />
