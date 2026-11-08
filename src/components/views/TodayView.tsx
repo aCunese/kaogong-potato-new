@@ -6,13 +6,16 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { StudyRecordItem } from '../common/StudyRecordItem';
 import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
-import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList, ChevronUp, Zap } from 'lucide-react';
+import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList, ChevronUp, Zap, Archive } from 'lucide-react';
 import { Plan, StudyRecord, MutationResult, TimerMode, getSubjectLabel } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
 import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs, getStudyRecordName, studyDateLabel } from '../../utils/workflowPresentation';
 import { CompanionNoteDetailModal } from './CompanionNoteDetailModal';
 import { EditCompanionNoteModal } from './EditCompanionNoteModal';
 import { SharingModal } from './SharingModal';
+import { PokeCustomModal } from './PokeCustomModal';
+import { CompanionNotesHistoryModal } from './CompanionNotesHistoryModal';
+import { getCompanionDisplayName } from '../../utils/companionRemarks';
 import type { CompanionNote } from '../../types/companionNote';
 import type { SharedGrant } from '../../types/sharing';
 
@@ -82,8 +85,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const DEFAULT_NOTE: CompanionNote = {
     id: 'default-note',
-    fromUserId: 'atu',
+    fromUserId: 'demo-atu',
     fromNickname: '阿土同学',
+    fromAvatar: 'pose-1',
     message: '今天行测刷满100题，谁先放弃谁是小狗🐶！晚上对答案，一起冲上岸！🥔✨',
     imageUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="32" fill="%23EBF1E6"/><circle cx="100" cy="90" r="50" fill="%23DFE9D7"/><text x="100" y="98" font-size="52" text-anchor="middle" dominant-baseline="middle">🥔</text><rect x="40" y="145" width="120" height="28" rx="14" fill="%234B6240"/><text x="100" y="163" font-size="13" font-weight="bold" fill="%23FFFFFF" text-anchor="middle" dominant-baseline="middle">一起上岸必胜</text></svg>',
     hearts: 3,
@@ -92,21 +96,51 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const userStorageKey = currentUser?.id ? `kaogong_active_note_${currentUser.id}` : 'kaogong_active_note';
 
-  const [activeNote, setActiveNote] = useState<CompanionNote | null>(() => {
+  const getDismissedKey = (noteId: string) => `kaogong_dismissed_note_${currentUser?.id || 'guest'}_${noteId}`;
+  const isNoteDismissed = (noteId: string) => {
+    try {
+      if (typeof window === 'undefined') return false;
+      const uid = currentUser?.id;
+      if (uid && localStorage.getItem(`kaogong_dismissed_note_${uid}_${noteId}`) === 'true') return true;
+      if (localStorage.getItem(`kaogong_dismissed_note_guest_${noteId}`) === 'true') return true;
+      if (localStorage.getItem(`kaogong_dismissed_note_${noteId}`) === 'true') return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const getInitialActiveNote = (): CompanionNote | null => {
     if (initialCompanionNote !== undefined) return initialCompanionNote;
     try {
       const cached = typeof window !== 'undefined' ? localStorage.getItem(userStorageKey) : null;
       if (cached) return JSON.parse(cached);
     } catch {}
     return DEFAULT_NOTE;
+  };
+
+  const [activeNote, setActiveNote] = useState<CompanionNote | null>(getInitialActiveNote);
+  const [allNotes, setAllNotes] = useState<CompanionNote[]>(() => [DEFAULT_NOTE]);
+
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
+    const note = getInitialActiveNote();
+    return note ? isNoteDismissed(note.id) : false;
   });
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [, setRemarkTick] = useState(0);
+
+  useEffect(() => {
+    const handleRemarkChange = () => setRemarkTick(t => t + 1);
+    window.addEventListener('companion_remark_changed', handleRemarkChange);
+    return () => window.removeEventListener('companion_remark_changed', handleRemarkChange);
+  }, []);
   const [isDismissing, setIsDismissing] = useState(false);
   const [swipeOffsetY, setSwipeOffsetY] = useState(0);
   const touchStartY = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [pokeModalOpen, setPokeModalOpen] = useState(false);
 
   const [partner, setPartner] = useState<SharedGrant | null>(null);
   const [poking, setPoking] = useState(false);
@@ -141,6 +175,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             setPartner({
               id: 'demo-atu',
               nickname: '阿土同学',
+              avatar: 'pose-1',
               createdAt: new Date().toISOString(),
               liveStatus: {
                 state: 'focusing',
@@ -158,15 +193,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
     }
   }, [currentUser]);
 
-  const handleTodayPoke = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCustomPokeSend = async (data: { customMessage: string; checkItems: string[] }) => {
     if (!partner || poking || pokeCooldown > 0) return;
     setPoking(true);
     try {
       if (partner.id.startsWith('demo-')) {
         await new Promise(r => setTimeout(r, 400));
         setPokeCooldown(1800);
-        onToast?.(`⚡️ 已向「${partner.nickname}」发送催学提醒邮件！`);
+        onToast?.(`⚡️ 已向「${getCompanionDisplayName(partner.id, partner.nickname)}」发送小猫催学信！`);
+        setPokeModalOpen(false);
         return;
       }
       const res = await fetch('/api/sharing/nudge', {
@@ -175,12 +210,17 @@ export const TodayView: React.FC<TodayViewProps> = ({
           'Content-Type': 'application/json',
           ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
         },
-        body: JSON.stringify({ grantId: partner.id }),
+        body: JSON.stringify({
+          grantId: partner.id,
+          customMessage: data.customMessage,
+          checkItems: data.checkItems,
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || '催学提醒发送失败');
-      setPokeCooldown(data.cooldownSeconds || 1800);
-      onToast?.(data.message || `⚡️ 已向「${partner.nickname}」发送催学邮件！`);
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.message || '催学提醒发送失败');
+      setPokeCooldown(resData.cooldownSeconds || 1800);
+      onToast?.(resData.message || `⚡️ 已向「${getCompanionDisplayName(partner.id, partner.nickname)}」发送小猫催学信！`);
+      setPokeModalOpen(false);
     } catch (err: any) {
       onToast?.(err.message || '催学提醒发送失败');
     } finally {
@@ -189,24 +229,53 @@ export const TodayView: React.FC<TodayViewProps> = ({
   };
 
   useEffect(() => {
+    if (activeNote) {
+      setBannerDismissed(isNoteDismissed(activeNote.id));
+    }
+  }, [activeNote?.id, currentUser?.id]);
+
+  useEffect(() => {
     if (currentUser) {
       fetch('/api/sharing/notes')
         .then(res => res.ok ? res.json() : null)
         .then(data => {
-          if (Array.isArray(data?.notes)) {
-            const incoming = data.notes.find((n: CompanionNote) => n.fromUserId !== currentUser.id) || (data.notes.length > 0 ? data.notes[0] : null);
+          if (Array.isArray(data?.notes) && data.notes.length > 0) {
+            setAllNotes(data.notes);
+            const incoming = data.notes.find((n: CompanionNote) => n.fromUserId !== currentUser.id);
             if (incoming) {
               setActiveNote(incoming);
+              setBannerDismissed(isNoteDismissed(incoming.id));
               try { localStorage.setItem(userStorageKey, JSON.stringify(incoming)); } catch {}
             } else {
-              setActiveNote(null);
-              try { localStorage.removeItem(userStorageKey); } catch {}
+              const cached = typeof window !== 'undefined' ? localStorage.getItem(userStorageKey) : null;
+              if (cached) {
+                try {
+                  const parsed = JSON.parse(cached);
+                  if (parsed && parsed.fromUserId !== currentUser.id) {
+                    setActiveNote(parsed);
+                    setBannerDismissed(isNoteDismissed(parsed.id));
+                  } else {
+                    setActiveNote(null);
+                    localStorage.removeItem(userStorageKey);
+                  }
+                } catch {
+                  setActiveNote(null);
+                }
+              } else {
+                setActiveNote(null);
+              }
             }
+          } else {
+            setAllNotes([DEFAULT_NOTE]);
+            setActiveNote(null);
+            try { localStorage.removeItem(userStorageKey); } catch {}
           }
         })
         .catch(() => {});
     } else {
-      setActiveNote(null);
+      setAllNotes([DEFAULT_NOTE]);
+      setActiveNote(DEFAULT_NOTE);
+      setBannerDismissed(isNoteDismissed(DEFAULT_NOTE.id));
     }
   }, [currentUser, userStorageKey]);
 
@@ -225,11 +294,71 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const dismissBanner = () => {
     setIsDismissing(true);
+    if (activeNote) {
+      try {
+        const uid = currentUser?.id;
+        if (uid) {
+          localStorage.setItem(`kaogong_dismissed_note_${uid}_${activeNote.id}`, 'true');
+        }
+        localStorage.setItem(`kaogong_dismissed_note_guest_${activeNote.id}`, 'true');
+        localStorage.setItem(`kaogong_dismissed_note_${activeNote.id}`, 'true');
+      } catch {}
+    }
     setTimeout(() => {
       setBannerDismissed(true);
       setIsDismissing(false);
       setSwipeOffsetY(0);
     }, 250);
+  };
+
+  const restoreBanner = () => {
+    setBannerDismissed(false);
+    if (activeNote) {
+      try {
+        const uid = currentUser?.id;
+        if (uid) {
+          localStorage.removeItem(`kaogong_dismissed_note_${uid}_${activeNote.id}`);
+        }
+        localStorage.removeItem(`kaogong_dismissed_note_guest_${activeNote.id}`);
+        localStorage.removeItem(`kaogong_dismissed_note_${activeNote.id}`);
+      } catch {}
+    }
+  };
+
+  const handlePinNoteToTop = (note: CompanionNote) => {
+    setActiveNote(note);
+    try {
+      const uid = currentUser?.id;
+      if (uid) {
+        localStorage.removeItem(`kaogong_dismissed_note_${uid}_${note.id}`);
+      }
+      localStorage.removeItem(`kaogong_dismissed_note_guest_${note.id}`);
+      localStorage.removeItem(`kaogong_dismissed_note_${note.id}`);
+      localStorage.setItem(userStorageKey, JSON.stringify(note));
+    } catch {}
+    setBannerDismissed(false);
+    onToast?.('📌 已将此便签设为今日置顶展示！');
+  };
+
+  const handleSendHeartFromHistory = async (noteId: string) => {
+    try {
+      const res = await fetch(`/api/sharing/notes/${noteId}/heart`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+        },
+      });
+      if (res.ok) {
+        setAllNotes(prev => prev.map(n => n.id === noteId ? { ...n, hearts: (n.hearts || 0) + 1 } : n));
+        if (activeNote?.id === noteId) {
+          setActiveNote(prev => prev ? { ...prev, hearts: (prev.hearts || 0) + 1 } : null);
+        }
+        onToast?.('❤️ 已回赠爱心！');
+      }
+    } catch {
+      onToast?.('爱心发送失败，请稍后重试');
+    }
   };
 
   const handleTouchEnd = () => {
@@ -351,20 +480,25 @@ export const TodayView: React.FC<TodayViewProps> = ({
         >
           <div className="mx-0.5 bg-gradient-to-r from-[#FFFDF9] via-[#FAF7EE] to-[#F2F7EB] border border-[#DEE7D4] rounded-2xl p-2.5 shadow-md backdrop-blur-md flex items-center justify-between gap-2.5 cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]">
             <div className="flex items-center gap-2.5 min-w-0">
-              {activeNote.imageUrl ? (
-                <img
-                  src={activeNote.imageUrl}
-                  alt="表情包"
-                  className="w-10 h-10 rounded-xl object-contain bg-white border border-[#D5E1CB] shrink-0 p-0.5 shadow-2xs"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-xl bg-[#E8EFE2] text-[#4B6240] flex items-center justify-center shrink-0 text-xl shadow-2xs border border-[#D5E1CB]">
-                  🥔
-                </div>
-              )}
+              <Avatar
+                avatar={
+                  (partner && (partner.id === activeNote.fromUserId || !activeNote.fromUserId))
+                    ? (partner.avatar || activeNote.fromAvatar || 'pose-0')
+                    : (activeNote.fromAvatar || partner?.avatar || 'pose-0')
+                }
+                size={38}
+                className="shrink-0 rounded-full border border-[#D5E1CB] shadow-2xs"
+              />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-ink-main truncate">{activeNote.fromNickname}</span>
+                  <span className="text-xs font-bold text-ink-main truncate">
+                    {getCompanionDisplayName(
+                      partner && (partner.id === activeNote.fromUserId || !activeNote.fromUserId)
+                        ? partner.id
+                        : activeNote.fromUserId,
+                      activeNote.fromNickname || partner?.nickname || '研友'
+                    )}
+                  </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E5ECD9] text-[#4F6344] font-semibold shrink-0">
                     打气便签
                   </span>
@@ -373,6 +507,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   {activeNote.message || '给你贴了一张考公打气表情包！'}
                 </p>
               </div>
+              {activeNote.imageUrl && (
+                <img
+                  src={activeNote.imageUrl}
+                  alt="表情包"
+                  className="w-7 h-7 rounded-lg object-contain bg-white border border-[#D5E1CB] shrink-0 p-0.5 ml-1 hidden sm:block shadow-2xs"
+                />
+              )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button
@@ -405,7 +546,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       )}
 
-      {/* 研友胶囊状态栏与贴便签入口 */}
+      {/* 研友胶囊状态栏与便签箱/贴便签入口 */}
       <div className="flex items-center justify-between gap-2 px-0.5 mb-1">
         {partner ? (
           <div
@@ -421,7 +562,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   ? 'bg-amber-500'
                   : 'bg-sage'
               }`} />
-              <span className="text-xs font-bold text-ink-main shrink-0">{partner.nickname}</span>
+              <span className="text-xs font-bold text-ink-main shrink-0">
+                {getCompanionDisplayName(partner.id, partner.nickname)}
+              </span>
               <span className="text-[11px] text-ink-muted truncate">
                 {partner.liveStatus?.state === 'focusing'
                   ? `专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
@@ -433,15 +576,25 @@ export const TodayView: React.FC<TodayViewProps> = ({
               </span>
             </div>
 
-            {partner.liveStatus?.state === 'missed' && (
+            {partner.liveStatus?.state === 'focusing' ? (
+              <span
+                className="shrink-0 px-2 py-0.5 rounded-lg bg-cream/80 text-ink-muted/60 font-medium text-[10px] flex items-center gap-0.5 border border-line/50"
+                title="研友正在专注学习中，请勿打扰"
+              >
+                <span>专注中</span>
+              </span>
+            ) : (
               <button
                 type="button"
-                onClick={handleTodayPoke}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPokeModalOpen(true);
+                }}
                 disabled={poking || pokeCooldown > 0}
-                className="shrink-0 px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50"
-                title="戳一下提醒研友学习"
+                className="shrink-0 px-2 py-0.5 rounded-lg bg-sage hover:bg-sage-dark text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50"
+                title="向研友发送小猫催学信"
               >
-                <Zap size={11} className="fill-current" />
+                <Zap size={11} className="fill-current text-potato" />
                 <span>{poking ? '发送中' : pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分` : '戳一下'}</span>
               </button>
             )}
@@ -460,6 +613,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
+            onClick={() => setHistoryModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-ink-main hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+            title="打开便签箱 · 查看今日与往常所有便签"
+          >
+            <Archive size={13} className="text-sage" />
+            <span>便签箱</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setEditModalOpen(true)}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
             title="给研友写打气便签"
@@ -470,11 +633,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
           {bannerDismissed && activeNote && (
             <button
               type="button"
-              onClick={() => setBannerDismissed(false)}
+              onClick={restoreBanner}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] text-xs font-medium text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
               aria-label="重新展开打气便签"
+              title="重新展开置顶打气便签"
             >
-              <span>便签</span>
+              <span>展开便签</span>
               {activeNote.hearts > 0 && <span className="text-[#C04940] text-[10px]">❤️{activeNote.hearts}</span>}
             </button>
           )}
@@ -777,10 +941,45 @@ export const TodayView: React.FC<TodayViewProps> = ({
         isOpen={detailModalOpen}
         onClose={() => setDetailModalOpen(false)}
         note={activeNote}
+        partnerAvatar={partner?.avatar}
         onReply={() => setEditModalOpen(true)}
+        onPoke={() => {
+          setDetailModalOpen(false);
+          setPokeModalOpen(true);
+        }}
+        isPartnerFocusing={partner?.liveStatus?.state === 'focusing'}
+        pokeCooldown={pokeCooldown}
         onOpenSharing={openSharing}
+        onOpenHistory={() => setHistoryModalOpen(true)}
         onToast={onToast}
       />
+      <CompanionNotesHistoryModal
+        isOpen={historyModalOpen}
+        onClose={() => setHistoryModalOpen(false)}
+        notes={allNotes}
+        partnerAvatar={partner?.avatar}
+        todayStr={activeDate}
+        currentUserId={currentUser?.id}
+        onSendHeart={handleSendHeartFromHistory}
+        onReply={() => setEditModalOpen(true)}
+        onPinNoteToTop={handlePinNoteToTop}
+        onToast={onToast}
+      />
+      {partner && (
+        <PokeCustomModal
+          isOpen={pokeModalOpen}
+          onClose={() => setPokeModalOpen(false)}
+          partner={{
+            id: partner.id,
+            nickname: getCompanionDisplayName(partner.id, partner.nickname),
+            avatar: partner.avatar,
+          }}
+          onSend={handleCustomPokeSend}
+          isSending={poking}
+          cooldownSeconds={pokeCooldown}
+          onToast={onToast}
+        />
+      )}
       <EditCompanionNoteModal
         isOpen={editModalOpen}
         onClose={() => setEditModalOpen(false)}

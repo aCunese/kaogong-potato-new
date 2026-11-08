@@ -49,3 +49,8 @@ android/build/
 # Local tool scratch
 .playwright-mcp/
 .serena/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class

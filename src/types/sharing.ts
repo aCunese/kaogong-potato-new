@@ -26,6 +26,7 @@ export interface PartnerLiveStatus {
 export interface SharedGrant {
   id: string;
   nickname: string;
+  avatar?: string;
   createdAt: string;
   liveStatus?: PartnerLiveStatus;
 }

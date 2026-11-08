@@ -101,16 +101,28 @@ export default defineConfig({
     port: 5174,
     host: true,
     proxy: {
-      '/api': 'http://127.0.0.1:3000',
-      '/version.json': 'http://127.0.0.1:3000',
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
+      '/version.json': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
     },
   },
   preview: {
     port: 4174,
     host: true,
     proxy: {
-      '/api': 'http://127.0.0.1:3000',
-      '/version.json': 'http://127.0.0.1:3000',
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
+      '/version.json': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
     },
   },
 });

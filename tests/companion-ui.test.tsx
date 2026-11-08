@@ -7,6 +7,8 @@ import { TodayView } from '../src/components/views/TodayView';
 import { CompanionNoteDetailModal } from '../src/components/views/CompanionNoteDetailModal';
 import { EditCompanionNoteModal } from '../src/components/views/EditCompanionNoteModal';
 import { SharingModal } from '../src/components/views/SharingModal';
+import { CompanionNotesHistoryModal } from '../src/components/views/CompanionNotesHistoryModal';
+import { PokeCustomModal } from '../src/components/views/PokeCustomModal';
 import type { CompanionNote } from '../src/types/companionNote';
 
 const render = (element: React.ReactElement, state: any = structuredClone(BLANK_STATE), currentUser: any = { id: 'u1', nickname: '我' }, csrfToken = 'test-token') =>
@@ -149,10 +151,131 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
 
     expect(html).toContain('学习伙伴');
     expect(html).toContain('我的每日约定最晚开始学习时间');
-    expect(html).toContain('14:00 (下午起步 · 推荐)');
+    expect(html).toContain('14:00 下午 (推荐)');
     expect(html).toContain('规则说明');
     expect(html).toContain('伙伴列表');
     expect(html).toContain('正在读取伙伴列表…');
   });
+
+  it('disables poke button when partner is focusing in CompanionNoteDetailModal', () => {
+    const sampleNote: CompanionNote = {
+      id: 'n1',
+      fromUserId: 'u2',
+      fromNickname: '阿土',
+      fromAvatar: 'pose-1',
+      message: '加油！',
+      hearts: 1,
+      createdAt: new Date().toISOString(),
+    };
+
+    const focusingHtml = render(
+      <CompanionNoteDetailModal
+        isOpen
+        onClose={() => {}}
+        note={sampleNote}
+        onReply={() => {}}
+        isPartnerFocusing={true}
+      />
+    );
+    expect(focusingHtml).toContain('专注中');
+    expect(focusingHtml).toContain('研友正在专注学习中，请勿打扰~');
+
+    const idleHtml = render(
+      <CompanionNoteDetailModal
+        isOpen
+        onClose={() => {}}
+        note={sampleNote}
+        onReply={() => {}}
+        isPartnerFocusing={false}
+      />
+    );
+    expect(idleHtml).toContain('戳一戳');
+  });
+
+  it('renders CompanionNotesHistoryModal with today and past tabs, pin button, and heart reaction', () => {
+    const sampleNotes: CompanionNote[] = [
+      {
+        id: 'n-today',
+        fromUserId: 'u2',
+        fromNickname: '阿土',
+        fromAvatar: 'pose-1',
+        message: '今天行测真题冲80分！',
+        imageUrl: 'data:image/png;base64,todaySticker',
+        hearts: 2,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'n-past',
+        fromUserId: 'u2',
+        fromNickname: '阿土',
+        fromAvatar: 'pose-2',
+        message: '昨天复习辛苦了！',
+        hearts: 5,
+        createdAt: '2026-10-01T12:00:00.000Z',
+      },
+    ];
+
+    const html = render(
+      <CompanionNotesHistoryModal
+        isOpen
+        onClose={() => {}}
+        notes={sampleNotes}
+        currentUserId="u1"
+        onPinNoteToTop={() => {}}
+      />
+    );
+
+    expect(html).toContain('打气便签箱 · 往常与今日');
+    expect(html).toContain('今日便签');
+    expect(html).toContain('往常便签回忆');
+    expect(html).toContain('今天行测真题冲80分！');
+    expect(html).toContain('置顶展示');
+    expect(html).toContain('回赠爱心');
+  });
+
+  it('renders PokeCustomModal with customizable message, quick phrases, and checklist items', () => {
+    const html = render(
+      <PokeCustomModal
+        isOpen
+        onClose={() => {}}
+        partner={{ id: 'u2', nickname: '阿土', avatar: 'pose-1' }}
+        onSend={async () => {}}
+      />
+    );
+
+    expect(html).toContain('⚡️ 催学提醒信 · 小猫代戳');
+    expect(html).toContain('快捷打气短句');
+    expect(html).toContain('说好一起上岸，快回书桌前一起复习吧！');
+    expect(html).toContain('今日自查清单 (BEFORE YOU START)');
+    expect(html).toContain('行测：言语理解抓中心、资料分析速算公式背熟了吗？');
+    expect(html).toContain('申论：概括归纳要点找全、大作文思辨结构列出来了吗？');
+    expect(html).toContain('发送催学信');
+  });
+
+  it('renders TodayView with notes history box entry and friend avatar in banner', () => {
+    const html = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+      />
+    );
+
+    // Entry to history box
+    expect(html).toContain('便签箱');
+    expect(html).toContain('打开便签箱 · 查看今日与往常所有便签');
+  });
+
+  it('verifies custom companion remark overrides default nickname', () => {
+    const { getCompanionDisplayName, setCompanionRemark } = require('../src/utils/companionRemarks');
+    expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('默认阿土');
+    setCompanionRemark('u-custom', '考公战友小王');
+    expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('考公战友小王');
+    setCompanionRemark('u-custom', '');
+    expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('默认阿土');
+  });
 });
+
 

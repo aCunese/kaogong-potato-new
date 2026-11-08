@@ -58,7 +58,10 @@ sharingRouter.get('/api/sharing/grants/:id/overview', limited('overview', 120, 3
 }));
 sharingRouter.post('/api/sharing/nudge', limited('nudge', 30, 100), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await pokeCompanion(req.user!.id, String(req.body?.grantId));
+    const result = await pokeCompanion(req.user!.id, String(req.body?.grantId), {
+      customMessage: req.body?.customMessage,
+      checkItems: req.body?.checkItems,
+    });
     res.json(result);
   } catch (error) {
     if (error instanceof SharingError) res.status(error.status).json({ ok: false, code: error.code, message: error.message });

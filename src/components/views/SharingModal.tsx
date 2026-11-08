@@ -20,24 +20,37 @@ import {
   Users,
   X,
   Zap,
+  Edit3,
+  Check,
+  Archive,
+  Sliders,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { SUBJECTS } from '../../types';
 import { Button, Modal } from '../common/UIComponents';
+import { Avatar } from '../common/Avatar';
 import { EditCompanionNoteModal } from './EditCompanionNoteModal';
+import { PokeCustomModal } from './PokeCustomModal';
+import { CompanionNotesHistoryModal } from './CompanionNotesHistoryModal';
+import { getCompanionDisplayName, setCompanionRemark, getCompanionRemark } from '../../utils/companionRemarks';
+import type { CompanionNote } from '../../types/companionNote';
 import type {
   CreatedSharingCode,
   SharedGrant,
   SharedStudyOverview,
+  SharedStudyRecord,
   SharedStudyTotals,
   SharingCodeMetadata,
   SharingGrantsResponse,
 } from '../../types/sharing';
 
-interface SharingModalProps {
+export interface SharingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onToast?: (message: string) => void;
+  initialSelectedId?: string | null;
+  initialTab?: 'received' | 'owned';
+  initialPartnerTab?: 'daily' | 'library' | 'all';
 }
 
 class SharingRequestError extends Error {
@@ -59,6 +72,24 @@ function shiftDate(dateStr: string, days: number): string {
 
 function getDemoOverview(id: string, date: string): SharedStudyOverview {
   const isBean = id === 'demo-bean';
+  const yesterday = shiftDate(date, -1);
+  const twoDaysAgo = shiftDate(date, -2);
+  const threeDaysAgo = shiftDate(date, -3);
+
+  const dailyRecords: SharedStudyRecord[] = isBean ? [] : [
+    { date, type: 'book' as const, subject: '资料分析', sourceName: '决战行测5000题·资料分析', quantity: 50, minutes: 45, errors: 6 },
+    { date, type: 'course' as const, subject: '判断推理', sourceName: '行测高分系统班·判断推理', quantity: 2, minutes: 30, errors: 0 },
+  ];
+
+  const allRecords: SharedStudyRecord[] = isBean ? [
+    { date: yesterday, type: 'book' as const, subject: '言语理解', sourceName: '决战行测5000题·言语理解', quantity: 40, minutes: 35, errors: 4 },
+  ] : [
+    ...dailyRecords,
+    { date: yesterday, type: 'book' as const, subject: '言语理解', sourceName: '决战行测5000题·言语理解', quantity: 60, minutes: 50, errors: 5 },
+    { date: twoDaysAgo, type: 'course' as const, subject: '申论', sourceName: '申论范文与真题精讲', quantity: 1, minutes: 45, errors: 0 },
+    { date: threeDaysAgo, type: 'book' as const, subject: '常识判断', sourceName: '行测常识速记宝典', quantity: 80, minutes: 40, errors: 12 },
+  ];
+
   return {
     ownerNickname: isBean ? '小豆子' : '阿土同学',
     updatedAt: new Date().toISOString(),
@@ -71,31 +102,28 @@ function getDemoOverview(id: string, date: string): SharedStudyOverview {
       lessons: isBean ? 0 : 2,
     },
     allTimeTotals: {
-      minutes: 3620,
-      questions: 2850,
-      errors: 410,
-      accuracy: 85.6,
-      lessons: 48,
+      minutes: isBean ? 1240 : 3620,
+      questions: isBean ? 980 : 2850,
+      errors: isBean ? 160 : 410,
+      accuracy: isBean ? 83.7 : 85.6,
+      lessons: isBean ? 18 : 48,
     },
     books: [
-      { name: '决战行测5000题·资料分析', subject: '资料分析', total: 1000, done: 680, errors: 82, minutes: 1200 },
-      { name: '决战行测5000题·言语理解', subject: '言语理解', total: 1000, done: 540, errors: 76, minutes: 980 },
-      { name: '申论范文与真题精讲', subject: '申论', total: 50, done: 28, errors: 0, minutes: 850 },
+      { name: '决战行测5000题·资料分析', subject: '资料分析', total: 1000, done: isBean ? 320 : 680, errors: isBean ? 45 : 82, minutes: isBean ? 520 : 1200 },
+      { name: '决战行测5000题·言语理解', subject: '言语理解', total: 1000, done: isBean ? 280 : 540, errors: isBean ? 38 : 76, minutes: isBean ? 460 : 980 },
+      { name: '申论范文与真题精讲', subject: '申论', total: 50, done: isBean ? 12 : 28, errors: 0, minutes: isBean ? 320 : 850 },
     ],
     courses: [
-      { name: '行测高分系统班·判断推理', subject: '判断推理', total: 32, done: 24, errors: 0, minutes: 480 },
-      { name: '申论热点与大作文拔高', subject: '申论', total: 20, done: 12, errors: 0, minutes: 240 },
+      { name: '行测高分系统班·判断推理', subject: '判断推理', total: 32, done: isBean ? 12 : 24, errors: 0, minutes: isBean ? 240 : 480 },
+      { name: '申论热点与大作文拔高', subject: '申论', total: 20, done: isBean ? 6 : 12, errors: 0, minutes: isBean ? 120 : 240 },
     ],
     records: {
-      items: isBean ? [] : [
-        { date, type: 'book', subject: '资料分析', sourceName: '决战行测5000题·资料分析', quantity: 50, minutes: 45, errors: 6 },
-        { date, type: 'course', subject: '判断推理', sourceName: '行测高分系统班·判断推理', quantity: 2, minutes: 30, errors: 0 },
-      ],
+      items: allRecords,
       page: 1,
       pageSize: 30,
-      total: isBean ? 0 : 2,
+      total: allRecords.length,
     },
-    studyDates: [date, shiftDate(date, -1), shiftDate(date, -2)],
+    studyDates: isBean ? [yesterday] : [date, yesterday, twoDaysAgo, threeDaysAgo],
   };
 }
 
@@ -108,10 +136,25 @@ export const SharingModal: React.FC<SharingModalProps> = props => {
     </Modal>
   );
   // Replacing this child erases all fetched data and invalidates pending requests on an account change.
-  return <SharingSession key={`${currentUser.id}:${csrfToken}`} {...props} userId={currentUser.id} csrfToken={csrfToken} />;
+  return (
+    <SharingSession
+      key={`${currentUser.id}:${csrfToken}:${props.initialSelectedId || 'root'}`}
+      {...props}
+      userId={currentUser.id}
+      csrfToken={csrfToken}
+    />
+  );
 };
 
-function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalProps & { userId: string; csrfToken: string }) {
+function SharingSession({
+  onClose,
+  onToast,
+  userId,
+  csrfToken,
+  initialSelectedId = null,
+  initialTab = 'received',
+  initialPartnerTab = 'daily',
+}: SharingModalProps & { userId: string; csrfToken: string }) {
   const { activeDate } = useApp();
   const todayStr = activeDate || new Date().toISOString().slice(0, 10);
 
@@ -120,19 +163,27 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
   const [codes, setCodes] = useState<SharingCodeMetadata[]>([]);
   const [createdCode, setCreatedCode] = useState<CreatedSharingCode | null>(null);
   const [redeemCode, setRedeemCode] = useState('');
-  const [tab, setTab] = useState<'received' | 'owned'>('received');
+  const [tab, setTab] = useState<'received' | 'owned'>(initialTab);
   const [addingPartner, setAddingPartner] = useState(false);
   const [codesExpanded, setCodesExpanded] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [listLoading, setListLoading] = useState(true);
-  const [showDemoPartners, setShowDemoPartners] = useState(false);
+  const [showDemoPartners, setShowDemoPartners] = useState(true);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
 
   const [myTargetTime, setMyTargetTime] = useState<string>('14:00');
+  const [isCustomizingTime, setIsCustomizingTime] = useState(false);
+  const [customTimeInput, setCustomTimeInput] = useState('14:00');
   const [showScheduleGuide, setShowScheduleGuide] = useState(false);
   const [noteTarget, setNoteTarget] = useState<{ id?: string; nickname: string } | null>(null);
+
+  const [pokeModalTarget, setPokeModalTarget] = useState<SharedGrant | null>(null);
+  const [editingRemarkId, setEditingRemarkId] = useState<string | null>(null);
+  const [remarkInput, setRemarkInput] = useState('');
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [companionNotes, setCompanionNotes] = useState<CompanionNote[]>([]);
 
   useEffect(() => {
     fetch('/api/sharing/settings', {
@@ -140,13 +191,51 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data?.targetStudyTime) setMyTargetTime(data.targetStudyTime);
+        if (data?.targetStudyTime) {
+          setMyTargetTime(data.targetStudyTime);
+          setCustomTimeInput(data.targetStudyTime);
+        }
       })
       .catch(() => {});
   }, [userId]);
 
+  useEffect(() => {
+    if (isHistoryModalOpen) {
+      fetch('/api/sharing/notes', {
+        headers: { 'x-workspace-user': userId },
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.notes) setCompanionNotes(data.notes);
+        })
+        .catch(() => {});
+    }
+  }, [isHistoryModalOpen, userId]);
+
+  const [, setRemarkTick] = useState(0);
+  useEffect(() => {
+    const handleRemarkChange = () => setRemarkTick(t => t + 1);
+    window.addEventListener('companion_remark_changed', handleRemarkChange);
+    return () => window.removeEventListener('companion_remark_changed', handleRemarkChange);
+  }, []);
+
   const handleUpdateTargetTime = async (newTime: string) => {
-    setMyTargetTime(newTime);
+    let normalized = newTime.trim();
+    const parts = normalized.split(':');
+    if (parts.length === 2) {
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+        normalized = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
+    }
+    if (!/^\d{2}:\d{2}$/.test(normalized)) {
+      onToast?.('时间格式应为 HH:mm（如 14:00）');
+      return;
+    }
+    setMyTargetTime(normalized);
+    setCustomTimeInput(normalized);
+    setIsCustomizingTime(false);
     try {
       await fetch('/api/sharing/settings', {
         method: 'PUT',
@@ -155,9 +244,9 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
           'x-workspace-user': userId,
           'x-csrf-token': csrfToken,
         },
-        body: JSON.stringify({ targetStudyTime: newTime }),
+        body: JSON.stringify({ targetStudyTime: normalized }),
       });
-      onToast?.(`已将每日约定学习时间设置为 ${newTime}`);
+      onToast?.(`已将每日约定学习时间设置为 ${normalized}`);
     } catch {
       onToast?.('设置更新失败，请重试');
     }
@@ -178,17 +267,29 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
     return () => clearInterval(timer);
   }, [cooldowns]);
 
-  const handlePoke = async (grant: SharedGrant) => {
+  const handlePoke = (grant: SharedGrant) => {
     if (poking[grant.id]) return;
+    if (grant.liveStatus?.state === 'focusing') {
+      const displayName = getCompanionDisplayName(grant.id, grant.nickname);
+      onToast?.(`「${displayName}」正在专注学习中，无需催学~`);
+      return;
+    }
+    setPokeModalTarget(grant);
+  };
+
+  const handleSendCustomPoke = async (data: { customMessage: string; checkItems: string[] }) => {
+    if (!pokeModalTarget) return;
+    const grant = pokeModalTarget;
+    const displayName = getCompanionDisplayName(grant.id, grant.nickname);
     setPoking(prev => ({ ...prev, [grant.id]: true }));
     setError('');
 
     try {
       if (grant.id.startsWith('demo-')) {
-        // Demo simulation
         await new Promise(r => setTimeout(r, 600));
         setCooldowns(prev => ({ ...prev, [grant.id]: 1800 }));
-        onToast?.(`⚡️ 已向「${grant.nickname}」发送催学提醒邮件！`);
+        onToast?.(`⚡️ 已向「${displayName}」发送小猫催学提醒信！`);
+        setPokeModalTarget(null);
         return;
       }
 
@@ -197,17 +298,23 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
         headers: {
           'Content-Type': 'application/json',
           'x-csrf-token': csrfToken,
+          'x-workspace-user': userId,
         },
-        body: JSON.stringify({ grantId: grant.id }),
+        body: JSON.stringify({
+          grantId: grant.id,
+          customMessage: data.customMessage,
+          checkItems: data.checkItems,
+        }),
       });
 
-      const data = await res.json();
+      const resData = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || '催学提醒发送失败');
+        throw new Error(resData.message || '催学提醒发送失败');
       }
 
-      setCooldowns(prev => ({ ...prev, [grant.id]: data.cooldownSeconds || 1800 }));
-      onToast?.(data.message || `⚡️ 已向「${grant.nickname}」发送催学邮件！`);
+      setCooldowns(prev => ({ ...prev, [grant.id]: resData.cooldownSeconds || 1800 }));
+      onToast?.(resData.message || `⚡️ 已向「${displayName}」发送催学邮件！`);
+      setPokeModalTarget(null);
     } catch (err: any) {
       setError(err.message || '催学提醒发送失败');
       onToast?.(err.message || '催学提醒发送失败');
@@ -217,11 +324,11 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
   };
 
   // 学情查看状态
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [overview, setOverview] = useState<SharedStudyOverview | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
-  const [partnerTab, setPartnerTab] = useState<'daily' | 'library' | 'all'>('daily');
+  const [partnerTab, setPartnerTab] = useState<'daily' | 'library' | 'all'>(initialPartnerTab);
   const [showCalendar, setShowCalendar] = useState(false);
 
   const initialYear = Number(todayStr.slice(0, 4)) || new Date().getFullYear();
@@ -277,7 +384,7 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
       const result = await api<SharingGrantsResponse>('/grants');
       if (!alive.current || serial !== listRequest.current) return;
       setOwned(result.owned); setReceived(result.received); setCodes(result.codes);
-      if (selectedRef.current && !result.received.some(grant => grant.id === selectedRef.current)) {
+      if (selectedRef.current && !result.received.some(grant => grant.id === selectedRef.current) && !selectedRef.current.startsWith('demo-')) {
         setSelectedId(null); setOverview(null); setError('分享授权已失效，请向分享者重新获取授权');
       }
     } catch (cause) { if (serial === listRequest.current) showFailure(cause); }
@@ -307,7 +414,7 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
 
     const controller = new AbortController();
     const query = new URLSearchParams({ page: String(page), pageSize: '30' });
-    if (selectedDate) {
+    if (partnerTab === 'daily' && selectedDate) {
       query.set('from', selectedDate);
       query.set('to', selectedDate);
     }
@@ -318,7 +425,7 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
       .catch(cause => { if (serial === viewRequest.current) showFailure(cause); })
       .finally(() => { if (alive.current && serial === viewRequest.current) setViewLoading(false); });
     return () => { viewRequest.current += 1; controller.abort(); };
-  }, [selectedId, selectedDate, page, refresh]);
+  }, [selectedId, partnerTab === 'daily' ? selectedDate : null, partnerTab, page, refresh]);
 
   async function mutate(action: () => Promise<void>) {
     if (operationPending.current) return;
@@ -434,29 +541,36 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                     <span>贴便签</span>
                   </Button>
                   {selectedGrant && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className={`font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs ${
-                        selectedGrant.liveStatus?.state === 'missed'
-                          ? 'bg-amber-500 hover:bg-amber-600 border-amber-500 text-white'
-                          : 'bg-sage/20 border-sage/30 text-sage hover:bg-sage/30'
-                      }`}
-                      disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
-                      onClick={() => handlePoke(selectedGrant)}
-                      title="给对方发送催学邮件"
-                    >
-                      <Zap size={13} className="fill-current" />
-                      <span>
-                        {poking[selectedGrant.id]
-                          ? '发送中…'
-                          : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
-                          ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
-                          : selectedGrant.liveStatus?.state === 'missed'
-                          ? '⚡️ 戳一下'
-                          : '⚡️ 催学'}
-                      </span>
-                    </Button>
+                    selectedGrant.liveStatus?.state === 'focusing' ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled
+                        className="px-2.5 py-1 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center gap-1"
+                        title="研友正在专注学习中，请勿打扰~"
+                      >
+                        <Zap size={13} />
+                        <span>专注中</span>
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        className="font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white"
+                        disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
+                        onClick={() => handlePoke(selectedGrant)}
+                        title="向研友发送小猫催学信"
+                      >
+                        <Zap size={13} className="fill-current" />
+                        <span>
+                          {poking[selectedGrant.id]
+                            ? '发送中…'
+                            : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
+                            ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
+                            : '⚡️ 戳一下'}
+                        </span>
+                      </Button>
+                    )
                   )}
                 </div>
               </div>
@@ -545,47 +659,113 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                 <Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={refreshData} disabled={listLoading || busy} aria-label="刷新学习伙伴"><RefreshCw size={14} />刷新</Button>
               </div>
               {tab === 'received' ? (
-                <section id="learning-partners-received-panel" role="tabpanel" aria-labelledby="learning-partners-received-tab" className="space-y-5">
-                  {/* 我的每日约定最晚学习时间设置 & 规则指南 */}
-                  <div className="rounded-2xl border border-sage/25 bg-sage-light/20 p-3.5 space-y-2.5">
+                <section id="learning-partners-received-panel" role="tabpanel" aria-labelledby="learning-partners-received-tab" className="space-y-4">
+                  {/* 我的每日约定最晚学习时间设置（可自定义 & 界面规范化优化） */}
+                  <div className="rounded-2xl border border-sage/30 bg-gradient-to-br from-[#FAF7EE] via-[#FDFBF7] to-[#F1F6EC] p-3.5 space-y-2.5 shadow-2xs">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Clock size={15} className="text-sage shrink-0" />
                         <span className="text-xs font-bold text-ink-main">我的每日约定最晚开始学习时间</span>
                       </div>
-                      <select
-                        value={myTargetTime}
-                        onChange={e => handleUpdateTargetTime(e.target.value)}
-                        className="text-xs font-bold text-sage bg-paper border border-sage/30 rounded-lg px-2 py-1 outline-none cursor-pointer focus:ring-1 focus:ring-sage"
-                        title="设置我的约定学习时间"
-                      >
-                        <option value="09:00">09:00 (早起备考)</option>
-                        <option value="12:00">12:00 (中午打卡)</option>
-                        <option value="14:00">14:00 (下午起步 · 推荐)</option>
-                        <option value="18:00">18:00 (下班开学)</option>
-                        <option value="20:00">20:00 (晚间专注)</option>
-                        <option value="22:00">22:00 (深夜突击)</option>
-                      </select>
+                      <span className="px-2.5 py-0.5 rounded-full bg-sage text-white text-[11px] font-bold font-mono shadow-2xs shrink-0">
+                        约定：{myTargetTime}
+                      </span>
                     </div>
-                    <div className="flex items-center justify-between text-[11px] text-ink-muted">
-                      <span>超过此时间且今日进度为 0，伙伴将能看到并「戳一戳」提醒你</span>
-                      <button
-                        type="button"
-                        onClick={() => setShowScheduleGuide(v => !v)}
-                        className="text-sage hover:underline flex items-center gap-0.5 shrink-0 ml-1 font-medium"
-                      >
-                        <HelpCircle size={12} />
-                        <span>{showScheduleGuide ? '收起规则' : '规则说明'}</span>
-                      </button>
+
+                    <p className="text-[11px] leading-relaxed text-ink-muted">
+                      设定你的每日开学时刻。未在此时前开始学习，研友可随时点击「戳一戳」向你发送小猫催学信。
+                    </p>
+
+                    {/* 时间快捷选项与自定义时间录入 */}
+                    <div className="pt-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          { time: '08:30', label: '08:30 晨读' },
+                          { time: '10:00', label: '10:00 上午' },
+                          { time: '14:00', label: '14:00 下午 (推荐)' },
+                          { time: '19:30', label: '19:30 晚间' },
+                          { time: '21:00', label: '21:00 夜猫' },
+                        ].map(({ time, label }) => (
+                          <button
+                            key={time}
+                            type="button"
+                            onClick={() => handleUpdateTargetTime(time)}
+                            className={`px-2.5 py-1 text-xs rounded-xl font-bold transition active:scale-95 ${
+                              myTargetTime === time
+                                ? 'bg-sage text-white shadow-xs'
+                                : 'bg-paper text-ink-main border border-line hover:border-sage/50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+
+                        {!isCustomizingTime ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomTimeInput(myTargetTime);
+                              setIsCustomizingTime(true);
+                            }}
+                            className={`px-2.5 py-1 text-xs rounded-xl font-bold transition border border-dashed flex items-center gap-1 ${
+                              !['08:30', '10:00', '14:00', '19:30', '21:00'].includes(myTargetTime)
+                                ? 'bg-sage text-white border-sage shadow-xs'
+                                : 'bg-paper text-sage border-sage/40 hover:bg-cream'
+                            }`}
+                          >
+                            <Sliders size={12} />
+                            <span>
+                              {!['08:30', '10:00', '14:00', '19:30', '21:00'].includes(myTargetTime)
+                                ? `自定义 (${myTargetTime})`
+                                : '＋ 自定义时间'}
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-1.5 bg-paper border border-sage rounded-xl px-2 py-1 shadow-2xs">
+                            <input
+                              type="time"
+                              value={customTimeInput}
+                              onChange={e => setCustomTimeInput(e.target.value)}
+                              className="text-xs font-bold font-mono text-ink-main bg-transparent outline-none cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateTargetTime(customTimeInput)}
+                              className="text-[11px] font-bold text-white bg-sage px-2 py-0.5 rounded-lg hover:bg-sage-dark active:scale-95 transition"
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsCustomizingTime(false)}
+                              className="text-[11px] text-ink-muted hover:text-ink-main px-1"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-ink-muted pt-1">
+                        <span className="text-[10px]">支持自由输入任意时分，点击即时同步云端</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowScheduleGuide(v => !v)}
+                          className="text-sage hover:underline flex items-center gap-0.5 shrink-0 ml-1 font-medium"
+                        >
+                          <HelpCircle size={12} />
+                          <span>{showScheduleGuide ? '收起规则' : '规则说明'}</span>
+                        </button>
+                      </div>
                     </div>
 
                     {showScheduleGuide && (
                       <div className="mt-2 pt-2 border-t border-sage/20 text-[11px] leading-5 text-ink-muted space-y-1 bg-paper/60 p-2.5 rounded-xl">
                         <p className="font-bold text-ink-main">💡 约定时间与戳一戳机制说明：</p>
-                        <p>1. <strong className="text-ink-main">约定时间怎么定义</strong>：在上方选择你每天最晚打算开学的时间（默认 14:00）。系统每日自动同步该约定。</p>
-                        <p>2. <strong className="text-ink-main">怎么触发戳一戳</strong>：当天过了约定时间，如果你的学习时间仍为 0 分钟，伙伴端就会显示橙色「超时未学」状态，并激活「⚡️ 戳一下」按钮；伙伴点击后，将直接给你的提醒邮箱发送一封定制催学提醒邮件。</p>
-                        <p>3. <strong className="text-ink-main">防打扰机制</strong>：每次戳一戳后有 30 分钟冷却期，避免重复轰炸；一旦你开始今日学习或打卡，状态立即更新，解除催学。</p>
-                        <p>4. <strong className="text-ink-main">打气便签怎么写</strong>：在下方伙伴列表点击「💌 贴便签」，或点击伙伴卡片进入学情页贴便签，给研友送上每日鼓励！</p>
+                        <p>1. <strong className="text-ink-main">约定时间自由设置</strong>：可点选常用时段或点击「自定义时间」输入任意开学时间，云端自动保持同步。</p>
+                        <p>2. <strong className="text-ink-main">学习中禁止戳</strong>：当研友正在专注做题或计时打卡时，系统禁止戳一戳打扰，守护专注流。</p>
+                        <p>3. <strong className="text-ink-main">未在学习随时戳</strong>：研友没在学习时，你可根据情况随时点击「⚡️ 戳一戳」投递小猫督学信，可自定义邮件内容并选择快捷打气短句。</p>
+                        <p>4. <strong className="text-ink-main">防打扰机制</strong>：每次戳一戳后有 30 分钟冷却期，避免频繁打扰；对方一旦开始学习立即解除状态。</p>
                       </div>
                     )}
                   </div>
@@ -600,13 +780,31 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                         <Button type="submit" variant="primary" size="sm" disabled={busy || !redeemCode.trim()}>{busy ? '添加中…' : '确认添加'}</Button>
                       </div>
                     </form>
-                  ) : <Button variant="primary" fullWidth onClick={() => { setAddingPartner(true); setError(''); }} disabled={busy}><Plus size={16} />添加学习伙伴</Button>}
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button variant="primary" className="flex-1" onClick={() => { setAddingPartner(true); setError(''); }} disabled={busy}>
+                        <Plus size={16} />
+                        <span>添加学习伙伴</span>
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => setIsHistoryModalOpen(true)}
+                        className="shrink-0 text-sage border-[#DEE7D4] bg-paper hover:bg-cream flex items-center gap-1.5"
+                        title="打开便签箱查看往常鼓励"
+                      >
+                        <Archive size={15} />
+                        <span>便签回忆</span>
+                      </Button>
+                    </div>
+                  )}
+
                   <div aria-label="可查看的学习伙伴" className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-bold text-ink-main">
-                        伙伴列表
-                        <span className="ml-2 text-xs font-normal text-ink-muted">
-                          {listLoading ? '' : `${received.length > 0 ? received.length : showDemoPartners ? 2 : 0} 位`}
+                      <h4 className="text-sm font-bold text-ink-main flex items-center gap-1.5">
+                        <span>伙伴列表</span>
+                        <span className="text-xs font-normal text-ink-muted">
+                          {listLoading ? '' : `(${received.length > 0 ? received.length : showDemoPartners ? 2 : 0} 位)`}
                         </span>
                       </h4>
                     </div>
@@ -632,11 +830,12 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                         </Button>
                       </div>
                     ) : (
-                      <ul className="divide-y divide-line">
+                      <div className="space-y-3">
                         {(received.length > 0 ? received : [
                           {
                             id: 'demo-atu',
                             nickname: '阿土同学',
+                            avatar: 'pose-1',
                             createdAt: new Date().toISOString(),
                             liveStatus: {
                               state: 'focusing',
@@ -648,6 +847,7 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                           {
                             id: 'demo-bean',
                             nickname: '小豆子',
+                            avatar: 'pose-0',
                             createdAt: new Date().toISOString(),
                             liveStatus: {
                               state: 'missed',
@@ -658,96 +858,101 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                               hasEmailBinding: true,
                             },
                           },
-                        ] as SharedGrant[]).map(grant => (
-                          <li key={grant.id} className="py-3.5 space-y-2">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="break-words text-sm font-bold text-ink-main">{grant.nickname}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cream text-ink-muted border border-line/60">
-                                    已授权 · 只读
-                                  </span>
-                                </div>
+                        ] as SharedGrant[]).map(grant => {
+                          const partnerDisplayName = getCompanionDisplayName(grant.id, grant.nickname);
+                          const isFocusing = grant.liveStatus?.state === 'focusing';
 
-                                {/* 实时学情展示：正在专注 或 约定时间未打卡 */}
-                                {grant.liveStatus?.state === 'focusing' ? (
-                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-xl px-2.5 py-1 w-fit font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                                    <span>🟢 正在专注《{grant.liveStatus.focusTitle || '行测真题 5000 题'}》已学 {grant.liveStatus.focusMinutes ?? 34} 分钟</span>
+                          return (
+                            <div
+                              key={grant.id}
+                              className="rounded-2xl border border-line bg-paper p-3.5 space-y-3 shadow-2xs hover:shadow-xs transition"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <Avatar avatar={grant.avatar || 'pose-0'} size={44} className="shadow-2xs shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {editingRemarkId === grant.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <input
+                                            type="text"
+                                            value={remarkInput}
+                                            onChange={e => setRemarkInput(e.target.value)}
+                                            placeholder={grant.nickname}
+                                            maxLength={16}
+                                            className="w-24 px-1.5 py-0.5 text-xs border border-sage rounded bg-cream outline-none font-bold"
+                                            autoFocus
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setCompanionRemark(grant.id, remarkInput);
+                                              setEditingRemarkId(null);
+                                              onToast?.(`已将备注更新为「${remarkInput.trim() || grant.nickname}」`);
+                                            }}
+                                            className="p-1 text-sage hover:bg-sage-light rounded"
+                                            title="保存备注"
+                                          >
+                                            <Check size={12} />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <span className="break-words text-sm font-bold text-ink-main truncate max-w-[180px]">
+                                            {partnerDisplayName}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingRemarkId(grant.id);
+                                              setRemarkInput(getCompanionRemark(grant.id));
+                                            }}
+                                            className="text-ink-muted hover:text-sage text-[10px] flex items-center gap-0.5"
+                                            title="修改研友备注名"
+                                          >
+                                            <Edit3 size={10} />
+                                            <span>备注</span>
+                                          </button>
+                                        </>
+                                      )}
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage font-medium shrink-0">
+                                        研友
+                                      </span>
+                                    </div>
+
+                                    {/* 规范排版的状态胶囊 */}
+                                    <div className="mt-1">
+                                      {grant.liveStatus?.state === 'focusing' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2 py-0.5">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                          <span>🟢 专注《{grant.liveStatus.focusTitle || '备考'}》{grant.liveStatus.focusMinutes ?? 0}m</span>
+                                        </span>
+                                      ) : grant.liveStatus?.state === 'completed' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-sage bg-sage-light/40 border border-sage/20 rounded-lg px-2 py-0.5">
+                                          <span>👏 今日任务已打卡完成</span>
+                                        </span>
+                                      ) : grant.liveStatus?.state === 'missed' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-2 py-0.5">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                          <span>🟠 {grant.liveStatus.missedText || `约定 ${grant.liveStatus.scheduledTime || '14:00'} 未学`}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-muted bg-cream border border-line/80 rounded-lg px-2 py-0.5">
+                                          <Clock size={11} className="text-ink-muted" />
+                                          <span>约定 {grant.liveStatus?.scheduledTime || '14:00'} 学习 · 今日尚未开始</span>
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                ) : grant.liveStatus?.state === 'missed' ? (
-                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-xl px-2.5 py-1 w-fit font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-                                    <span>🟠 {grant.liveStatus.missedText || `约定 ${grant.liveStatus.scheduledTime || '14:00'} 学习，已超 ${grant.liveStatus.overdueHours || 2} 小时未学`}</span>
-                                  </div>
-                                ) : grant.liveStatus?.state === 'completed' ? (
-                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-sage bg-sage-light/40 border border-sage/20 rounded-xl px-2.5 py-0.5 w-fit font-medium">
-                                    <span>👏 今日任务已打卡完成</span>
-                                  </div>
-                                ) : (
-                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-ink-muted bg-paper border border-line/80 rounded-xl px-2.5 py-1 w-fit font-medium">
-                                    <Clock size={12} className="text-ink-muted" />
-                                    <span>{grant.liveStatus?.missedText || `约定 ${grant.liveStatus?.scheduledTime || '14:00'} 学习，今日尚未开始`}</span>
-                                  </div>
-                                )}
+                                </div>
                               </div>
 
-                              {/* 右侧动作按钮 */}
-                              <div className="flex items-center gap-1.5 shrink-0 pt-0.5 flex-wrap justify-end">
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  className="px-2 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
-                                  onClick={() => setNoteTarget({ id: grant.id, nickname: grant.nickname })}
-                                  title="给伙伴贴打气便签"
-                                >
-                                  <MessageSquarePlus size={13} />
-                                  <span>贴便签</span>
-                                </Button>
-
-                                {grant.liveStatus?.state === 'missed' ? (
-                                  <Button
-                                    size="sm"
-                                    variant="primary"
-                                    className="bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs"
-                                    disabled={busy || poking[grant.id] || (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0}
-                                    onClick={() => handlePoke(grant)}
-                                    title="给对方邮箱发送催学邮件"
-                                  >
-                                    <Zap size={13} className="fill-current" />
-                                    <span>
-                                      {poking[grant.id]
-                                        ? '发送中…'
-                                        : (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0
-                                        ? `${Math.ceil((cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
-                                        : '⚡️ 戳一下'}
-                                    </span>
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="px-2 py-1 text-xs text-ink-muted flex items-center gap-1 border border-line/60 bg-cream/40"
-                                    onClick={() => {
-                                      if (grant.liveStatus?.state === 'focusing') {
-                                        onToast?.(`「${grant.nickname}」正在专注学习中，无需催学~`);
-                                      } else if (grant.liveStatus?.state === 'completed') {
-                                        onToast?.(`「${grant.nickname}」今日已打卡完成，太棒啦！`);
-                                      } else {
-                                        onToast?.(`尚未到约定时间（${grant.liveStatus?.scheduledTime || '14:00'}），到时未学方可催学~`);
-                                      }
-                                    }}
-                                    title={grant.liveStatus?.state === 'focusing' ? '正在专注学习中' : grant.liveStatus?.state === 'completed' ? '今日打卡已完成' : `约定 ${grant.liveStatus?.scheduledTime || '14:00'} 学习`}
-                                  >
-                                    <Zap size={12} className="text-ink-muted" />
-                                    <span>戳一戳</span>
-                                  </Button>
-                                )}
-
+                              {/* 3列均分规范对齐的操作按钮组 */}
+                              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-line/50">
                                 <Button
                                   size="sm"
                                   variant="light"
-                                  className="shrink-0 px-2 py-1 text-xs"
+                                  className="h-8 text-xs font-bold flex items-center justify-center gap-1"
                                   disabled={busy}
                                   onClick={() => {
                                     setPage(1);
@@ -759,13 +964,56 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
                                     setSelectedId(grant.id);
                                   }}
                                 >
-                                  <Eye size={13} />学情
+                                  <Eye size={13} />
+                                  <span>学情</span>
                                 </Button>
+
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 text-xs font-bold flex items-center justify-center gap-1 border-line"
+                                  onClick={() => setNoteTarget({ id: grant.id, nickname: partnerDisplayName })}
+                                  title="给伙伴贴打气便签"
+                                >
+                                  <MessageSquarePlus size={13} />
+                                  <span>贴便签</span>
+                                </Button>
+
+                                {isFocusing ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled
+                                    className="h-8 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center justify-center gap-1"
+                                    title="研友正在专注备考中，请勿打扰~"
+                                  >
+                                    <Zap size={13} />
+                                    <span>专注中</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    className="h-8 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center justify-center gap-1 shadow-2xs"
+                                    disabled={busy || poking[grant.id] || (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0}
+                                    onClick={() => handlePoke(grant)}
+                                    title="向研友发送小猫催学信"
+                                  >
+                                    <Zap size={13} className="fill-current" />
+                                    <span>
+                                      {poking[grant.id]
+                                        ? '发送中…'
+                                        : (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0
+                                        ? `${Math.ceil((cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
+                                        : '⚡️ 戳一戳'}
+                                    </span>
+                                  </Button>
+                                )}
                               </div>
                             </div>
-                          </li>
-                        ))}
-                      </ul>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                 </section>
@@ -808,6 +1056,44 @@ function SharingSession({ onClose, onToast, userId, csrfToken }: SharingModalPro
             setNoteTarget(null);
             onToast?.(`已成功为 ${noteTarget.nickname} 贴上打气便签！💌`);
             refreshData();
+          }}
+          onToast={onToast}
+        />
+      )}
+      {pokeModalTarget && (
+        <PokeCustomModal
+          isOpen={Boolean(pokeModalTarget)}
+          onClose={() => setPokeModalTarget(null)}
+          partner={{
+            id: pokeModalTarget.id,
+            nickname: getCompanionDisplayName(pokeModalTarget.id, pokeModalTarget.nickname),
+            avatar: pokeModalTarget.avatar,
+          }}
+          onSend={handleSendCustomPoke}
+          isSending={poking[pokeModalTarget.id]}
+          cooldownSeconds={cooldowns[pokeModalTarget.id] ?? pokeModalTarget.liveStatus?.cooldownSeconds ?? 0}
+          onToast={onToast}
+        />
+      )}
+      {isHistoryModalOpen && (
+        <CompanionNotesHistoryModal
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          notes={companionNotes}
+          currentUserId={userId}
+          onSendHeart={async (noteId) => {
+            await fetch(`/api/sharing/notes/${noteId}/heart`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+              },
+            });
+            setCompanionNotes(prev => prev.map(n => n.id === noteId ? { ...n, hearts: n.hearts + 1 } : n));
+            onToast?.('❤️ 已回赠爱心！');
+          }}
+          onReply={(note) => {
+            setNoteTarget({ id: note.fromUserId, nickname: note.fromNickname });
           }}
           onToast={onToast}
         />
@@ -1298,6 +1584,10 @@ function SharedOverview({
   // 3. 【当日学情】分栏（默认展示）
   const isTodaySelected = selectedDate === todayStr;
 
+  const dailyRecords = useMemo(() => {
+    return overview.records.items.filter(record => record.date === selectedDate);
+  }, [overview.records.items, selectedDate]);
+
   return (
     <div className="space-y-4" aria-label="伙伴当日学习概览">
       {/* 日期选择条（仿待办速选设计） */}
@@ -1437,7 +1727,7 @@ function SharedOverview({
             {isTodaySelected ? '今日学情概况' : `${selectedDate} 学情概况`}
           </h4>
           <span className="text-[11px] text-sage font-medium">
-            {overview.records.items.length > 0 ? `当日打卡 ${overview.records.items.length} 项` : '当日暂无打卡'}
+            {dailyRecords.length > 0 ? `当日打卡 ${dailyRecords.length} 项` : '当日暂无打卡'}
           </span>
         </div>
 
@@ -1467,11 +1757,11 @@ function SharedOverview({
         <h5 className="text-xs font-bold text-ink-main flex items-center justify-between">
           <span>当天学习打卡明细</span>
           <span className="text-[10px] text-ink-muted font-normal">
-            {overview.records.items.length > 0 ? `共 ${overview.records.items.length} 条` : ''}
+            {dailyRecords.length > 0 ? `共 ${dailyRecords.length} 条` : ''}
           </span>
         </h5>
 
-        {overview.records.items.length === 0 ? (
+        {dailyRecords.length === 0 ? (
           <div className="rounded-xl border border-line bg-cream/30 py-6 text-center">
             <p className="text-xs text-ink-muted">
               {isTodaySelected ? '今天伙伴还没有学习打卡，稍后再来看看吧~' : '该日伙伴暂无学习记录。'}
@@ -1479,7 +1769,7 @@ function SharedOverview({
           </div>
         ) : (
           <div className="space-y-2">
-            {overview.records.items.map((record, index) => (
+            {dailyRecords.map((record, index) => (
               <div key={`${record.date}-${index}`} className="rounded-xl border border-line bg-paper p-3 space-y-1 shadow-sm">
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="font-bold text-ink-main truncate">{record.sourceName}</span>

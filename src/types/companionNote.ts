@@ -2,6 +2,7 @@ export interface CompanionNote {
   id: string;
   fromUserId: string;
   fromNickname: string;
+  fromAvatar?: string;
   toUserId?: string;
   grantId?: string;
   message: string;

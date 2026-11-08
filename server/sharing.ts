@@ -241,43 +241,30 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
         scheduledTime,
         missedText: '今日任务已打卡完成 👏',
         hasEmailBinding: Boolean(binding?.email),
-        canPoke: false,
-        cooldownSeconds,
-      };
-    }
-
-    // If user has studied some minutes today already
-    if (totalMinutesToday > 0) {
-      return {
-        state: 'focusing',
-        focusTitle: `今日已学习 ${totalMinutesToday} 分钟`,
-        focusMinutes: totalMinutesToday,
-        scheduledTime,
-        hasEmailBinding: Boolean(binding?.email),
-        canPoke: false,
-        cooldownSeconds,
-      };
-    }
-
-    // Partner has unfinished plans and 0 minutes studied today:
-    const hasUnfinished = todayPlans.some(p => !p.done);
-    if (hasUnfinished) {
-      const isPastScheduled = currentH > schedH || (currentH === schedH && currentM >= schedM);
-      const overdueHours = isPastScheduled ? Math.max(1, currentH - schedH) : 0;
-      const missedText = isPastScheduled
-        ? `约定 ${scheduledTime} 学习，已超 ${overdueHours} 小时未学`
-        : `约定 ${scheduledTime} 学习，今日尚未开始`;
-
-      return {
-        state: 'missed',
-        scheduledTime,
-        overdueHours: isPastScheduled ? overdueHours : undefined,
-        missedText,
-        hasEmailBinding: Boolean(binding?.email),
         canPoke,
         cooldownSeconds,
       };
     }
+
+    const isPastScheduled = currentH > schedH || (currentH === schedH && currentM >= schedM);
+    const overdueHours = isPastScheduled ? Math.max(1, currentH - schedH) : 0;
+    const missedText = totalMinutesToday > 0
+      ? (isPastScheduled
+          ? `约定 ${scheduledTime} 学习，已学 ${totalMinutesToday}m · 暂未继续`
+          : `约定 ${scheduledTime} 学习 · 今日已学 ${totalMinutesToday}m 休息中`)
+      : (isPastScheduled
+          ? `约定 ${scheduledTime} 学习，已超 ${overdueHours} 小时未学`
+          : `约定 ${scheduledTime} 学习，今日尚未开始`);
+
+    return {
+      state: isPastScheduled ? 'missed' : 'idle',
+      scheduledTime,
+      overdueHours: isPastScheduled ? overdueHours : undefined,
+      missedText,
+      hasEmailBinding: Boolean(binding?.email),
+      canPoke,
+      cooldownSeconds,
+    };
   }
 
   const isPastScheduled = currentH > schedH || (currentH === schedH && currentM >= schedM);
@@ -292,7 +279,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
     overdueHours: isPastScheduled ? overdueHours : undefined,
     missedText,
     hasEmailBinding: Boolean(binding?.email),
-    canPoke: isPastScheduled ? canPoke : false,
+    canPoke,
     cooldownSeconds,
   };
 }
@@ -304,12 +291,24 @@ export function listSharingGrants(userId: string): SharingGrantsResponse {
       JOIN users u ON u.id = g.${side === 'owner' ? 'viewer' : 'owner'}_id AND u.is_active = 1
       WHERE g.${side}_id = ? AND g.generation_id = ? AND g.revoked_at IS NULL
       ORDER BY g.created_at DESC, g.id`).all(userId, generation) as { id: string; owner_id: string; viewer_id: string; created_at: string; nickname: string }[];
-    return rows.map(row => ({
-      id: row.id,
-      nickname: displayName(row.nickname, '备考伙伴', 64),
-      createdAt: row.created_at,
-      liveStatus: side === 'viewer' ? computePartnerLiveStatus(db, row.owner_id, userId) : undefined,
-    }));
+    return rows.map(row => {
+      const partnerId = side === 'owner' ? row.viewer_id : row.owner_id;
+      let avatar: string | undefined;
+      const ws = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(partnerId) as { state_json: string } | undefined;
+      if (ws?.state_json) {
+        try {
+          const parsed = JSON.parse(ws.state_json);
+          avatar = parsed?.profile?.avatar;
+        } catch {}
+      }
+      return {
+        id: row.id,
+        nickname: displayName(row.nickname, '备考伙伴', 64),
+        avatar: avatar || 'pose-0',
+        createdAt: row.created_at,
+        liveStatus: side === 'viewer' ? computePartnerLiveStatus(db, row.owner_id, userId) : undefined,
+      };
+    });
   };
   const rows = db.prepare(`SELECT id,created_at,expires_at FROM sharing_codes WHERE owner_id = ?
     AND generation_id = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > ?
@@ -328,10 +327,17 @@ export interface NudgeResult {
   cooldownSeconds: number;
 }
 
+export interface PokeOptions {
+  sender?: MailSender;
+  now?: () => number;
+  customMessage?: string;
+  checkItems?: any[];
+}
+
 export async function pokeCompanion(
   senderId: string,
   grantId: string,
-  options?: { sender?: MailSender; now?: () => number }
+  options?: PokeOptions
 ): Promise<NudgeResult> {
   const db = getDb();
   const generation = getCurrentGenerationId();
@@ -353,6 +359,12 @@ export async function pokeCompanion(
   }
 
   const targetUserId = grant.owner_id === senderId ? grant.viewer_id : grant.owner_id;
+
+  // Enforce rule: forbidden to poke when target is focusing
+  const targetStatus = computePartnerLiveStatus(db, targetUserId, senderId);
+  if (targetStatus.state === 'focusing') {
+    throw new SharingError(400, 'PARTNER_FOCUSING', '研友正在专注学习中，请勿打扰~');
+  }
 
   const COOLDOWN_MS = 30 * 60 * 1000;
   const recentNudge = db.prepare(`
@@ -385,8 +397,11 @@ export async function pokeCompanion(
   const senderNickname = displayName(senderRow?.nickname, '你的备考伙伴', 64);
   const targetNickname = displayName(targetRow?.nickname, '备考同学', 64);
 
+  const customMessage = options?.customMessage?.trim();
   const noteId = crypto.randomUUID();
-  const noteMsg = `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
+  const noteMsg = customMessage
+    ? `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：“${customMessage}”🥔💨`
+    : `⚡️ 叮咚！你的考公研友向你发来了一记催学提醒：说好一起上岸，今天怎么还没打卡？快快归队开始学习吧！🥔💨`;
   db.prepare(`
     INSERT INTO companion_notes (id, from_user_id, to_user_id, grant_id, message, hearts, created_at)
     VALUES (?, ?, ?, ?, ?, 0, ?)
@@ -415,6 +430,8 @@ export async function pokeCompanion(
       senderNickname,
       recipientNickname: targetNickname,
       loginUrl: process.env.PUBLIC_URL || 'https://work.ruyne.space',
+      customMessage: options?.customMessage,
+      checkItems: options?.checkItems,
     });
     try {
       await mailSender.send({
@@ -463,12 +480,28 @@ export function listCompanionNotes(userId: string): { ok: true; notes: Companion
     from_nickname: string;
   }[];
 
+  const userAvatars = new Map<string, string>();
+  for (const r of rows) {
+    if (!userAvatars.has(r.from_user_id)) {
+      let avatar = 'pose-0';
+      const ws = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(r.from_user_id) as { state_json: string } | undefined;
+      if (ws?.state_json) {
+        try {
+          const parsed = JSON.parse(ws.state_json);
+          if (parsed?.profile?.avatar) avatar = parsed.profile.avatar;
+        } catch {}
+      }
+      userAvatars.set(r.from_user_id, avatar);
+    }
+  }
+
   return {
     ok: true,
     notes: rows.map(r => ({
       id: r.id,
       fromUserId: r.from_user_id,
       fromNickname: displayName(r.from_nickname, '备考伙伴', 64),
+      fromAvatar: userAvatars.get(r.from_user_id) || 'pose-0',
       toUserId: r.to_user_id,
       grantId: r.grant_id ?? undefined,
       message: r.message,
@@ -519,10 +552,19 @@ export function createCompanionNote(fromUserId: string, raw: unknown): Companion
   `).run(id, fromUserId, toUserId, grantId ?? null, message, imageUrl ?? null, now);
 
   const sender = db.prepare('SELECT nickname FROM users WHERE id = ?').get(fromUserId) as { nickname: string } | undefined;
+  const senderWs = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(fromUserId) as { state_json: string } | undefined;
+  let senderAvatar = 'pose-0';
+  if (senderWs?.state_json) {
+    try {
+      const parsed = JSON.parse(senderWs.state_json);
+      if (parsed?.profile?.avatar) senderAvatar = parsed.profile.avatar;
+    } catch {}
+  }
   return {
     id,
     fromUserId,
     fromNickname: displayName(sender?.nickname, '备考伙伴', 64),
+    fromAvatar: senderAvatar,
     toUserId,
     grantId: grantId ?? undefined,
     message,

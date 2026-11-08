@@ -10,6 +10,7 @@ import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from email.utils import formatdate, make_msgid, formataddr
 from email.header import Header
 
@@ -37,6 +38,7 @@ if not smtp_user or not smtp_pass:
 
 recipient = sys.argv[1] if len(sys.argv) > 1 else '946265043@qq.com'
 preview_html_path = os.path.join(os.path.dirname(__file__), '../output/poke-email-preview.html')
+preview_txt_path = os.path.join(os.path.dirname(__file__), '../output/poke-email-preview.txt')
 
 if not os.path.exists(preview_html_path):
     print(f"Error: Preview HTML not found at {preview_html_path}")
@@ -45,25 +47,19 @@ if not os.path.exists(preview_html_path):
 with open(preview_html_path, 'r', encoding='utf-8') as f:
     html_content = f.read()
 
-# Build multipart/alternative (Plain text + Rich HTML)
-msg = MIMEMultipart('alternative')
-msg['Subject'] = Header('【土豆考公】你的研友「阿土（研友）」喊你回书桌前学习打卡啦 🥔', 'utf-8')
-msg['From'] = formataddr((str(Header(from_name, 'utf-8')), smtp_from))
-msg['To'] = recipient
-msg['Reply-To'] = smtp_from
-msg['Date'] = formatdate(localtime=True)
-from_domain = smtp_from.split('@')[1] if '@' in smtp_from else 'qq.com'
-msg['Message-ID'] = make_msgid(domain=from_domain)
-msg['X-Auto-Response-Suppress'] = 'All'
-msg['X-Mailer'] = 'Potato-Study-Workspace'
+plain_text = ""
+if os.path.exists(preview_txt_path):
+    with open(preview_txt_path, 'r', encoding='utf-8') as f:
+        plain_text = f.read()
+else:
+    plain_text = f"""亲爱的 {recipient} 同学：
 
-plain_text = f"""亲爱的 {recipient} 同学：
-
-📖 哔哔哔！收到来自研友「阿土（研友）」的备考催学打卡提醒！
+📖 收到来自研友「阿土（研友）」的学习打卡提醒！
 “说好一起上岸，约定好的复习时间已经到了，今日任务还在等你打卡，快回书桌前一起复习吧！”
 
-📚 行测：言语理解抓中心、资料分析速算公式背熟了吗？
-📝 申论：概括归纳要点找全、大作文思辨结构列出来了吗？
+01 [行测] 言语理解抓中心、资料分析速算公式背熟了吗？
+02 [申论] 概括归纳要点找全、大作文思辨结构列出来了吗？
+
 放下手机，深呼吸，倒一杯温水，现在坐回书桌前学 25 分钟还不晚！🥔💨
 
 👉 立即前往土豆考公工作台：https://work.ruyne.space
@@ -75,10 +71,41 @@ plain_text = f"""亲爱的 {recipient} 同学：
 土豆考公工作台 · 陪伴每一位脚踏实地的考公人
 """
 
+# Build MIME structure:
+# multipart/related
+#   ├── multipart/alternative
+#   │     ├── text/plain
+#   │     └── text/html (referencing cid:xxx)
+#   └── inline images (cid:cat_poke.png, etc.)
+msg = MIMEMultipart('related')
+msg['Subject'] = Header('【土豆考公】你的研友「阿土（研友）」喊你回书桌前学习打卡啦 🥔', 'utf-8')
+msg['From'] = formataddr((str(Header(from_name, 'utf-8')), smtp_from))
+msg['To'] = recipient
+msg['Reply-To'] = smtp_from
+msg['Date'] = formatdate(localtime=True)
+from_domain = smtp_from.split('@')[1] if '@' in smtp_from else 'qq.com'
+msg['Message-ID'] = make_msgid(domain=from_domain)
+msg['X-Auto-Response-Suppress'] = 'All'
+msg['X-Mailer'] = 'Potato-Study-Workspace'
+
+msg_alt = MIMEMultipart('alternative')
 part1 = MIMEText(plain_text, 'plain', 'utf-8')
 part2 = MIMEText(html_content, 'html', 'utf-8')
-msg.attach(part1)
-msg.attach(part2)
+msg_alt.attach(part1)
+msg_alt.attach(part2)
+msg.attach(msg_alt)
+
+# Attach inline images
+assets_dir = os.path.join(os.path.dirname(__file__), '../public/assets/email')
+image_files = ['cat_poke.png', 'paw_stamp.png', 'paw_trail.png', 'cat_sleep.png']
+for img_name in image_files:
+    img_path = os.path.join(assets_dir, img_name)
+    if os.path.exists(img_path):
+        with open(img_path, 'rb') as img_f:
+            img_part = MIMEImage(img_f.read(), _subtype='png')
+            img_part.add_header('Content-ID', f'<{img_name}>')
+            img_part.add_header('Content-Disposition', 'inline', filename=img_name)
+            msg.attach(img_part)
 
 print(f"Connecting to authenticated SMTP server ({smtp_host}:{smtp_port}, user: {smtp_user})...")
 context = ssl.create_default_context()

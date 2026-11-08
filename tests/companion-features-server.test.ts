@@ -152,7 +152,7 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(hearts2, 2);
     });
 
-    await t.test('listSharingGrants populates partner liveStatus for focusing and missed states', () => {
+    await t.test('listSharingGrants populates partner liveStatus for focusing and missed states', async () => {
       const viewer = createUser('查看者');
       const focusingOwner = createUser('专注同学');
       const missedOwner = createUser('摸鱼同学');
@@ -194,9 +194,22 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
         .run(missedOwner.id, getCurrentGenerationId(), JSON.stringify(missedState));
 
+      // Set missedOwner target time to 00:00 so it is guaranteed to be past schedule
+      db.prepare("INSERT INTO companion_settings (user_id, target_study_time, updated_at) VALUES (?, '00:00', datetime('now'))")
+        .run(missedOwner.id);
+
+      // Create an idleOwner with target time 23:59 (not yet overdue)
+      const idleOwner = createUser('尚未开学同学');
+      const grantIdle = createGrant(idleOwner, viewer);
+      db.prepare("INSERT INTO companion_settings (user_id, target_study_time, updated_at) VALUES (?, '23:59', datetime('now'))")
+        .run(idleOwner.id);
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(idleOwner.id, getCurrentGenerationId(), JSON.stringify(missedState));
+
       const grants = listSharingGrants(viewer.id);
       const focusGrant = grants.received.find(g => g.id === grantFocus);
       const missGrant = grants.received.find(g => g.id === grantMissed);
+      const idleGrant = grants.received.find(g => g.id === grantIdle);
 
       assert.ok(focusGrant);
       assert.equal(focusGrant.liveStatus?.state, 'focusing');
@@ -205,8 +218,28 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
 
       assert.ok(missGrant);
       assert.equal(missGrant.liveStatus?.state, 'missed');
-      assert.match(missGrant.liveStatus?.missedText || '', /约定 14:00 学习/);
+      assert.match(missGrant.liveStatus?.missedText || '', /约定 00:00 学习/);
       assert.equal(missGrant.liveStatus?.canPoke, true);
+
+      assert.ok(idleGrant);
+      assert.equal(idleGrant.liveStatus?.state, 'idle');
+      assert.match(idleGrant.liveStatus?.missedText || '', /约定 23:59 学习/);
+      assert.equal(idleGrant.liveStatus?.canPoke, true);
+
+      // Verify rule: Poking a partner who is currently focusing must be rejected
+      await assert.rejects(
+        () => pokeCompanion(viewer.id, grantFocus),
+        (err: any) => {
+          assert.equal(err.status, 400);
+          assert.equal(err.code, 'PARTNER_FOCUSING');
+          assert.match(err.message, /专注学习中/);
+          return true;
+        }
+      );
+
+      // Poking an idle partner succeeds
+      const idlePokeResult = await pokeCompanion(viewer.id, grantIdle);
+      assert.equal(idlePokeResult.ok, true);
     });
 
     await t.test('generatePokeEmailContent sanitizes malicious tags and CRLF headers', () => {

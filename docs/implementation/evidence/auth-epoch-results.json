@@ -1,11 +1,11 @@
 {
-  "runId": "run-20261108-002027-5d83fd",
-  "checkedAt": "2026-11-08T00:20:45.623Z",
-  "baseUrl": "http://127.0.0.1:50722",
-  "dataDir": "/tmp/run-20261108-002027-5d83fd-ovegdq/data",
+  "runId": "run-20261108-054336-1436fd",
+  "checkedAt": "2026-11-08T05:43:55.451Z",
+  "baseUrl": "http://127.0.0.1:56006",
+  "dataDir": "/tmp/run-20261108-054336-1436fd-LGc5dx/data",
   "webBuild": {
     "version": "1.2.6",
-    "build": "20261108.03",
+    "build": "20261108.04",
     "schemaVersion": 5,
     "apkVersion": "1.0.5",
     "apkVersionCode": 6,
@@ -15,12 +15,12 @@
     "apkPackageName": "com.ruyne.kaogong",
     "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
     "apkReleased": true,
-    "deployedAt": "2026-11-07T17:05:00Z",
-    "summary": "优化研友督学打卡邮件反垃圾策略与合规投递机制，去除垃圾拦截词与硬编码密钥，升级生产环境部署。",
-    "servedAt": "2026-11-08T00:20:45.624Z",
-    "nonce": "run-20261108-002027-5d83fd"
+    "deployedAt": "2026-11-08T00:20:00Z",
+    "summary": "优化研友便签入口与戳一戳督学规则说明，修复今日视图便签遮挡与学情标签切换闪烁问题，支持自定义每日最晚约定学习时间。",
+    "servedAt": "2026-11-08T05:43:55.452Z",
+    "nonce": "run-20261108-054336-1436fd"
   },
-  "gitHead": "c6c2f296e47f6e12b1810b403d8bb81fea09f81d",
+  "gitHead": "df3aaef045c608ca6ff29cda17834bd204d95b85",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1794097243976_b218e03dbe08"
+        "image": "/api/media/media_1794116633800_8d1b80aba86a"
       }
     },
     {
