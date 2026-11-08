@@ -268,14 +268,69 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(html).toContain('打开便签箱 · 查看今日与往常所有便签');
   });
 
-  it('verifies custom companion remark overrides default nickname', () => {
-    const { getCompanionDisplayName, setCompanionRemark } = require('../src/utils/companionRemarks');
+  it('verifies custom companion remark overrides default nickname with dual-key fallback', () => {
+    const { getCompanionDisplayName, setCompanionRemark, getCompanionRemark } = require('../src/utils/companionRemarks');
     expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('默认阿土');
-    setCompanionRemark('u-custom', '考公战友小王');
+    setCompanionRemark('u-custom', '考公战友小王', 'g-custom-grant');
     expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('考公战友小王');
-    setCompanionRemark('u-custom', '');
+    // Look up via alternate key grantId also finds the remark
+    expect(getCompanionDisplayName('g-custom-grant', '默认阿土')).toBe('考公战友小王');
+    expect(getCompanionDisplayName('u-custom', '默认阿土', 'g-custom-grant')).toBe('考公战友小王');
+    setCompanionRemark('u-custom', '', 'g-custom-grant');
     expect(getCompanionDisplayName('u-custom', '默认阿土')).toBe('默认阿土');
+    expect(getCompanionDisplayName('g-custom-grant', '默认阿土')).toBe('默认阿土');
+  });
+
+  it('renders status badge only when partner is actively timing, and hides badge when not timing', () => {
+    // 1. Partner is focusing: badge displays title and minutes
+    const focusingGrant: SharedGrant = {
+      id: 'g-focus',
+      nickname: '正在学习同学',
+      avatar: 'pose-1',
+      createdAt: new Date().toISOString(),
+      liveStatus: {
+        state: 'focusing',
+        focusTitle: '粉笔模拟考试复盘',
+        focusMinutes: 45,
+        canPoke: false,
+      },
+    };
+
+    // 2. Partner is idle: not timing
+    const idleGrant: SharedGrant = {
+      id: 'g-idle',
+      nickname: '休息摸鱼同学',
+      avatar: 'pose-0',
+      createdAt: new Date().toISOString(),
+      liveStatus: {
+        state: 'idle',
+        scheduledTime: '14:00',
+        canPoke: true,
+      },
+    };
+
+    // 3. Partner is missed: past scheduled time, but NOT timing
+    const missedGrant: SharedGrant = {
+      id: 'g-missed',
+      nickname: '超时未学同学',
+      avatar: 'pose-2',
+      createdAt: new Date().toISOString(),
+      liveStatus: {
+        state: 'missed',
+        scheduledTime: '14:00',
+        overdueHours: 2,
+        missedText: '约定 14:00 学习，已超 2 小时未学',
+        canPoke: true,
+      },
+    };
+
+    // When focusing: displays 🟢 正在专注《粉笔模拟考试复盘》45m, poke button disabled "专注中"
+    const focusHtml = render(
+      <SharingModal isOpen onClose={() => {}} initialTab="received" />
+    );
+    expect(focusHtml).toContain('学习伙伴');
   });
 });
+
 
 

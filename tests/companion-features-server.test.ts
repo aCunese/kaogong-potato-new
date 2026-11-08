@@ -145,6 +145,16 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       const list = listCompanionNotes(receiver.id);
       assert.equal(list.notes.some(n => n.id === note.id), true);
 
+      // Verify creating note when toUserId is accidentally passed as grantId
+      const noteByGrant = createCompanionNote(sender.id, {
+        toUserId: grantId,
+        message: '通过授权ID发送给伙伴',
+      });
+      assert.equal(noteByGrant.toUserId, receiver.id);
+      assert.equal(noteByGrant.grantId, grantId);
+      const listAfterGrantNote = listCompanionNotes(receiver.id);
+      assert.equal(listAfterGrantNote.notes.some(n => n.id === noteByGrant.id), true);
+
       // Heart the note
       const hearts1 = heartCompanionNote(receiver.id, note.id);
       assert.equal(hearts1, 1);
@@ -212,16 +222,19 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       const idleGrant = grants.received.find(g => g.id === grantIdle);
 
       assert.ok(focusGrant);
+      assert.equal(focusGrant.partnerId, focusingOwner.id);
       assert.equal(focusGrant.liveStatus?.state, 'focusing');
       assert.equal(focusGrant.liveStatus?.focusTitle, '行测真题 5000 题');
       assert.equal(focusGrant.liveStatus?.focusMinutes, 34);
 
       assert.ok(missGrant);
+      assert.equal(missGrant.partnerId, missedOwner.id);
       assert.equal(missGrant.liveStatus?.state, 'missed');
       assert.match(missGrant.liveStatus?.missedText || '', /约定 00:00 学习/);
       assert.equal(missGrant.liveStatus?.canPoke, true);
 
       assert.ok(idleGrant);
+      assert.equal(idleGrant.partnerId, idleOwner.id);
       assert.equal(idleGrant.liveStatus?.state, 'idle');
       assert.match(idleGrant.liveStatus?.missedText || '', /约定 23:59 学习/);
       assert.equal(idleGrant.liveStatus?.canPoke, true);
@@ -240,6 +253,101 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       // Poking an idle partner succeeds
       const idlePokeResult = await pokeCompanion(viewer.id, grantIdle);
       assert.equal(idlePokeResult.ok, true);
+    });
+
+    await t.test('liveStatus accurately detects active timer, pomodoro sessions, resting exclusion and sanitizes titles', async () => {
+      const viewer = createUser('查看者B');
+      const pomodoroOwner = createUser('番茄专注同学');
+      const restingOwner = createUser('休息阶段同学');
+      const sanitizedOwner = createUser('防脏标题同学');
+
+      const grantPomo = createGrant(pomodoroOwner, viewer);
+      const grantRest = createGrant(restingOwner, viewer);
+      const grantSanitized = createGrant(sanitizedOwner, viewer);
+
+      // 1. Pomodoro owner: has active standalone timerSession in focus phase
+      const pomoState: any = structuredClone(BLANK_STATE);
+      pomoState.timerSessions = [
+        {
+          id: 'session-1',
+          timerMode: 'pomodoro',
+          focusMinutes: 25,
+          restMinutes: 5,
+          subject: '申论',
+          phase: 'focus',
+          phaseMs: 0,
+          status: 'running',
+          createdAt: Date.now() - 15 * 60 * 1000,
+          runningSince: Date.now() - 15 * 60 * 1000,
+          segments: [],
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(pomodoroOwner.id, getCurrentGenerationId(), JSON.stringify(pomoState));
+
+      // 2. Resting owner: plan is in rest phase (timerPhase === 'rest' or restStart > 0)
+      const restState: any = structuredClone(BLANK_STATE);
+      restState.plans = [
+        {
+          id: 'p-rest',
+          name: '粉笔行测真题',
+          date: new Date().toISOString().slice(0, 10),
+          type: 'book',
+          subject: '资料分析',
+          done: false,
+          timerStart: 0,
+          restStart: Date.now() - 3 * 60 * 1000,
+          timerPhase: 'rest',
+          accumulatedMs: 25 * 60 * 1000,
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(restingOwner.id, getCurrentGenerationId(), JSON.stringify(restState));
+
+      // 3. Sanitized owner: plan has a bad name like "今日已学习 310 分钟", but has linked book or subject
+      const badState: any = structuredClone(BLANK_STATE);
+      badState.plans = [
+        {
+          id: 'p-bad',
+          name: '今日已学习 310 分钟',
+          date: new Date().toISOString().slice(0, 10),
+          type: 'book',
+          sourceId: 'b-good',
+          subject: '判断推理',
+          done: false,
+          timerStart: Date.now() - 20 * 60 * 1000,
+          accumulatedMs: 0,
+        },
+      ];
+      badState.books = [
+        { id: 'b-good', name: '图形推理专项刷题', subject: '判断推理', total: 500, pages: 100, done: 50, errors: 5, minutes: 20 },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(sanitizedOwner.id, getCurrentGenerationId(), JSON.stringify(badState));
+
+      const grants = listSharingGrants(viewer.id);
+      const pomoGrant = grants.received.find(g => g.id === grantPomo);
+      const restGrant = grants.received.find(g => g.id === grantRest);
+      const sanitGrant = grants.received.find(g => g.id === grantSanitized);
+
+      // Pomodoro session is detected as focusing
+      assert.ok(pomoGrant);
+      assert.equal(pomoGrant.liveStatus?.state, 'focusing');
+      assert.equal(pomoGrant.liveStatus?.focusTitle, '申论 专注');
+      assert.equal(pomoGrant.liveStatus?.focusMinutes, 15);
+      assert.equal(pomoGrant.liveStatus?.canPoke, false);
+
+      // Resting owner is NOT focusing (liveStatus.state !== 'focusing', focusTitle is undefined)
+      assert.ok(restGrant);
+      assert.notEqual(restGrant.liveStatus?.state, 'focusing');
+      assert.equal(restGrant.liveStatus?.focusTitle, undefined);
+      assert.equal(restGrant.liveStatus?.canPoke, true);
+
+      // Sanitized title does not contain "今日已学" and falls back to book name
+      assert.ok(sanitGrant);
+      assert.equal(sanitGrant.liveStatus?.state, 'focusing');
+      assert.doesNotMatch(sanitGrant.liveStatus?.focusTitle || '', /今日已学/);
+      assert.equal(sanitGrant.liveStatus?.focusTitle, '图形推理专项刷题');
     });
 
     await t.test('generatePokeEmailContent sanitizes malicious tags and CRLF headers', () => {

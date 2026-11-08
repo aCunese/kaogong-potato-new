@@ -1,11 +1,11 @@
 {
-  "runId": "run-20261108-054336-1436fd",
-  "checkedAt": "2026-11-08T05:43:55.451Z",
-  "baseUrl": "http://127.0.0.1:56006",
-  "dataDir": "/tmp/run-20261108-054336-1436fd-LGc5dx/data",
+  "runId": "run-20261108-062750-ff5e53",
+  "checkedAt": "2026-11-08T06:28:09.755Z",
+  "baseUrl": "http://127.0.0.1:57674",
+  "dataDir": "/tmp/run-20261108-062750-ff5e53-4EYzpD/data",
   "webBuild": {
     "version": "1.2.6",
-    "build": "20261108.04",
+    "build": "20261108.06",
     "schemaVersion": 5,
     "apkVersion": "1.0.5",
     "apkVersionCode": 6,
@@ -15,12 +15,12 @@
     "apkPackageName": "com.ruyne.kaogong",
     "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
     "apkReleased": true,
-    "deployedAt": "2026-11-08T00:20:00Z",
-    "summary": "优化研友便签入口与戳一戳督学规则说明，修复今日视图便签遮挡与学情标签切换闪烁问题，支持自定义每日最晚约定学习时间。",
-    "servedAt": "2026-11-08T05:43:55.452Z",
-    "nonce": "run-20261108-054336-1436fd"
+    "deployedAt": "2026-11-08T06:30:00Z",
+    "summary": "全面修复学习伙伴实时专注状态准确性与多端同步机制：严格仅在好友真实开始专注计时时展示状态胶囊与学习内容，排除休息阶段、已停止/超时弃置计时及脏标题兜底；未在学习时隐藏状态胶囊；优化即时同步管道与实时轮询感知。",
+    "servedAt": "2026-11-08T06:28:09.756Z",
+    "nonce": "run-20261108-062750-ff5e53"
   },
-  "gitHead": "df3aaef045c608ca6ff29cda17834bd204d95b85",
+  "gitHead": "10340f260d5bd49e803c41bb4dd62d8f560dc10d",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1794116633800_8d1b80aba86a"
+        "image": "/api/media/media_1794119288106_1fbb54e974e5"
       }
     },
     {

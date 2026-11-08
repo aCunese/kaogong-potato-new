@@ -164,7 +164,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }, [pokeCooldown]);
 
   useEffect(() => {
-    if (currentUser) {
+    if (!currentUser) {
+      setPartner(null);
+      return;
+    }
+
+    const refreshGrants = () => {
       fetch('/api/sharing/grants')
         .then(res => res.ok ? res.json() : null)
         .then(data => {
@@ -188,9 +193,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
           }
         })
         .catch(() => {});
-    } else {
-      setPartner(null);
-    }
+    };
+
+    refreshGrants();
+    const interval = setInterval(refreshGrants, 12000);
+    const onFocus = () => refreshGrants();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [currentUser]);
 
   const handleCustomPokeSend = async (data: { customMessage: string; checkItems: string[] }) => {
@@ -482,7 +494,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             <div className="flex items-center gap-2.5 min-w-0">
               <Avatar
                 avatar={
-                  (partner && (partner.id === activeNote.fromUserId || !activeNote.fromUserId))
+                  (partner && (partner.partnerId === activeNote.fromUserId || partner.id === activeNote.fromUserId || !activeNote.fromUserId))
                     ? (partner.avatar || activeNote.fromAvatar || 'pose-0')
                     : (activeNote.fromAvatar || partner?.avatar || 'pose-0')
                 }
@@ -493,10 +505,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-bold text-ink-main truncate">
                     {getCompanionDisplayName(
-                      partner && (partner.id === activeNote.fromUserId || !activeNote.fromUserId)
-                        ? partner.id
-                        : activeNote.fromUserId,
-                      activeNote.fromNickname || partner?.nickname || '研友'
+                      activeNote.fromUserId,
+                      activeNote.fromNickname || partner?.nickname || '研友',
+                      partner?.id
                     )}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E5ECD9] text-[#4F6344] font-semibold shrink-0">
@@ -558,21 +569,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
               <span className={`w-2 h-2 rounded-full shrink-0 ${
                 partner.liveStatus?.state === 'focusing'
                   ? 'bg-emerald-500 animate-pulse'
-                  : partner.liveStatus?.state === 'missed'
-                  ? 'bg-amber-500'
-                  : 'bg-sage'
+                  : 'bg-ink-muted/30'
               }`} />
               <span className="text-xs font-bold text-ink-main shrink-0">
                 {getCompanionDisplayName(partner.id, partner.nickname)}
               </span>
               <span className="text-[11px] text-ink-muted truncate">
                 {partner.liveStatus?.state === 'focusing'
-                  ? `专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
-                  : partner.liveStatus?.state === 'missed'
-                  ? (partner.liveStatus.missedText || `约定 ${partner.liveStatus.scheduledTime || '14:00'} 未学`)
-                  : partner.liveStatus?.state === 'completed'
-                  ? '今日打卡完成 👏'
-                  : `约定 ${partner.liveStatus?.scheduledTime || '14:00'} 学习`}
+                  ? `🟢 正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
+                  : '未在学习'}
               </span>
             </div>
 
@@ -984,7 +989,8 @@ export const TodayView: React.FC<TodayViewProps> = ({
         isOpen={editModalOpen}
         onClose={() => setEditModalOpen(false)}
         defaultRecipientNickname={partner?.nickname || activeNote?.fromNickname || '学习伙伴'}
-        defaultRecipientId={partner?.id || activeNote?.fromUserId}
+        defaultRecipientId={partner?.partnerId || (partner?.id?.startsWith('demo-') ? partner.id : activeNote?.fromUserId)}
+        defaultGrantId={partner?.id || activeNote?.grantId}
         onNoteSent={note => {
           onToast?.(`已成功为 ${partner?.nickname || activeNote?.fromNickname || '研友'} 贴上打气便签！💌`);
         }}

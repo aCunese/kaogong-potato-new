@@ -18,36 +18,46 @@ function getStorage() {
   };
 }
 
-export function getCompanionRemark(partnerKey: string): string {
-  if (!partnerKey) return '';
+export function getCompanionRemark(partnerKey: string, alternateKey?: string): string {
+  if (!partnerKey && !alternateKey) return '';
   try {
     const storage = getStorage();
-    return storage.getItem(`${REMARK_KEY_PREFIX}${partnerKey}`) || '';
+    if (partnerKey) {
+      const val = storage.getItem(`${REMARK_KEY_PREFIX}${partnerKey}`);
+      if (val) return val;
+    }
+    if (alternateKey) {
+      const altVal = storage.getItem(`${REMARK_KEY_PREFIX}${alternateKey}`);
+      if (altVal) return altVal;
+    }
+    return '';
   } catch {
     return '';
   }
 }
 
-export function setCompanionRemark(partnerKey: string, remark: string): void {
-  if (!partnerKey) return;
+export function setCompanionRemark(partnerKey: string, remark: string, alternateKey?: string): void {
+  if (!partnerKey && !alternateKey) return;
   try {
     const storage = getStorage();
     const trimmed = remark.trim();
     if (trimmed) {
-      storage.setItem(`${REMARK_KEY_PREFIX}${partnerKey}`, trimmed);
+      if (partnerKey) storage.setItem(`${REMARK_KEY_PREFIX}${partnerKey}`, trimmed);
+      if (alternateKey) storage.setItem(`${REMARK_KEY_PREFIX}${alternateKey}`, trimmed);
     } else {
-      storage.removeItem(`${REMARK_KEY_PREFIX}${partnerKey}`);
+      if (partnerKey) storage.removeItem(`${REMARK_KEY_PREFIX}${partnerKey}`);
+      if (alternateKey) storage.removeItem(`${REMARK_KEY_PREFIX}${alternateKey}`);
     }
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent('companion_remark_changed', {
-        detail: { partnerKey, remark: trimmed }
+        detail: { partnerKey, alternateKey, remark: trimmed }
       }));
     }
   } catch {}
 }
 
-export function getCompanionDisplayName(partnerKey: string, defaultNickname: string): string {
-  const remark = getCompanionRemark(partnerKey);
+export function getCompanionDisplayName(partnerKey: string, defaultNickname: string, alternateKey?: string): string {
+  const remark = getCompanionRemark(partnerKey, alternateKey);
   return remark || defaultNickname || '研友';
 }
 

@@ -206,18 +206,50 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
   const currentH = now.getHours();
   const currentM = now.getMinutes();
 
-  // 2. Check study progress today
+  // 2. Strict Active Timer Detection:
+  // ONLY when a partner is actively running a focus timer (isStudying === true), return state: 'focusing'.
+  // When timer is stopped, paused, or resting, partner is NOT studying, and focus state is never returned.
   if (state) {
-    // If a timer is currently running:
-    const runningPlan = state.plans?.find(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0));
+    const nowMs = now.getTime();
+    const MAX_ACTIVE_FOCUS_MS = 4 * 3600 * 1000; // 4 hours maximum sensible continuous timer duration
+
+    // 2.1 Check active plan timer (must be not done, not archived, timerStart > 0, NOT in rest phase, within 4 hours)
+    const runningPlan = state.plans?.find(p =>
+      !p.done &&
+      !p.archived &&
+      p.timerStart > 0 &&
+      p.timerPhase !== 'rest' &&
+      (p.restStart ?? 0) === 0 &&
+      (nowMs - p.timerStart) < MAX_ACTIVE_FOCUS_MS
+    );
+
+    // 2.2 Check active standalone/Pomodoro timer session (must be status running, phase focus, within 4 hours)
+    const runningSession = state.timerSessions?.find(s =>
+      s.status === 'running' &&
+      s.phase === 'focus' &&
+      s.runningSince > 0 &&
+      (nowMs - s.runningSince) < MAX_ACTIVE_FOCUS_MS
+    );
+
     if (runningPlan) {
-      const elapsedMs = runningPlan.timerStart
-        ? (runningPlan.accumulatedMs ?? 0) + Math.max(0, Date.now() - runningPlan.timerStart)
-        : (runningPlan.accumulatedMs ?? 0);
+      const elapsedMs = (runningPlan.accumulatedMs ?? 0) + Math.max(0, nowMs - runningPlan.timerStart);
       const minutes = Math.max(1, Math.floor(elapsedMs / 60000));
+      let title = runningPlan.name?.trim() || '';
+      // Under no circumstances allow summary/fallback strings like "今日已学习 X 分钟" as titles
+      if (!title || /今日已学|已学习|暂未继续|尚未开始/.test(title)) {
+        if (runningPlan.type === 'book' && runningPlan.sourceId) {
+          title = state.books?.find(b => b.id === runningPlan.sourceId)?.name?.trim() || '';
+        } else if (runningPlan.type === 'course' && runningPlan.sourceId) {
+          title = state.courses?.find(c => c.id === runningPlan.sourceId)?.name?.trim() || '';
+        }
+      }
+      if (!title || /今日已学|已学习|暂未继续|尚未开始/.test(title)) {
+        title = runningPlan.subject ? `${runningPlan.subject}备考` : '备考学习';
+      }
+
       return {
         state: 'focusing',
-        focusTitle: runningPlan.name || '备考计划',
+        focusTitle: title,
         focusMinutes: minutes,
         scheduledTime,
         hasEmailBinding: Boolean(binding?.email),
@@ -226,6 +258,38 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
       };
     }
 
+    if (runningSession) {
+      let focusMs = 0;
+      for (const seg of runningSession.segments || []) {
+        if (seg.phase === 'focus') focusMs += seg.end - seg.start;
+      }
+      if (runningSession.runningSince > 0) {
+        focusMs += Math.max(0, nowMs - runningSession.runningSince);
+      }
+      const minutes = Math.max(1, Math.floor(focusMs / 60000));
+      let title = '';
+      if (runningSession.planId) {
+        const linked = state.plans?.find(p => p.id === runningSession.planId);
+        if (linked?.name && !/今日已学|已学习/.test(linked.name)) {
+          title = linked.name.trim();
+        }
+      }
+      if (!title) {
+        title = runningSession.subject ? `${runningSession.subject} 专注` : '番茄钟专注';
+      }
+
+      return {
+        state: 'focusing',
+        focusTitle: title,
+        focusMinutes: minutes,
+        scheduledTime,
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke: false,
+        cooldownSeconds,
+      };
+    }
+
+    // 2.3 When NOT timing: Partner is not studying. Focus badge/state is strictly not returned.
     const todayStr = now.toISOString().slice(0, 10);
     const todayPlans = state.plans?.filter(p => p.date === todayStr) ?? [];
     const todayRecords = state.records?.filter(r => r.date === todayStr) ?? [];
@@ -303,6 +367,7 @@ export function listSharingGrants(userId: string): SharingGrantsResponse {
       }
       return {
         id: row.id,
+        partnerId,
         nickname: displayName(row.nickname, '备考伙伴', 64),
         avatar: avatar || 'pose-0',
         createdAt: row.created_at,
@@ -524,6 +589,20 @@ export function createCompanionNote(fromUserId: string, raw: unknown): Companion
 
   let toUserId = input?.toUserId;
   let grantId = input?.grantId;
+
+  if (toUserId) {
+    const userExists = db.prepare('SELECT id FROM users WHERE id = ? AND is_active = 1').get(toUserId);
+    if (!userExists) {
+      // Check if toUserId was actually a grantId
+      const grant = db.prepare('SELECT owner_id, viewer_id, id FROM sharing_grants WHERE id = ? AND generation_id = ? AND revoked_at IS NULL').get(toUserId, generation) as { owner_id: string; viewer_id: string; id: string } | undefined;
+      if (grant) {
+        grantId = grant.id;
+        toUserId = grant.owner_id === fromUserId ? grant.viewer_id : grant.owner_id;
+      } else {
+        toUserId = undefined;
+      }
+    }
+  }
 
   if (!toUserId && grantId) {
     const grant = db.prepare('SELECT owner_id, viewer_id FROM sharing_grants WHERE id = ? AND generation_id = ? AND revoked_at IS NULL').get(grantId, generation) as { owner_id: string; viewer_id: string } | undefined;

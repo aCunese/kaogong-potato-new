@@ -44,17 +44,17 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
   React.useEffect(() => {
     if (note) {
       setHeartCount(note.hearts);
-      setRemarkInput(getCompanionRemark(note.fromUserId));
+      setRemarkInput(getCompanionRemark(note.fromUserId, note.grantId));
       setIsEditingRemark(false);
     }
   }, [note]);
 
   if (!isOpen || !note) return null;
 
-  const partnerDisplayName = getCompanionDisplayName(note.fromUserId, note.fromNickname);
+  const partnerDisplayName = getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
 
   const handleSaveRemark = () => {
-    setCompanionRemark(note.fromUserId, remarkInput);
+    setCompanionRemark(note.fromUserId, remarkInput, note.grantId);
     setIsEditingRemark(false);
     onToast?.(`已将研友备注名更新为「${remarkInput.trim() || note.fromNickname}」`);
   };

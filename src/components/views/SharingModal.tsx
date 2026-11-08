@@ -177,7 +177,7 @@ function SharingSession({
   const [isCustomizingTime, setIsCustomizingTime] = useState(false);
   const [customTimeInput, setCustomTimeInput] = useState('14:00');
   const [showScheduleGuide, setShowScheduleGuide] = useState(false);
-  const [noteTarget, setNoteTarget] = useState<{ id?: string; nickname: string } | null>(null);
+  const [noteTarget, setNoteTarget] = useState<{ id?: string; grantId?: string; nickname: string } | null>(null);
 
   const [pokeModalTarget, setPokeModalTarget] = useState<SharedGrant | null>(null);
   const [editingRemarkId, setEditingRemarkId] = useState<string | null>(null);
@@ -391,7 +391,16 @@ function SharingSession({
     finally { if (alive.current && serial === listRequest.current) setListLoading(false); }
   }
 
-  useEffect(() => { void loadList(); }, []);
+  useEffect(() => {
+    void loadList();
+    const interval = setInterval(() => { void loadList(); }, 12000);
+    const onFocus = () => { void loadList(); };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
 
   useEffect(() => {
     if (!createdCode) return;
@@ -518,15 +527,11 @@ function SharingSession({
                   </div>
                   <div className="min-w-0">
                     <span className="text-xs font-bold text-ink-main block truncate">{selectedNickname || '学习伙伴'}</span>
-                    <span className="text-[11px] text-ink-muted block truncate">
-                      {selectedGrant?.liveStatus?.state === 'focusing'
-                        ? `🟢 正在专注《${selectedGrant.liveStatus.focusTitle || '备考'}》`
-                        : selectedGrant?.liveStatus?.state === 'missed'
-                        ? `🟠 ${selectedGrant.liveStatus.missedText || '约定14:00未学'}`
-                        : selectedGrant?.liveStatus?.state === 'completed'
-                        ? '👏 今日任务已打卡完成'
-                        : `⏰ 约定 ${selectedGrant?.liveStatus?.scheduledTime || '14:00'} 学习`}
-                    </span>
+                    {selectedGrant?.liveStatus?.state === 'focusing' ? (
+                      <span className="text-[11px] text-emerald-700 font-medium block truncate">
+                        🟢 正在专注《{selectedGrant.liveStatus.focusTitle || '备考'}》{selectedGrant.liveStatus.focusMinutes ?? 0}m
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -859,7 +864,8 @@ function SharingSession({
                             },
                           },
                         ] as SharedGrant[]).map(grant => {
-                          const partnerDisplayName = getCompanionDisplayName(grant.id, grant.nickname);
+                          const partnerKey = grant.partnerId || grant.id;
+                          const partnerDisplayName = getCompanionDisplayName(partnerKey, grant.nickname, grant.id);
                           const isFocusing = grant.liveStatus?.state === 'focusing';
 
                           return (
@@ -886,7 +892,7 @@ function SharingSession({
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              setCompanionRemark(grant.id, remarkInput);
+                                              setCompanionRemark(partnerKey, remarkInput, grant.id);
                                               setEditingRemarkId(null);
                                               onToast?.(`已将备注更新为「${remarkInput.trim() || grant.nickname}」`);
                                             }}
@@ -905,7 +911,7 @@ function SharingSession({
                                             type="button"
                                             onClick={() => {
                                               setEditingRemarkId(grant.id);
-                                              setRemarkInput(getCompanionRemark(grant.id));
+                                              setRemarkInput(getCompanionRemark(partnerKey, grant.id));
                                             }}
                                             className="text-ink-muted hover:text-sage text-[10px] flex items-center gap-0.5"
                                             title="修改研友备注名"
@@ -921,28 +927,15 @@ function SharingSession({
                                     </div>
 
                                     {/* 规范排版的状态胶囊 */}
-                                    <div className="mt-1">
-                                      {grant.liveStatus?.state === 'focusing' ? (
+                                    {/* 状态胶囊：仅当好友在学习计时的时候显示其专注状态与内容，未计时证明没有学习，状态不显示 */}
+                                    {grant.liveStatus?.state === 'focusing' ? (
+                                      <div className="mt-1">
                                         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2 py-0.5">
                                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                          <span>🟢 专注《{grant.liveStatus.focusTitle || '备考'}》{grant.liveStatus.focusMinutes ?? 0}m</span>
+                                          <span>🟢 正在专注《{grant.liveStatus.focusTitle || '备考'}》{grant.liveStatus.focusMinutes ?? 0}m</span>
                                         </span>
-                                      ) : grant.liveStatus?.state === 'completed' ? (
-                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-sage bg-sage-light/40 border border-sage/20 rounded-lg px-2 py-0.5">
-                                          <span>👏 今日任务已打卡完成</span>
-                                        </span>
-                                      ) : grant.liveStatus?.state === 'missed' ? (
-                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-2 py-0.5">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                          <span>🟠 {grant.liveStatus.missedText || `约定 ${grant.liveStatus.scheduledTime || '14:00'} 未学`}</span>
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-muted bg-cream border border-line/80 rounded-lg px-2 py-0.5">
-                                          <Clock size={11} className="text-ink-muted" />
-                                          <span>约定 {grant.liveStatus?.scheduledTime || '14:00'} 学习 · 今日尚未开始</span>
-                                        </span>
-                                      )}
-                                    </div>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 </div>
                               </div>
@@ -972,7 +965,7 @@ function SharingSession({
                                   size="sm"
                                   variant="secondary"
                                   className="h-8 text-xs font-bold flex items-center justify-center gap-1 border-line"
-                                  onClick={() => setNoteTarget({ id: grant.id, nickname: partnerDisplayName })}
+                                  onClick={() => setNoteTarget({ id: grant.partnerId || grant.id, grantId: grant.id, nickname: partnerDisplayName })}
                                   title="给伙伴贴打气便签"
                                 >
                                   <MessageSquarePlus size={13} />
@@ -1050,6 +1043,7 @@ function SharingSession({
         <EditCompanionNoteModal
           isOpen={Boolean(noteTarget)}
           defaultRecipientId={noteTarget.id}
+          defaultGrantId={noteTarget.grantId}
           defaultRecipientNickname={noteTarget.nickname}
           onClose={() => setNoteTarget(null)}
           onNoteSent={() => {
@@ -1065,8 +1059,8 @@ function SharingSession({
           isOpen={Boolean(pokeModalTarget)}
           onClose={() => setPokeModalTarget(null)}
           partner={{
-            id: pokeModalTarget.id,
-            nickname: getCompanionDisplayName(pokeModalTarget.id, pokeModalTarget.nickname),
+            id: pokeModalTarget.partnerId || pokeModalTarget.id,
+            nickname: getCompanionDisplayName(pokeModalTarget.partnerId || pokeModalTarget.id, pokeModalTarget.nickname, pokeModalTarget.id),
             avatar: pokeModalTarget.avatar,
           }}
           onSend={handleSendCustomPoke}
@@ -1081,6 +1075,15 @@ function SharingSession({
           onClose={() => setIsHistoryModalOpen(false)}
           notes={companionNotes}
           currentUserId={userId}
+          onPinNoteToTop={(note) => {
+            try {
+              localStorage.removeItem(`kaogong_dismissed_note_${userId}_${note.id}`);
+              localStorage.removeItem(`kaogong_dismissed_note_guest_${note.id}`);
+              localStorage.removeItem(`kaogong_dismissed_note_${note.id}`);
+              localStorage.setItem(`kaogong_active_note_${userId}`, JSON.stringify(note));
+            } catch {}
+            onToast?.('📌 已将此便签设为今日置顶展示！');
+          }}
           onSendHeart={async (noteId) => {
             await fetch(`/api/sharing/notes/${noteId}/heart`, {
               method: 'POST',
@@ -1093,7 +1096,7 @@ function SharingSession({
             onToast?.('❤️ 已回赠爱心！');
           }}
           onReply={(note) => {
-            setNoteTarget({ id: note.fromUserId, nickname: note.fromNickname });
+            setNoteTarget({ id: note.fromUserId, grantId: note.grantId, nickname: note.fromNickname });
           }}
           onToast={onToast}
         />

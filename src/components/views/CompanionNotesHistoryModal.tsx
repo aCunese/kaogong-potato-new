@@ -152,7 +152,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
         ) : (
           <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-0.5">
             {currentList.map(note => {
-              const displayName = getCompanionDisplayName(note.fromUserId, note.fromNickname);
+              const displayName = getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
               const timeDisplay = formatNoteTime(note.createdAt);
 
               return (
