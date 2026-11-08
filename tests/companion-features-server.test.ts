@@ -146,9 +146,11 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.ok(note.imageUrl);
       assert.equal(note.hearts, 0);
 
-      // List notes
+      // List notes: receiver receives it, sender does NOT receive their own sent note
       const list = listCompanionNotes(receiver.id);
       assert.equal(list.notes.some(n => n.id === note.id), true);
+      const senderList = listCompanionNotes(sender.id);
+      assert.equal(senderList.notes.some(n => n.id === note.id), false);
 
       // Verify creating note when toUserId is accidentally passed as grantId
       const noteByGrant = createCompanionNote(sender.id, {
@@ -159,6 +161,8 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(noteByGrant.grantId, grantId);
       const listAfterGrantNote = listCompanionNotes(receiver.id);
       assert.equal(listAfterGrantNote.notes.some(n => n.id === noteByGrant.id), true);
+      const senderListAfterGrant = listCompanionNotes(sender.id);
+      assert.equal(senderListAfterGrant.notes.some(n => n.id === noteByGrant.id), false);
 
       // Heart the note
       const hearts1 = heartCompanionNote(receiver.id, note.id);

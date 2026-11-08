@@ -206,7 +206,7 @@ function SharingSession({
       })
         .then(res => res.ok ? res.json() : null)
         .then(data => {
-          if (data?.notes) setCompanionNotes(data.notes);
+          if (data?.notes) setCompanionNotes(data.notes.filter((n: CompanionNote) => n.fromUserId !== userId));
         })
         .catch(() => {});
     }

@@ -118,7 +118,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
     if (initialCompanionNote !== undefined) return initialCompanionNote;
     try {
       const cached = typeof window !== 'undefined' ? localStorage.getItem(userStorageKey) : null;
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed) {
+          if (currentUser && parsed.fromUserId === currentUser.id) {
+            try { localStorage.removeItem(userStorageKey); } catch {}
+            return null;
+          }
+          return parsed;
+        }
+      }
     } catch {}
     return DEFAULT_NOTE;
   };
@@ -266,33 +275,20 @@ export const TodayView: React.FC<TodayViewProps> = ({
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (Array.isArray(data?.notes) && data.notes.length > 0) {
-            setAllNotes(data.notes);
-            const incoming = data.notes.find((n: CompanionNote) => n.fromUserId !== currentUser.id);
-            if (incoming) {
+            const incomingNotes = data.notes.filter((n: CompanionNote) => n.fromUserId !== currentUser.id);
+            if (incomingNotes.length > 0) {
+              setAllNotes(incomingNotes);
+              const incoming = incomingNotes[0];
               setActiveNote(incoming);
               setBannerDismissed(isNoteDismissed(incoming.id));
               try { localStorage.setItem(userStorageKey, JSON.stringify(incoming)); } catch {}
             } else {
-              const cached = typeof window !== 'undefined' ? localStorage.getItem(userStorageKey) : null;
-              if (cached) {
-                try {
-                  const parsed = JSON.parse(cached);
-                  if (parsed && parsed.fromUserId !== currentUser.id) {
-                    setActiveNote(parsed);
-                    setBannerDismissed(isNoteDismissed(parsed.id));
-                  } else {
-                    setActiveNote(null);
-                    localStorage.removeItem(userStorageKey);
-                  }
-                } catch {
-                  setActiveNote(null);
-                }
-              } else {
-                setActiveNote(null);
-              }
+              setAllNotes([]);
+              setActiveNote(null);
+              try { localStorage.removeItem(userStorageKey); } catch {}
             }
           } else {
-            setAllNotes([DEFAULT_NOTE]);
+            setAllNotes([]);
             setActiveNote(null);
             try { localStorage.removeItem(userStorageKey); } catch {}
           }
@@ -352,6 +348,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   };
 
   const handlePinNoteToTop = (note: CompanionNote) => {
+    if (currentUser && note.fromUserId === currentUser.id) return;
     setActiveNote(note);
     try {
       const uid = currentUser?.id;

@@ -530,7 +530,7 @@ export function listCompanionNotes(userId: string): { ok: true; notes: Companion
            u.nickname AS from_nickname
     FROM companion_notes n
     JOIN users u ON u.id = n.from_user_id AND u.is_active = 1
-    WHERE n.to_user_id = ? OR n.from_user_id = ?
+    WHERE n.to_user_id = ? AND n.from_user_id <> ?
     ORDER BY n.created_at DESC
     LIMIT 30
   `).all(userId, userId) as {

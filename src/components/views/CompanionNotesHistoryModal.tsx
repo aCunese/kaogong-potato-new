@@ -62,6 +62,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
     const past: CompanionNote[] = [];
 
     for (const note of notes) {
+      if (currentUserId && note.fromUserId === currentUserId) continue;
       const noteDate = note.createdAt ? note.createdAt.slice(0, 10) : '';
       if (noteDate === effectiveToday) {
         today.push(note);
@@ -70,7 +71,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
       }
     }
     return { todayNotes: today, pastNotes: past };
-  }, [notes, effectiveToday]);
+  }, [notes, effectiveToday, currentUserId]);
 
   const handleTabChange = (tab: 'today' | 'past') => {
     setActiveTab(tab);

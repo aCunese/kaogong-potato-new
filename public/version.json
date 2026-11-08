@@ -1,6 +1,6 @@
 {
   "version": "1.2.6",
-  "build": "20261108.11",
+  "build": "20261108.12",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-08T09:35:00Z",
-  "summary": "统一全站学习伙伴称谓为「学友」（学友打气便签、学友实时学情、学友督学提醒信等）。"
+  "deployedAt": "2026-11-08T12:25:00Z",
+  "summary": "修复今日便签展示逻辑，确保只接收学友发来的打气便签而排除自己发送的便签。"
 }

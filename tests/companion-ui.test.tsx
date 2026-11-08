@@ -210,6 +210,15 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
         createdAt: new Date().toISOString(),
       },
       {
+        id: 'n-self',
+        fromUserId: 'u1',
+        fromNickname: '我',
+        fromAvatar: 'pose-0',
+        message: '我自己发给学友的便签不应该出现在我自己的便签箱中',
+        hearts: 0,
+        createdAt: new Date().toISOString(),
+      },
+      {
         id: 'n-past',
         fromUserId: 'u2',
         fromNickname: '阿土',
@@ -234,6 +243,7 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(html).toContain('今日便签');
     expect(html).toContain('往常便签回忆');
     expect(html).toContain('今天行测真题冲80分！');
+    expect(html).not.toContain('我自己发给学友的便签不应该出现在我自己的便签箱中');
     expect(html).toContain('置顶展示');
     expect(html).toContain('回赠爱心');
   });
