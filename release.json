@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261108.03",
+  "webBuild": "20261108.04",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-07T17:05:00Z",
-  "summary": "优化研友督学打卡邮件反垃圾策略与合规投递机制，去除垃圾拦截词与硬编码密钥，升级生产环境部署。"
+  "deployedAt": "2026-11-08T00:20:00Z",
+  "summary": "优化研友便签入口与戳一戳督学规则说明，修复今日视图便签遮挡与学情标签切换闪烁问题，支持自定义每日最晚约定学习时间。"
 }

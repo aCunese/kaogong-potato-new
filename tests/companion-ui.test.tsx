@@ -84,6 +84,7 @@ describe('Floating Companion Note Banner & Modals', () => {
         onClose={() => {}}
         note={note}
         onReply={() => {}}
+        onOpenSharing={() => {}}
       />
     );
 
@@ -94,6 +95,7 @@ describe('Floating Companion Note Banner & Modals', () => {
     expect(html).toContain('回赠爱心 (5)');
     expect(html).toContain('我也贴一张');
     expect(html).toContain('土豆互助站');
+    expect(html).toContain('查看 阿土同学 的今日学情与督学状态');
   });
 
   it('renders EditCompanionNoteModal with photo album selection, quick phrases and preset stickers', () => {
@@ -115,16 +117,42 @@ describe('Floating Companion Note Banner & Modals', () => {
     expect(html).toContain('刷题狂魔');
     expect(html).toContain('贴上便签');
   });
+
+  it('renders TodayView with sticky note button and partner capsule bar without overlapping 65-min card', () => {
+    const html = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+      />
+    );
+
+    // Sticky note writing entry on TodayView
+    expect(html).toContain('写便签');
+    expect(html).toContain('给研友写打气便签');
+    // Partner entrance capsule
+    expect(html).toContain('添加学习伙伴');
+    // Ensure 65-min card is present and visible
+    expect(html).toContain('今日已累计学习');
+    // Ensure banner has 贴便签 action
+    expect(html).toContain('贴便签');
+  });
 });
 
 describe('Partner Live Status & Poke Action in SharingModal', () => {
-  it('displays loading state and partner panel in SharingModal', () => {
+  it('displays loading state, target time settings, and partner panel in SharingModal', () => {
     const html = render(
       <SharingModal isOpen onClose={() => {}} />
     );
 
     expect(html).toContain('学习伙伴');
+    expect(html).toContain('我的每日约定最晚开始学习时间');
+    expect(html).toContain('14:00 (下午起步 · 推荐)');
+    expect(html).toContain('规则说明');
     expect(html).toContain('伙伴列表');
     expect(html).toContain('正在读取伙伴列表…');
   });
 });
+

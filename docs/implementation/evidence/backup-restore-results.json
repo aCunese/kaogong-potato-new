@@ -1,11 +1,11 @@
 {
-  "runId": "backup_1793201144555_c9bbca",
-  "checkedAt": "2026-10-28T15:25:47.894Z",
-  "seedDataDir": "/tmp/potato-backup-audit-Mm5DvM/seed-data",
-  "restoreDataDir": "/tmp/potato-backup-audit-Mm5DvM/restore-data",
-  "archivePath": "/tmp/potato-backup-audit-Mm5DvM/seed-data/backups/backup_20261029_002545.tar.gz",
-  "archiveSize": 8655,
-  "gitHead": "4ad8c561846c59929132fbfaa30db4b48de99b96",
+  "runId": "backup_1794097245762_c1dace",
+  "checkedAt": "2026-11-08T00:20:48.531Z",
+  "seedDataDir": "/tmp/potato-backup-audit-dJy58y/seed-data",
+  "restoreDataDir": "/tmp/potato-backup-audit-dJy58y/restore-data",
+  "archivePath": "/tmp/potato-backup-audit-dJy58y/seed-data/backups/backup_20261108_092046.tar.gz",
+  "archiveSize": 9526,
+  "gitHead": "c6c2f296e47f6e12b1810b403d8bb81fea09f81d",
   "integrity": {
     "integrity": "ok",
     "workspaces": 1,
@@ -13,7 +13,7 @@
     "seedVersion": 1,
     "mediaCount": 1,
     "sessions": 0,
-    "generation": "gen_1793201146090_9b401576bc7d2baa"
+    "generation": "gen_1794097247189_27a93ff87ed3cef4"
   },
   "dockerAvailable": true,
   "resticAvailable": false,
@@ -45,7 +45,7 @@
       "passed": true,
       "detail": {
         "status": 200,
-        "id": "media_1793201145059_9e024a67eb59"
+        "id": "media_1794097246232_f62383bda53b"
       }
     },
     {
@@ -60,8 +60,8 @@
       "name": "backup: backup.sh produced a tar.gz archive",
       "passed": true,
       "detail": {
-        "archivePath": "/tmp/potato-backup-audit-Mm5DvM/seed-data/backups/backup_20261029_002545.tar.gz",
-        "size": 8655
+        "archivePath": "/tmp/potato-backup-audit-dJy58y/seed-data/backups/backup_20261108_092046.tar.gz",
+        "size": 9526
       }
     },
     {
@@ -87,7 +87,7 @@
         "seedVersion": 1,
         "mediaCount": 1,
         "sessions": 0,
-        "generation": "gen_1793201146090_9b401576bc7d2baa"
+        "generation": "gen_1794097247189_27a93ff87ed3cef4"
       }
     },
     {
@@ -100,7 +100,7 @@
         "seedVersion": 1,
         "mediaCount": 1,
         "sessions": 0,
-        "generation": "gen_1793201146090_9b401576bc7d2baa"
+        "generation": "gen_1794097247189_27a93ff87ed3cef4"
       }
     },
     {
@@ -115,15 +115,15 @@
       "passed": true,
       "detail": {
         "revision": 2,
-        "image": "/api/media/media_1793201145059_9e024a67eb59"
+        "image": "/api/media/media_1794097246232_f62383bda53b"
       }
     },
     {
       "name": "restore: generation rotated after restore",
       "passed": true,
       "detail": {
-        "before": "gen_1793201144746_457750b504ab7348",
-        "after": "gen_1793201146090_9b401576bc7d2baa"
+        "before": "gen_1794097245921_afca5ede5690a35d",
+        "after": "gen_1794097247189_27a93ff87ed3cef4"
       }
     },
     {

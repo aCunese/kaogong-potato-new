@@ -4,6 +4,7 @@ import {
   cancelSharingCode, createSharingCode, getSharedStudyOverview, listSharingGrants,
   redeemSharingCode, revokeSharingGrant, SharingError,
   pokeCompanion, listCompanionNotes, createCompanionNote, heartCompanionNote,
+  getCompanionSettings, updateCompanionSettings,
 } from './sharing';
 
 export const sharingRouter = Router();
@@ -73,3 +74,10 @@ sharingRouter.post('/api/sharing/notes', limited('notes_post', 30, 100), handle(
 sharingRouter.post('/api/sharing/notes/:id/heart', limited('notes_heart', 120, 300, 60_000), handle((req, res) => {
   res.json({ ok: true, hearts: heartCompanionNote(req.user!.id, String(req.params.id)) });
 }));
+sharingRouter.get('/api/sharing/settings', limited('settings_get', 120, 300, 60_000), handle((req, res) => {
+  res.json({ ok: true, ...getCompanionSettings(req.user!.id) });
+}));
+sharingRouter.put('/api/sharing/settings', limited('settings_put', 30, 100), handle((req, res) => {
+  res.json({ ok: true, ...updateCompanionSettings(req.user!.id, String(req.body?.targetStudyTime || '')) });
+}));
+

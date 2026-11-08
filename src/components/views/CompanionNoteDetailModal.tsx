@@ -9,6 +9,7 @@ export interface CompanionNoteDetailModalProps {
   onClose: () => void;
   note: CompanionNote | null;
   onReply: (note: CompanionNote) => void;
+  onOpenSharing?: () => void;
   onToast?: (message: string) => void;
 }
 
@@ -17,6 +18,7 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
   onClose,
   note,
   onReply,
+  onOpenSharing,
   onToast,
 }) => {
   const { csrfToken } = useApp();
@@ -153,6 +155,21 @@ export const CompanionNoteDetailModal: React.FC<CompanionNoteDetailModalProps> =
             <span>我也贴一张</span>
           </Button>
         </div>
+
+        {/* 研友学情与督学直达 */}
+        {onOpenSharing && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenSharing();
+            }}
+            className="w-full py-2 px-3 rounded-xl border border-sage/25 bg-sage-light/25 hover:bg-sage-light/40 text-sage-dark text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-[0.99]"
+          >
+            <span>👥</span>
+            <span>查看 {note.fromNickname} 的今日学情与督学状态</span>
+          </button>
+        )}
       </div>
     </Modal>
   );

@@ -6,13 +6,15 @@ import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { StudyRecordItem } from '../common/StudyRecordItem';
 import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
-import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList, ChevronUp } from 'lucide-react';
+import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList, ChevronUp, Zap } from 'lucide-react';
 import { Plan, StudyRecord, MutationResult, TimerMode, getSubjectLabel } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
 import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs, getStudyRecordName, studyDateLabel } from '../../utils/workflowPresentation';
 import { CompanionNoteDetailModal } from './CompanionNoteDetailModal';
 import { EditCompanionNoteModal } from './EditCompanionNoteModal';
+import { SharingModal } from './SharingModal';
 import type { CompanionNote } from '../../types/companionNote';
+import type { SharedGrant } from '../../types/sharing';
 
 interface TodayViewProps {
   forcedMode?: 'normal' | 'empty' | 'multi';
@@ -24,6 +26,7 @@ interface TodayViewProps {
   onAddCountdown: () => void;
   onOpenDeleteConfirm?: (plan: Plan) => void;
   onOpenProfile?: () => void;
+  onOpenSharing?: () => void;
   showProfileBar?: boolean;
   onToast?: (msg: string) => void;
   initialCompanionNote?: CompanionNote | null;
@@ -39,11 +42,12 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onAddCountdown,
   onOpenDeleteConfirm,
   onOpenProfile,
+  onOpenSharing,
   showProfileBar = false,
   onToast,
   initialCompanionNote,
 }) => {
-  const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser } = useApp();
+  const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser, csrfToken } = useApp();
   const [, setTick] = useState(0);
   const [subView, setSubView] = useState<'main' | 'study-records'>('main');
   const [recordsDate, setRecordsDate] = useState<string | undefined>(undefined);
@@ -103,6 +107,86 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const touchStartTime = useRef<number>(0);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  const [partner, setPartner] = useState<SharedGrant | null>(null);
+  const [poking, setPoking] = useState(false);
+  const [pokeCooldown, setPokeCooldown] = useState(0);
+  const [localSharingOpen, setLocalSharingOpen] = useState(false);
+  const openSharing = () => {
+    if (!currentUser) {
+      onToast?.('请先登录账号后再管理学习伙伴');
+      return;
+    }
+    if (onOpenSharing) onOpenSharing();
+    else setLocalSharingOpen(true);
+  };
+
+  useEffect(() => {
+    if (pokeCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setPokeCooldown(c => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [pokeCooldown]);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetch('/api/sharing/grants')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (Array.isArray(data?.received) && data.received.length > 0) {
+            setPartner(data.received[0]);
+          } else {
+            // Default demo partner for companion experience
+            setPartner({
+              id: 'demo-atu',
+              nickname: '阿土同学',
+              createdAt: new Date().toISOString(),
+              liveStatus: {
+                state: 'focusing',
+                focusTitle: '行测真题 5000 题',
+                focusMinutes: 34,
+                scheduledTime: '14:00',
+                canPoke: false,
+              },
+            });
+          }
+        })
+        .catch(() => {});
+    } else {
+      setPartner(null);
+    }
+  }, [currentUser]);
+
+  const handleTodayPoke = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!partner || poking || pokeCooldown > 0) return;
+    setPoking(true);
+    try {
+      if (partner.id.startsWith('demo-')) {
+        await new Promise(r => setTimeout(r, 400));
+        setPokeCooldown(1800);
+        onToast?.(`⚡️ 已向「${partner.nickname}」发送催学提醒邮件！`);
+        return;
+      }
+      const res = await fetch('/api/sharing/nudge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+        },
+        body: JSON.stringify({ grantId: partner.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || '催学提醒发送失败');
+      setPokeCooldown(data.cooldownSeconds || 1800);
+      onToast?.(data.message || `⚡️ 已向「${partner.nickname}」发送催学邮件！`);
+    } catch (err: any) {
+      onToast?.(err.message || '催学提醒发送失败');
+    } finally {
+      setPoking(false);
+    }
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -247,14 +331,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   return (
     <div className="relative space-y-4 pb-24">
-      {/* 悬浮打气便签 (Floating Banner) */}
-      {/* 绝对定位悬浮在最上空，不推挤或破坏原有的65分钟大卡片、倒数日与日程列表 */}
+      {/* 悬浮打气便签 (Floating Banner) - 顶部自然排版，不覆盖下方 0 分钟卡片 */}
       {!bannerDismissed && activeNote && (
         <div
           role="banner"
           aria-label="研友打气便签"
-          className={`absolute top-0 left-0 right-0 z-30 transition-all duration-300 ease-out select-none ${
-            isDismissing ? '-translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
+          className={`transition-all duration-300 ease-out select-none mb-2 ${
+            isDismissing ? '-translate-y-4 opacity-0 max-h-0 pointer-events-none' : 'translate-y-0 opacity-100'
           }`}
           style={
             swipeOffsetY < 0
@@ -266,7 +349,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
           onTouchEnd={handleTouchEnd}
           onClick={handleBannerClick}
         >
-          <div className="mx-0.5 bg-gradient-to-r from-[#FFFDF9] via-[#FAF7EE] to-[#F2F7EB] border border-[#DEE7D4] rounded-2xl p-2.5 shadow-lg backdrop-blur-md flex items-center justify-between gap-3 cursor-pointer hover:shadow-xl transition-all active:scale-[0.99]">
+          <div className="mx-0.5 bg-gradient-to-r from-[#FFFDF9] via-[#FAF7EE] to-[#F2F7EB] border border-[#DEE7D4] rounded-2xl p-2.5 shadow-md backdrop-blur-md flex items-center justify-between gap-2.5 cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]">
             <div className="flex items-center gap-2.5 min-w-0">
               {activeNote.imageUrl ? (
                 <img
@@ -286,7 +369,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                     打气便签
                   </span>
                 </div>
-                <p className="text-xs text-ink-muted truncate mt-0.5 max-w-[210px]">
+                <p className="text-xs text-ink-muted truncate mt-0.5 max-w-[200px]">
                   {activeNote.message || '给你贴了一张考公打气表情包！'}
                 </p>
               </div>
@@ -295,9 +378,18 @@ export const TodayView: React.FC<TodayViewProps> = ({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setDetailModalOpen(true); }}
-                className="px-2.5 py-1 rounded-xl bg-sage/15 text-sage text-xs font-bold hover:bg-sage/25 transition-colors"
+                className="px-2.5 py-1.5 rounded-xl bg-sage/15 text-sage text-xs font-bold hover:bg-sage/25 transition-colors"
               >
                 查看
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setEditModalOpen(true); }}
+                className="px-2.5 py-1.5 rounded-xl bg-[#EBF1E6] text-sage-dark text-xs font-bold hover:bg-[#DEE8D6] transition-colors flex items-center gap-1"
+                title="我也贴一张打气便签"
+              >
+                <span>💌</span>
+                <span>贴便签</span>
               </button>
               <button
                 type="button"
@@ -313,21 +405,81 @@ export const TodayView: React.FC<TodayViewProps> = ({
         </div>
       )}
 
-      {/* 收起后的紧凑轻量重新展开入口 */}
-      {bannerDismissed && activeNote && (
-        <div className="flex justify-end -mb-2">
+      {/* 研友胶囊状态栏与贴便签入口 */}
+      <div className="flex items-center justify-between gap-2 px-0.5 mb-1">
+        {partner ? (
+          <div
+            onClick={openSharing}
+            className="flex-1 min-w-0 flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer"
+            title="点击进入学习伙伴查看学情"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${
+                partner.liveStatus?.state === 'focusing'
+                  ? 'bg-emerald-500 animate-pulse'
+                  : partner.liveStatus?.state === 'missed'
+                  ? 'bg-amber-500'
+                  : 'bg-sage'
+              }`} />
+              <span className="text-xs font-bold text-ink-main shrink-0">{partner.nickname}</span>
+              <span className="text-[11px] text-ink-muted truncate">
+                {partner.liveStatus?.state === 'focusing'
+                  ? `专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
+                  : partner.liveStatus?.state === 'missed'
+                  ? (partner.liveStatus.missedText || `约定 ${partner.liveStatus.scheduledTime || '14:00'} 未学`)
+                  : partner.liveStatus?.state === 'completed'
+                  ? '今日打卡完成 👏'
+                  : `约定 ${partner.liveStatus?.scheduledTime || '14:00'} 学习`}
+              </span>
+            </div>
+
+            {partner.liveStatus?.state === 'missed' && (
+              <button
+                type="button"
+                onClick={handleTodayPoke}
+                disabled={poking || pokeCooldown > 0}
+                className="shrink-0 px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] flex items-center gap-0.5 shadow-2xs transition active:scale-95 disabled:opacity-50"
+                title="戳一下提醒研友学习"
+              >
+                <Zap size={11} className="fill-current" />
+                <span>{poking ? '发送中' : pokeCooldown > 0 ? `${Math.ceil(pokeCooldown / 60)}分` : '戳一下'}</span>
+              </button>
+            )}
+          </div>
+        ) : (
           <button
             type="button"
-            onClick={() => setBannerDismissed(false)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FAF7EE] border border-[#DEE7D4] text-xs font-medium text-sage hover:bg-[#F2F7EB] shadow-2xs transition-all active:scale-95"
-            aria-label="重新展开打气便签"
+            onClick={openSharing}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition"
+          >
+            <span>👥</span>
+            <span>添加学习伙伴</span>
+          </button>
+        )}
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setEditModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-paper border border-[#DEE7D4] text-xs font-bold text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+            title="给研友写打气便签"
           >
             <span>💌</span>
-            <span>打气便签</span>
-            {activeNote.hearts > 0 && <span className="text-[#C04940] text-[10px]">❤️{activeNote.hearts}</span>}
+            <span>写便签</span>
           </button>
+          {bannerDismissed && activeNote && (
+            <button
+              type="button"
+              onClick={() => setBannerDismissed(false)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] text-xs font-medium text-sage hover:bg-[#F2F7EB] shadow-2xs transition active:scale-95"
+              aria-label="重新展开打气便签"
+            >
+              <span>便签</span>
+              {activeNote.hearts > 0 && <span className="text-[#C04940] text-[10px]">❤️{activeNote.hearts}</span>}
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {errorMsg && <div role="alert" className="p-3 text-xs text-alarm bg-alarm-light rounded-xl">{errorMsg}</div>}
       {/* 顶部个人状态条（如开启展示） */}
@@ -626,16 +778,23 @@ export const TodayView: React.FC<TodayViewProps> = ({
         onClose={() => setDetailModalOpen(false)}
         note={activeNote}
         onReply={() => setEditModalOpen(true)}
+        onOpenSharing={openSharing}
         onToast={onToast}
       />
       <EditCompanionNoteModal
         isOpen={editModalOpen}
         onClose={() => setEditModalOpen(false)}
-        defaultRecipientNickname={activeNote?.fromNickname || '学习伙伴'}
-        defaultRecipientId={activeNote?.fromUserId}
+        defaultRecipientNickname={partner?.nickname || activeNote?.fromNickname || '学习伙伴'}
+        defaultRecipientId={partner?.id || activeNote?.fromUserId}
         onNoteSent={note => {
-          onToast?.(`已成功为 ${activeNote?.fromNickname || '研友'} 贴上打气便签！💌`);
+          onToast?.(`已成功为 ${partner?.nickname || activeNote?.fromNickname || '研友'} 贴上打气便签！💌`);
         }}
+        onToast={onToast}
+      />
+      <SharingModal
+        key={`today-sharing:${currentUser?.id ?? 'guest'}`}
+        isOpen={localSharingOpen && Boolean(currentUser)}
+        onClose={() => setLocalSharingOpen(false)}
         onToast={onToast}
       />
     </div>

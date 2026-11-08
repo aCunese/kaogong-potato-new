@@ -1,11 +1,11 @@
 {
-  "runId": "run-20261028-152526-bbf212",
-  "checkedAt": "2026-10-28T15:25:44.348Z",
-  "baseUrl": "http://127.0.0.1:52697",
-  "dataDir": "/tmp/run-20261028-152526-bbf212-vW29Rj/data",
+  "runId": "run-20261108-002027-5d83fd",
+  "checkedAt": "2026-11-08T00:20:45.623Z",
+  "baseUrl": "http://127.0.0.1:50722",
+  "dataDir": "/tmp/run-20261108-002027-5d83fd-ovegdq/data",
   "webBuild": {
-    "version": "1.0.11",
-    "build": "20261029.01",
+    "version": "1.2.6",
+    "build": "20261108.03",
     "schemaVersion": 5,
     "apkVersion": "1.0.5",
     "apkVersionCode": 6,
@@ -15,12 +15,12 @@
     "apkPackageName": "com.ruyne.kaogong",
     "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
     "apkReleased": true,
-    "deployedAt": "2026-10-28T15:21:14Z",
-    "summary": "今日日程已完成卡片瘦身与「只看未完成」开关；学习登记记录改为按日期查看，当天日程、补登记与当天登记合并；学习提醒邮箱管理收进二级弹窗，提醒列表紧凑化、历史记录按日期分组并可筛选",
-    "servedAt": "2026-10-28T15:25:44.350Z",
-    "nonce": "run-20261028-152526-bbf212"
+    "deployedAt": "2026-11-07T17:05:00Z",
+    "summary": "优化研友督学打卡邮件反垃圾策略与合规投递机制，去除垃圾拦截词与硬编码密钥，升级生产环境部署。",
+    "servedAt": "2026-11-08T00:20:45.624Z",
+    "nonce": "run-20261108-002027-5d83fd"
   },
-  "gitHead": "4ad8c561846c59929132fbfaa30db4b48de99b96",
+  "gitHead": "c6c2f296e47f6e12b1810b403d8bb81fea09f81d",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1793201142697_68442edcc46f"
+        "image": "/api/media/media_1794097243976_b218e03dbe08"
       }
     },
     {

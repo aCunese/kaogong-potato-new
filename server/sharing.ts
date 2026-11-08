@@ -52,6 +52,11 @@ export function initSharingSchema(db: Database): void {
       grant_id TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS companion_settings (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      target_study_time TEXT NOT NULL DEFAULT '14:00',
+      updated_at TEXT NOT NULL
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sharing_active_pair
       ON sharing_grants(owner_id, viewer_id, generation_id) WHERE revoked_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_sharing_codes_owner ON sharing_codes(owner_id, generation_id);
@@ -129,6 +134,26 @@ export function redeemSharingCode(viewerId: string, value: unknown): SharedGrant
   }).immediate();
 }
 
+export function getCompanionSettings(userId: string): { targetStudyTime: string } {
+  const db = getDb();
+  const row = db.prepare('SELECT target_study_time FROM companion_settings WHERE user_id = ?').get(userId) as { target_study_time: string } | undefined;
+  return { targetStudyTime: row?.target_study_time || '14:00' };
+}
+
+export function updateCompanionSettings(userId: string, targetStudyTime: string): { targetStudyTime: string } {
+  if (!/^\d{2}:\d{2}$/.test(targetStudyTime)) {
+    throw new SharingError(400, 'INVALID_TIME', '约定时间格式必须为 HH:mm（如 14:00）');
+  }
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO companion_settings (user_id, target_study_time, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET target_study_time = excluded.target_study_time, updated_at = excluded.updated_at
+  `).run(userId, targetStudyTime, now);
+  return { targetStudyTime };
+}
+
 function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: string): PartnerLiveStatus {
   let state: AppState | null = null;
   const wsRow = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(ownerId) as { state_json: string } | undefined;
@@ -150,66 +175,104 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
     }
   }
 
-  const now = Date.now();
+  // 1. Determine target scheduled time (约定学习时间)
+  let scheduledTime = '14:00';
+  const settingRow = db.prepare('SELECT target_study_time FROM companion_settings WHERE user_id = ?').get(ownerId) as { target_study_time: string } | undefined;
+  if (settingRow?.target_study_time && /^\d{2}:\d{2}$/.test(settingRow.target_study_time)) {
+    scheduledTime = settingRow.target_study_time;
+  } else if (state?.profile && (state.profile as any).targetStudyTime && /^\d{2}:\d{2}$/.test((state.profile as any).targetStudyTime)) {
+    scheduledTime = (state.profile as any).targetStudyTime;
+  } else {
+    // Check if there is an active reminder for today
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const reminder = db.prepare(`
+      SELECT send_at FROM email_reminders
+      WHERE user_id = ? AND send_at >= ? AND send_at <= ?
+      ORDER BY send_at ASC LIMIT 1
+    `).get(ownerId, todayStart.getTime(), todayEnd.getTime()) as { send_at: number } | undefined;
+
+    if (reminder) {
+      const d = new Date(reminder.send_at);
+      scheduledTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+  }
+
+  const [schedH, schedM] = scheduledTime.split(':').map(Number);
+  const now = new Date();
+  const currentH = now.getHours();
+  const currentM = now.getMinutes();
+
+  // 2. Check study progress today
   if (state) {
+    // If a timer is currently running:
     const runningPlan = state.plans?.find(p => !p.done && (p.timerStart > 0 || (p.restStart ?? 0) > 0));
     if (runningPlan) {
       const elapsedMs = runningPlan.timerStart
-        ? (runningPlan.accumulatedMs ?? 0) + Math.max(0, now - runningPlan.timerStart)
+        ? (runningPlan.accumulatedMs ?? 0) + Math.max(0, Date.now() - runningPlan.timerStart)
         : (runningPlan.accumulatedMs ?? 0);
       const minutes = Math.max(1, Math.floor(elapsedMs / 60000));
-      const focusTitle = runningPlan.name || '备考计划';
       return {
         state: 'focusing',
-        focusTitle,
+        focusTitle: runningPlan.name || '备考计划',
         focusMinutes: minutes,
+        scheduledTime,
         hasEmailBinding: Boolean(binding?.email),
-        canPoke,
+        canPoke: false,
         cooldownSeconds,
       };
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = now.toISOString().slice(0, 10);
     const todayPlans = state.plans?.filter(p => p.date === todayStr) ?? [];
-    const hasUnfinished = todayPlans.some(p => !p.done);
+    const todayRecords = state.records?.filter(r => r.date === todayStr) ?? [];
+    const totalMinutesToday = Math.round(
+      todayPlans.reduce((sum, p) => sum + (p.accumulatedMs || 0), 0) / 60000 +
+      todayRecords.reduce((sum, r) => sum + (r.minutes || 0), 0)
+    );
 
-    const reminder = db.prepare(`
-      SELECT title, send_at FROM email_reminders
-      WHERE user_id = ? AND send_at <= ?
-      ORDER BY send_at DESC LIMIT 1
-    `).get(ownerId, now) as { title: string; send_at: number } | undefined;
-
-    if (reminder && now - reminder.send_at >= 30 * 60 * 1000) {
-      const overdueHours = Math.max(1, Math.round((now - reminder.send_at) / 3600000));
-      const dateObj = new Date(reminder.send_at);
-      const timeStr = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
-      return {
-        state: 'missed',
-        scheduledTime: timeStr,
-        overdueHours,
-        missedText: `约定 ${timeStr} 学习，已超 ${overdueHours} 小时未学`,
-        hasEmailBinding: Boolean(binding?.email),
-        canPoke,
-        cooldownSeconds,
-      };
-    }
-
-    if (hasUnfinished) {
-      const overdueHours = Math.max(1, Math.abs(new Date().getHours() - 14) || 2);
-      return {
-        state: 'missed',
-        scheduledTime: '14:00',
-        overdueHours,
-        missedText: `约定 14:00 学习，已超 ${overdueHours} 小时未学`,
-        hasEmailBinding: Boolean(binding?.email),
-        canPoke,
-        cooldownSeconds,
-      };
-    }
-
+    // If all today's plans are done
     if (todayPlans.length > 0 && todayPlans.every(p => p.done)) {
       return {
         state: 'completed',
+        scheduledTime,
+        missedText: '今日任务已打卡完成 👏',
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke: false,
+        cooldownSeconds,
+      };
+    }
+
+    // If user has studied some minutes today already
+    if (totalMinutesToday > 0) {
+      return {
+        state: 'focusing',
+        focusTitle: `今日已学习 ${totalMinutesToday} 分钟`,
+        focusMinutes: totalMinutesToday,
+        scheduledTime,
+        hasEmailBinding: Boolean(binding?.email),
+        canPoke: false,
+        cooldownSeconds,
+      };
+    }
+
+    // Partner has unfinished plans and 0 minutes studied today:
+    const hasUnfinished = todayPlans.some(p => !p.done);
+    if (hasUnfinished) {
+      const isPastScheduled = currentH > schedH || (currentH === schedH && currentM >= schedM);
+      const overdueHours = isPastScheduled ? Math.max(1, currentH - schedH) : 0;
+      const missedText = isPastScheduled
+        ? `约定 ${scheduledTime} 学习，已超 ${overdueHours} 小时未学`
+        : `约定 ${scheduledTime} 学习，今日尚未开始`;
+
+      return {
+        state: 'missed',
+        scheduledTime,
+        overdueHours: isPastScheduled ? overdueHours : undefined,
+        missedText,
         hasEmailBinding: Boolean(binding?.email),
         canPoke,
         cooldownSeconds,
@@ -217,13 +280,19 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
     }
   }
 
+  const isPastScheduled = currentH > schedH || (currentH === schedH && currentM >= schedM);
+  const overdueHours = isPastScheduled ? Math.max(1, currentH - schedH) : 0;
+  const missedText = isPastScheduled
+    ? `约定 ${scheduledTime} 学习，已超 ${overdueHours} 小时未学`
+    : `约定 ${scheduledTime} 学习，今日尚未开始`;
+
   return {
-    state: 'missed',
-    scheduledTime: '14:00',
-    overdueHours: 2,
-    missedText: '约定 14:00 学习，已超 2 小时未学',
+    state: isPastScheduled ? 'missed' : 'idle',
+    scheduledTime,
+    overdueHours: isPastScheduled ? overdueHours : undefined,
+    missedText,
     hasEmailBinding: Boolean(binding?.email),
-    canPoke,
+    canPoke: isPastScheduled ? canPoke : false,
     cooldownSeconds,
   };
 }

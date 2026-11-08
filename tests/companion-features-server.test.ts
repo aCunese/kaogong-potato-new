@@ -311,6 +311,39 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(data2.code, 'NUDGE_COOLDOWN');
     });
 
+    await t.test('companion settings get and put target study time', async () => {
+      const user = createUser('自律土豆');
+
+      // Default is 14:00
+      const getRes1 = await fetch(`${base}/api/sharing/settings`, { headers: user.headers });
+      assert.equal(getRes1.status, 200);
+      const data1 = await getRes1.json() as any;
+      assert.equal(data1.targetStudyTime, '14:00');
+
+      // Update to 10:00
+      const putRes = await fetch(`${base}/api/sharing/settings`, {
+        method: 'PUT',
+        headers: user.headers,
+        body: JSON.stringify({ targetStudyTime: '10:00' }),
+      });
+      assert.equal(putRes.status, 200);
+      const data2 = await putRes.json() as any;
+      assert.equal(data2.targetStudyTime, '10:00');
+
+      // Verify update persisted
+      const getRes2 = await fetch(`${base}/api/sharing/settings`, { headers: user.headers });
+      const data3 = await getRes2.json() as any;
+      assert.equal(data3.targetStudyTime, '10:00');
+
+      // Invalid format rejected
+      const putBad = await fetch(`${base}/api/sharing/settings`, {
+        method: 'PUT',
+        headers: user.headers,
+        body: JSON.stringify({ targetStudyTime: 'invalid' }),
+      });
+      assert.equal(putBad.status, 400);
+    });
+
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
