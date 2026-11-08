@@ -33,6 +33,7 @@ interface TodayViewProps {
   showProfileBar?: boolean;
   onToast?: (msg: string) => void;
   initialCompanionNote?: CompanionNote | null;
+  initialPartner?: SharedGrant | null;
 }
 
 export const TodayView: React.FC<TodayViewProps> = ({
@@ -49,6 +50,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   showProfileBar = false,
   onToast,
   initialCompanionNote,
+  initialPartner,
 }) => {
   const { state, activeDate, startTimer, pauseTimer, deletePlan, currentUser, csrfToken } = useApp();
   const [, setTick] = useState(0);
@@ -142,7 +144,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [pokeModalOpen, setPokeModalOpen] = useState(false);
 
-  const [partner, setPartner] = useState<SharedGrant | null>(null);
+  const [partner, setPartner] = useState<SharedGrant | null>(initialPartner ?? null);
   const [poking, setPoking] = useState(false);
   const [pokeCooldown, setPokeCooldown] = useState(0);
   const [localSharingOpen, setLocalSharingOpen] = useState(false);
@@ -558,23 +560,23 @@ export const TodayView: React.FC<TodayViewProps> = ({
       )}
 
       {/* 研友胶囊状态栏与便签箱/贴便签入口 */}
-      <div className="flex items-center justify-between gap-2 px-0.5 mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-0.5 mb-1">
         {partner ? (
           <div
             onClick={openSharing}
-            className="flex-1 min-w-0 flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer"
+            className="flex-1 min-w-[200px] sm:min-w-[240px] flex items-center justify-between gap-2 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 hover:bg-cream hover:border-sage/40 transition active:scale-[0.99] cursor-pointer overflow-hidden shadow-2xs"
             title="点击进入学习伙伴查看学情"
           >
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
               <span className={`w-2 h-2 rounded-full shrink-0 ${
                 partner.liveStatus?.state === 'focusing'
                   ? 'bg-emerald-500 animate-pulse'
                   : 'bg-ink-muted/30'
               }`} />
-              <span className="text-xs font-bold text-ink-main shrink-0">
+              <span className="text-xs font-bold text-ink-main truncate max-w-[80px] sm:max-w-[120px] shrink-0">
                 {getCompanionDisplayName(partner.id, partner.nickname)}
               </span>
-              <span className="text-[11px] text-ink-muted truncate">
+              <span className="text-[11px] text-ink-muted truncate min-w-0 flex-1">
                 {partner.liveStatus?.state === 'focusing'
                   ? `🟢 正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
                   : '未在学习'}
@@ -583,9 +585,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
             {partner.liveStatus?.state === 'focusing' ? (
               <span
-                className="shrink-0 px-2 py-0.5 rounded-lg bg-cream/80 text-ink-muted/60 font-medium text-[10px] flex items-center gap-0.5 border border-line/50"
+                className="shrink-0 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 border border-emerald-200/80 shadow-2xs"
                 title="研友正在专注学习中，请勿打扰"
               >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
                 <span>专注中</span>
               </span>
             ) : (
@@ -608,14 +611,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <button
             type="button"
             onClick={openSharing}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-cream/70 border border-line/80 text-xs text-sage font-bold hover:bg-cream transition shadow-2xs"
           >
             <span>👥</span>
             <span>添加学习伙伴</span>
           </button>
         )}
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
           <button
             type="button"
             onClick={() => setHistoryModalOpen(true)}

@@ -330,6 +330,102 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     );
     expect(focusHtml).toContain('学习伙伴');
   });
+
+  it('renders TodayView top companion bar with responsive flex-wrap, truncated nickname, and ml-auto action buttons', () => {
+    const samplePartner: SharedGrant = {
+      id: 'demo-atu',
+      nickname: '阿土同学超长测试昵称',
+      avatar: 'pose-1',
+      createdAt: new Date().toISOString(),
+      liveStatus: {
+        state: 'focusing',
+        focusTitle: '粉笔行测真题 5000 题',
+        focusMinutes: 45,
+        canPoke: false,
+      },
+    };
+
+    const html = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+        initialPartner={samplePartner}
+      />
+    );
+
+    // Responsive container with flex-wrap and gap
+    expect(html).toContain('flex flex-wrap items-center justify-between gap-2 px-0.5 mb-1');
+    // Partner capsule has min-w boundary to prevent excessive compression on mobile
+    expect(html).toContain('min-w-[200px]');
+    // Nickname has max-w and truncate
+    expect(html).toContain('truncate max-w-[80px]');
+    // Live status text has truncate and min-w-0
+    expect(html).toContain('truncate min-w-0 flex-1');
+    // Solid emerald badge for focusing state prevents text bleed-through
+    expect(html).toContain('bg-emerald-50 text-emerald-700');
+    expect(html).toContain('专注中');
+    // Action buttons group has ml-auto for elegant alignment
+    expect(html).toContain('ml-auto');
+    expect(html).toContain('便签箱');
+    expect(html).toContain('写便签');
+  });
+
+  it('verifies CompanionNotesHistoryModal scheme 1: 55vh fixed height container, long text folding, and pagination', () => {
+    // Generate 7 notes (exceeding PAGE_SIZE 5) with both short and very long messages
+    const todayNotes: CompanionNote[] = [
+      {
+        id: 'n-long-1',
+        fromUserId: 'u2',
+        fromNickname: '阿土',
+        message: '亲爱的研友，这是为你写的一段非常非常长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长的备考打气长文！一定要坚持下去，胜利属于我们！',
+        hearts: 3,
+        createdAt: '2026-10-28T09:00:00.000Z',
+      },
+      {
+        id: 'n-short-2',
+        fromUserId: 'u2',
+        fromNickname: '阿土',
+        message: '短便签加油！',
+        hearts: 1,
+        createdAt: '2026-10-28T09:05:00.000Z',
+      },
+      { id: 'n-3', fromUserId: 'u2', fromNickname: '阿土', message: '便签3', hearts: 0, createdAt: '2026-10-28T09:10:00.000Z' },
+      { id: 'n-4', fromUserId: 'u2', fromNickname: '阿土', message: '便签4', hearts: 0, createdAt: '2026-10-28T09:15:00.000Z' },
+      { id: 'n-5', fromUserId: 'u2', fromNickname: '阿土', message: '便签5', hearts: 0, createdAt: '2026-10-28T09:20:00.000Z' },
+      { id: 'n-6', fromUserId: 'u2', fromNickname: '阿土', message: '便签6（第六条应分页）', hearts: 0, createdAt: '2026-10-28T09:25:00.000Z' },
+      { id: 'n-7', fromUserId: 'u2', fromNickname: '阿土', message: '便签7（第七条应分页）', hearts: 0, createdAt: '2026-10-28T09:30:00.000Z' },
+    ];
+
+    const html = render(
+      <CompanionNotesHistoryModal
+        isOpen
+        onClose={() => {}}
+        notes={todayNotes}
+        todayStr="2026-10-28"
+        currentUserId="u1"
+      />
+    );
+
+    // 1. Container max-h-[55vh]
+    expect(html).toContain('max-h-[55vh]');
+
+    // 2. Long text folding: long note gets line-clamp-3 and '展开全文' button
+    expect(html).toContain('line-clamp-3');
+    expect(html).toContain('展开全文');
+
+    // 3. Pagination: since 7 > PAGE_SIZE 5, renders '加载更早便签 (剩余 2 条)'
+    expect(html).toContain('加载更早便签');
+    expect(html).toContain('剩余 2 条');
+
+    // Notes 1 to 5 are rendered in initial page
+    expect(html).toContain('短便签加油！');
+    expect(html).toContain('便签5');
+    // Note 6 is on next page, so it is NOT rendered in initial 5-item slice
+    expect(html).not.toContain('便签6（第六条应分页）');
+  });
 });
 
 

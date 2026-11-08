@@ -35,6 +35,8 @@ function formatNoteTime(val?: string): string {
   }
 }
 
+const PAGE_SIZE = 5;
+
 export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProps> = ({
   isOpen,
   onClose,
@@ -50,6 +52,8 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
   const [activeTab, setActiveTab] = useState<'today' | 'past'>('today');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [heartLoading, setHeartLoading] = useState<Record<string, boolean>>({});
+  const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
+  const [expandedNoteIds, setExpandedNoteIds] = useState<Record<string, boolean>>({});
 
   const effectiveToday = useMemo(() => todayStr || new Date().toISOString().slice(0, 10), [todayStr]);
 
@@ -68,9 +72,21 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
     return { todayNotes: today, pastNotes: past };
   }, [notes, effectiveToday]);
 
+  const handleTabChange = (tab: 'today' | 'past') => {
+    setActiveTab(tab);
+    setVisibleCount(PAGE_SIZE);
+  };
+
+  const toggleExpand = (noteId: string) => {
+    setExpandedNoteIds(prev => ({ ...prev, [noteId]: !prev[noteId] }));
+  };
+
   if (!isOpen) return null;
 
   const currentList = activeTab === 'today' ? todayNotes : pastNotes;
+  const displayedNotes = currentList.slice(0, visibleCount);
+  const hasMore = currentList.length > visibleCount;
+  const remainingCount = currentList.length - visibleCount;
 
   const handleHeart = async (noteId: string) => {
     if (heartLoading[noteId]) return;
@@ -105,7 +121,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
             type="button"
             role="tab"
             aria-selected={activeTab === 'today'}
-            onClick={() => setActiveTab('today')}
+            onClick={() => handleTabChange('today')}
             className={`rounded-lg py-2 transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'today' ? 'bg-paper text-sage-dark shadow-xs' : 'text-ink-muted hover:text-ink-main'
             }`}
@@ -120,7 +136,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
             type="button"
             role="tab"
             aria-selected={activeTab === 'past'}
-            onClick={() => setActiveTab('past')}
+            onClick={() => handleTabChange('past')}
             className={`rounded-lg py-2 transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'past' ? 'bg-paper text-sage-dark shadow-xs' : 'text-ink-muted hover:text-ink-main'
             }`}
@@ -150,10 +166,13 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
             </div>
           </div>
         ) : (
-          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-0.5">
-            {currentList.map(note => {
+          <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-0.5">
+            {displayedNotes.map(note => {
               const displayName = getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
               const timeDisplay = formatNoteTime(note.createdAt);
+              const message = note.message || '考公路上一起加油稳稳上岸！🥔🔥';
+              const isLongText = message.length > 70 || (message.match(/\n/g) || []).length >= 3;
+              const isExpanded = Boolean(expandedNoteIds[note.id]);
 
               return (
                 <div
@@ -207,9 +226,23 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                     </div>
                   )}
 
-                  {/* 便签文字正文 */}
-                  <div className="px-1 text-xs font-medium text-ink-main leading-relaxed whitespace-pre-wrap">
-                    {note.message || '考公路上一起加油稳稳上岸！🥔🔥'}
+                  {/* 便签文字正文：支持长文自动折叠与展开/收起 */}
+                  <div className="px-1 space-y-1">
+                    <div className={`text-xs font-medium text-ink-main leading-relaxed whitespace-pre-wrap ${!isExpanded && isLongText ? 'line-clamp-3' : ''}`}>
+                      {message}
+                    </div>
+                    {isLongText && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(note.id)}
+                          className="text-[11px] font-bold text-sage hover:text-sage-dark inline-flex items-center gap-0.5 py-0.5 transition active:scale-95"
+                        >
+                          <span>{isExpanded ? '收起全文' : '展开全文'}</span>
+                          <span className="text-[10px]">{isExpanded ? '▲' : '▼'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* 底部操作区：爱心数 + 回赠爱心 + 回贴一张 */}
@@ -252,6 +285,27 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                 </div>
               );
             })}
+
+            {/* 分页加载更多与已全部加载提示 */}
+            {hasMore && (
+              <div className="pt-2 pb-1 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+                  className="px-3.5 py-1.5 rounded-xl bg-paper hover:bg-[#F2F7EB] border border-[#DEE7D4] text-xs font-bold text-sage flex items-center gap-1.5 shadow-2xs hover:shadow-xs transition active:scale-95"
+                  title="加载更多往期便签"
+                >
+                  <Clock size={12} className="text-sage" />
+                  <span>加载更早便签 (剩余 {remainingCount} 条)</span>
+                </button>
+              </div>
+            )}
+            {!hasMore && currentList.length > PAGE_SIZE && (
+              <div className="py-2 text-center text-[11px] text-ink-muted/70 flex items-center justify-center gap-1">
+                <Sparkles size={11} className="text-potato" />
+                <span>已展示全部 {currentList.length} 条便签 🥔</span>
+              </div>
+            )}
           </div>
         )}
 
