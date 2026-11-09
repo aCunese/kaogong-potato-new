@@ -70,7 +70,7 @@ release_root = Path('/home/ubuntu/kaogong-releases/{version}-{build}')
 release_root.mkdir(parents=True, exist_ok=True, mode=0o700)
 release_root.chmod(0o700)
 info = json.loads(subprocess.check_output(['docker', 'inspect', container]))[0]
-assert info['Config']['Image'] == 'kaogong-potato-app:1.2.6-20261108.11'
+assert info['Config']['Image'] == 'kaogong-potato-app:1.2.6-20261108.12'
 assert info['State']['Status'] == 'running'
 assert info['State'].get('Health', {{}}).get('Status') == 'healthy'
 mounts = [m for m in info['Mounts'] if m['Destination'] == '/app/data']
@@ -233,7 +233,7 @@ assert env_values(current['Config']['Env']) == env_values(old['Config']['Env'])
 mount = next(m for m in old['Mounts'] if m['Destination'] == '/app/data')
 assert mount['Source'] == '/home/ubuntu/kaogong-app/data'
 candidate = 'kaogong-potato-app-next-{version}-{build}'
-previous = 'kaogong-potato-app-prev-1.2.6-20261108.11'
+previous = 'kaogong-potato-app-prev-1.2.6-20261108.12'
 for name in [candidate, previous]:
     subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 env_file = root / 'runtime.private.env'
