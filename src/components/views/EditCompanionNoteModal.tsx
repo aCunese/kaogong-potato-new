@@ -8,6 +8,7 @@ import {
   saveCompanionNoteDraft,
   clearCompanionNoteDraft,
 } from '../../utils/companionNoteDraft';
+import { compressImage } from '../../utils/imageCompressor';
 
 export interface EditCompanionNoteModalProps {
   isOpen: boolean;
@@ -40,46 +41,15 @@ const QUICK_PHRASES = [
  * Front-end canvas compression helper.
  * Compresses any user-selected mobile photo/meme to max 800x800 JPEG (quality 0.82),
  * reducing size to ~80-150KB while retaining high clarity for stickers and memes.
+ * Transparently supports HEIC/HEIF photos.
  */
 export async function compressImageToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const MAX_DIM = 800;
-        let { width, height } = img;
-        if (width > MAX_DIM || height > MAX_DIM) {
-          if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
-          } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(reader.result as string);
-          return;
-        }
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
-        let dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-        if (dataUrl.length > 1_500_000) {
-          dataUrl = canvas.toDataURL('image/jpeg', 0.65);
-        }
-        resolve(dataUrl);
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
+  return compressImage(file, {
+    maxWidth: 800,
+    maxHeight: 800,
+    quality: 0.82,
+    isWrongPhoto: false,
+    mimeType: 'image/jpeg',
   });
 }
 
@@ -398,7 +368,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif,image/heic,image/heif"
             className="hidden"
             onChange={handleFileSelect}
           />

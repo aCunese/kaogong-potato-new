@@ -811,7 +811,7 @@ export const PhotoImportModal: React.FC<{
               <span className="text-xs text-ink-main font-medium">
                 {previewImages.length > 0 ? '点击继续追加照片（题干/解析）' : '点击选择系统相册图片（支持多选）'}
               </span>
-              <input type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+              <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" multiple onChange={handleFileChange} className="hidden" />
             </label>
             <Button variant="secondary" size="sm" onClick={handleAddSample} className="shrink-0" disabled={isCompressing}>
               加入示例错题
@@ -1192,7 +1192,7 @@ export const WrongDetailModal: React.FC<{
               <label className="inline-flex items-center gap-1 text-sage font-bold cursor-pointer hover:underline text-xs">
                 <Plus size={13} />
                 <span>追加图片</span>
-                <input type="file" accept="image/*" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
+                <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
               </label>
             )}
           </div>
@@ -1233,7 +1233,7 @@ export const WrongDetailModal: React.FC<{
                   <span className="text-[10px] font-bold mt-0.5">追加</span>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,.heic,.heif,image/heic,image/heif"
                     multiple
                     onChange={handleEditFilesAppend}
                     className="hidden"
@@ -1247,7 +1247,7 @@ export const WrongDetailModal: React.FC<{
               <span>暂无图片。</span>
               <label className="ml-1 text-sage font-bold cursor-pointer hover:underline">
                 点击追加照片
-                <input type="file" accept="image/*" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
+                <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" multiple onChange={handleEditFilesAppend} className="hidden" disabled={isCompressing || isSavingMeta} />
               </label>
             </div>
           )}
@@ -1330,7 +1330,7 @@ export const WrongDetailModal: React.FC<{
                 <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sage text-white font-bold cursor-pointer hover:bg-sage-dark transition shadow-sm">
                   <Camera size={13} />
                   <span>添加错题图片</span>
-                  <input type="file" accept="image/*" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
+                  <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
                 </label>
               </div>
             </div>
@@ -1375,7 +1375,7 @@ export const WrongDetailModal: React.FC<{
                 <Plus size={16} />
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.heic,.heif,image/heic,image/heif"
                   multiple
                   onChange={handleAppendImages}
                   className="hidden"
@@ -1417,7 +1417,7 @@ export const WrongDetailModal: React.FC<{
           {images.length < MAX_SINGLE_WRONG_IMAGES && (
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cream text-ink-main font-bold border border-line cursor-pointer hover:border-sage transition">
               <Camera size={13} className="text-sage" /><span>追加图片</span>
-              <input type="file" accept="image/*" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
+              <input type="file" accept="image/*,.heic,.heif,image/heic,image/heif" multiple onChange={handleAppendImages} className="hidden" disabled={isCompressing} />
             </label>
           )}
           </div>

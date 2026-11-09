@@ -6,6 +6,7 @@
  * - Thumbnail max dimension 320px, quality 0.70
  * - Max 10 images per batch, max 20MB per file
  * - Compression failure rejects with explicit error, NEVER quietly returns original raw data
+ * - Full HEIC/HEIF photo support for modern mobile camera uploads
  */
 
 export const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
@@ -50,9 +51,59 @@ export function validateImageFile(file: File | Blob): { valid: boolean; error?: 
 }
 
 /**
+ * Detects whether a File or Blob is an HEIC/HEIF image
+ */
+export async function isHeicImage(file: File | Blob): Promise<boolean> {
+  if (!file) return false;
+
+  const type = (file.type || '').toLowerCase();
+  if (
+    type === 'image/heic' ||
+    type === 'image/heif' ||
+    type === 'image/heic-sequence' ||
+    type === 'image/heif-sequence'
+  ) {
+    return true;
+  }
+
+  if ('name' in file && typeof (file as File).name === 'string') {
+    if (/\.(heic|heif)$/i.test((file as File).name)) {
+      return true;
+    }
+  }
+
+  // Inspect binary magic bytes (ISOBMFF ftyp brand)
+  try {
+    if (typeof file.slice === 'function') {
+      const slice = file.slice(0, 32);
+      const buffer = await slice.arrayBuffer();
+      if (buffer.byteLength >= 12) {
+        const view = new DataView(buffer);
+        // bytes 4-7 must be "ftyp" (0x66747970)
+        if (view.getUint32(4) === 0x66747970) {
+          const bytes = new Uint8Array(buffer);
+          let ascii = '';
+          for (let i = 8; i < Math.min(32, bytes.length); i++) {
+            ascii += String.fromCharCode(bytes[i]);
+          }
+          if (/(heic|heix|hevc|hevx|heim|heis|mif1|msf1)/i.test(ascii)) {
+            return true;
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore buffer reading error, fallback to false
+  }
+
+  return false;
+}
+
+/**
  * Compresses an image file using an HTML Canvas element
  * Default: max 1200px, quality 0.75.
  * Strictly throws on any failure; NEVER quietly returns uncompressed raw data.
+ * Transparently converts HEIC/HEIF photos to JPEG before canvas processing.
  */
 export async function compressImage(file: File | Blob, options: CompressOptions = {}): Promise<string> {
   const isWrongPhoto = options.isWrongPhoto ?? (
@@ -74,6 +125,30 @@ export async function compressImage(file: File | Blob, options: CompressOptions 
 
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('当前运行环境不支持 DOM/Canvas 图片压缩');
+  }
+
+  let sourceBlob: Blob = file;
+  if (await isHeicImage(file)) {
+    try {
+      const heic2anyModule = await import('heic2any');
+      const heic2any = (heic2anyModule.default || heic2anyModule) as (options: {
+        blob: Blob;
+        toType?: string;
+        quality?: number;
+        multiple?: boolean;
+      }) => Promise<Blob | Blob[]>;
+
+      const converted = await heic2any({
+        blob: file,
+        toType: 'image/jpeg',
+        quality: 0.92,
+      });
+
+      sourceBlob = Array.isArray(converted) ? converted[0] : converted;
+    } catch (err: any) {
+      console.error('HEIC conversion failed:', err);
+      throw new Error(`HEIC图片解析失败: ${err?.message || '无法解析此照片数据'}`);
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -176,7 +251,7 @@ export async function compressImage(file: File | Blob, options: CompressOptions 
       img.src = rawResult;
     };
 
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(sourceBlob);
   });
 }
 

@@ -126,7 +126,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.heic,.heif,image/heic,image/heif"
             className="hidden"
             onChange={handleAvatarFile}
             disabled={saving || processingImage}
