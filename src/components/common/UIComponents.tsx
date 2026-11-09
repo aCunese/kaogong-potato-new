@@ -204,7 +204,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   useModalBack(isOpen, onClose, closeDisabled, blocksReminders);
   const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
   useEffect(() => {
-    if (!isOpen || layout !== 'editor' || !window.visualViewport) return;
+    if (!isOpen || !window.visualViewport) return;
     const visible = window.visualViewport;
     // Follow the space above the mobile keyboard, including viewport panning.
     const update = () => setViewport({ height: visible.height, top: visible.offsetTop });
@@ -222,7 +222,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in ${editor ? 'sm:p-4' : 'p-4'}`}
-      style={editor && viewport ? { top: viewport.top, height: viewport.height, bottom: 'auto' } : undefined}
+      style={viewport ? { top: viewport.top, height: viewport.height, bottom: 'auto' } : undefined}
     >
       <div
         role="dialog"

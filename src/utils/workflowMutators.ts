@@ -463,8 +463,24 @@ export function applyEditBook(
 
 /**
  * Deletes a book and reconciles library.
+ * Associated plans are downgraded to custom to prevent dangling references or completion errors.
+ * Wrong question records have their subjects fixed before deletion so they do not fallback to '其他'.
  */
 export function applyDeleteBook(draft: AppState, id: string): MutatorReturn<void> {
+  const targetLib = draft.library.find(l => l.sourceId === id);
+  for (const p of draft.plans) {
+    if (p.sourceId === id || (targetLib && p.libraryId === targetLib.id)) {
+      p.type = 'custom';
+      p.sourceId = '';
+      p.libraryId = '';
+    }
+  }
+  for (const w of draft.wrong) {
+    if (w.bookId === id) {
+      w.subject = resolveWrongRecordSubject(w, draft.books);
+      w.bookId = w.subject;
+    }
+  }
   draft.books = draft.books.filter(b => b.id !== id);
   draft.library = buildLibraryFromSources(draft.books, draft.courses, draft.library);
   return { nextState: draft, value: undefined };
@@ -523,8 +539,18 @@ export function applyEditCourse(
 
 /**
  * Deletes a course and reconciles library.
+ * Associated plans are downgraded to custom to prevent dangling references or completion errors.
  */
 export function applyDeleteCourse(draft: AppState, id: string): MutatorReturn<void> {
+  const targetLib = draft.library.find(l => l.sourceId === id);
+  for (const p of draft.plans) {
+    if (p.sourceId === id || (targetLib && p.libraryId === targetLib.id)) {
+      p.type = 'custom';
+      p.sourceId = '';
+      p.libraryId = '';
+      delete p.plannedLessons;
+    }
+  }
   draft.courses = draft.courses.filter(c => c.id !== id);
   draft.library = buildLibraryFromSources(draft.books, draft.courses, draft.library);
   return { nextState: draft, value: undefined };
@@ -1036,3 +1062,25 @@ export function applyAddTodayTodo(draft: AppState, text: string, now = Date.now(
   const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
   return applyAddTodo(draft, text, date, now);
 }
+
+/**
+ * Resets workspace data (plans, records, wrong, todos, timerSessions) and resets books/courses progress.
+ */
+export function applyResetWorkspace(draft: AppState): MutatorReturn<void> {
+  draft.plans = [];
+  draft.records = [];
+  draft.wrong = [];
+  draft.todos = [];
+  draft.timerSessions = [];
+  for (const b of draft.books) {
+    b.done = 0;
+    b.errors = 0;
+    b.minutes = 0;
+  }
+  for (const c of draft.courses) {
+    c.completedLessons = 0;
+    c.minutes = 0;
+  }
+  return { nextState: draft, value: undefined };
+}
+

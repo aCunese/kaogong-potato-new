@@ -73,7 +73,7 @@ export function useWrongImageOrientation(options: Options) {
           const record = current.state.wrong.find(record => record.id === task.id);
           const image = record && getWrongRecordImages(record)[task.index];
           if (o.isValid(scope) && mounted.current && image && keyFor(current.userId, task.id, task.index, image) === task.key) {
-            retryAt.current.set(task.key, Date.now() + 60000);
+            retryAt.current.set(task.key, Infinity);
             setErrors(prev => ({ ...prev, [task.key]: error instanceof Error && error.name !== 'AbortError' ? error.message : '识别暂未完成，请重试' }));
           }
         } finally {

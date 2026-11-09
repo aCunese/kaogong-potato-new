@@ -149,6 +149,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [isDismissing, setIsDismissing] = useState(false);
   const [swipeOffsetY, setSwipeOffsetY] = useState(0);
   const touchStartY = useRef<number | null>(null);
+  const touchStartX = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -303,13 +304,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartY.current = e.touches[0].clientY;
+    touchStartX.current = e.touches[0].clientX;
     touchStartTime.current = Date.now();
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartY.current === null) return;
+    if (touchStartY.current === null || touchStartX.current === null) return;
     const deltaY = e.touches[0].clientY - touchStartY.current;
-    if (deltaY < 0) {
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+    if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < 0) {
       setSwipeOffsetY(deltaY);
     }
   };

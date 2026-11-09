@@ -106,6 +106,7 @@ import {
   applyUpdateCountdown,
   applyAddCountdown,
   applyDeleteCountdown,
+  applyResetWorkspace,
   MutatorReturn,
 } from '../utils/workflowMutators';
 
@@ -1586,21 +1587,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       return { ok: false, code: 'AUTH_EPOCH_CHANGED', message: '账号状态已改变，已终止重置' };
     }
 
-    return executeMutation(draft => {
-      draft.plans = [];
-      draft.records = [];
-      draft.wrong = [];
-      for (const b of draft.books) {
-        b.done = 0;
-        b.errors = 0;
-        b.minutes = 0;
-      }
-      for (const c of draft.courses) {
-        c.completedLessons = 0;
-        c.minutes = 0;
-      }
-      return { nextState: draft, value: undefined };
-    }, 'reset_workspace');
+    return executeMutation(draft => applyResetWorkspace(draft), 'reset_workspace');
   }, [applyLocalState, createOperationScope, executeMutation, isOperationScopeValid, preview, state]);
 
   const restoreLatestRecovery = useCallback(async (): Promise<MutationResult<void>> => {

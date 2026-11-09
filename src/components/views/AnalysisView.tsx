@@ -84,6 +84,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
   });
 
   const sortedDates = Object.keys(dateMap).sort();
+  const samplingInterval = sortedDates.length > 0 ? Math.max(1, Math.ceil(sortedDates.length / 5)) : 1;
 
   // Monthly statistics
   const monthlyRecords = state.records.filter(r => r.date.startsWith(selectedMonth));
@@ -252,6 +253,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({
                     {/* X 轴日期标注 */}
                     {sortedDates.map((date, i) => {
                       const x = sortedDates.length === 1 ? 210 : 45 + (i / (sortedDates.length - 1)) * 330;
+                      if (i % samplingInterval !== 0 && i !== sortedDates.length - 1) return null;
                       return (
                         <text
                           key={date}

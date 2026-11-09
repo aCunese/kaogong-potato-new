@@ -118,6 +118,13 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevIsOpenRef = useRef(false);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, []);
 
   // 监听模态框打开事件：若上次未成功发送且存在草稿，自动恢复用户上一次编辑的内容
   useEffect(() => {
@@ -147,14 +154,21 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
     if (!val.trim() && !imageUrl) {
       setHasDraftRestored(false);
     }
-    saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
-      message: val,
-      imageUrl,
-      imageName,
-    });
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
+        message: val,
+        imageUrl,
+        imageName,
+      });
+    }, 300);
   };
 
   const handlePickPhrase = (phrase: string) => {
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
     setMessage(phrase);
     saveCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId, {
       message: phrase,
@@ -164,6 +178,10 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
   };
 
   const handleRemoveImage = () => {
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
     setImageUrl(null);
     setImageName('');
     if (!message.trim()) {
@@ -240,6 +258,7 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
   };
 
   const handleSend = async () => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     const trimmed = message.trim();
     if (!trimmed && !imageUrl) {
       onToast?.('请写一句打气的话或选一张表情包哦~');
@@ -288,6 +307,10 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
       }
 
       // 关键规则：只有发送成功了才会重置内容与草稿
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
       clearCompanionNoteDraft(currentUser?.id, defaultRecipientId, defaultGrantId);
       setMessage('');
       setImageUrl(null);

@@ -960,7 +960,7 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
         </div>}
 
         {/* 视图主体内容区：独立平滑内部滚动，底部留出足够 padding 防止导航遮挡 */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 pt-3 pb-4">
+        <div className={`flex-1 overflow-y-auto overflow-x-hidden min-h-0 px-4 pt-3 ${timerNotice && !focusPlan ? 'pb-32' : 'pb-4'}`}>
           {corruptedRaw && (
             <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900 shadow-sm animate-fade-in">
               <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
@@ -1161,13 +1161,13 @@ export const App: React.FC<{ preview?: boolean }> = ({ preview = false }) => {
           </nav>
         </div>
 
-        {timerNotice && !focusPlan && <div role="status" aria-live="polite" className="fixed bottom-24 left-4 right-4 mx-auto max-w-sm z-40 bg-paper border border-sage rounded-xl p-3 shadow-lg text-xs">
+        {timerNotice && !focusPlan && <div role="status" aria-live="polite" className="fixed bottom-[calc(theme(spacing.24)+env(safe-area-inset-bottom))] left-4 right-4 mx-auto max-w-sm z-40 bg-paper border border-sage rounded-xl p-3 shadow-lg text-xs">
           <p>{timerNotice.message}</p><div className="flex justify-end gap-4 mt-2"><button aria-label="关闭到点提醒" onClick={() => setTimerNotice(null)}>关闭</button><button className="text-sage font-bold" onClick={() => { const plan = state.plans.find(p => p.id === timerNotice.id); if (plan) { setFocusVariantOverride('normal'); setFocusPlan(plan); } setTimerNotice(null); }}>查看计时</button></div>
         </div>}
 
         {/* 轻量 Toast 提示条 */}
         {toastMsg && (
-          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#343C2F] text-white text-xs px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 animate-bounce-short pointer-events-none">
+          <div className="fixed bottom-[calc(theme(spacing.20)+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-50 bg-[#343C2F] text-white text-xs px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 animate-bounce-short pointer-events-none">
             <CheckCircle2 size={14} className="text-potato" />
             <span>{toastMsg}</span>
           </div>
