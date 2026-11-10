@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261109.02",
+  "webBuild": "20261110.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-09T03:05:00Z",
-  "summary": "全面支持手机拍摄的 HEIC/HEIF 格式相册照片直接添加错题、头像和便签图片，自动转码压缩，杜绝格式解析失败报错。"
+  "deployedAt": "2026-11-10T08:35:00Z",
+  "summary": "支持自定义日程预设分科目管理与每日刷题正确率展示优化。"
 }
