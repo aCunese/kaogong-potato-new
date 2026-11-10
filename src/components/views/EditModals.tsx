@@ -1,5 +1,5 @@
 import { OrientedImage } from '../common/OrientedImage';
-import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection } from '../../utils/scheduleSelection';
+import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection, savePresets } from '../../utils/scheduleSelection';
 import { parseIntegerDraft } from '../../utils/numericDraft';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
@@ -66,6 +66,12 @@ export const AddPlanModal: React.FC<{
       ? (resolvedInitial.subject as StudySubject)
       : (readScheduleSelection(currentUser?.id).custom.subject)
   );
+  const [presets, setPresets] = useState<Record<StudySubject, string[]>>(() => readScheduleSelection(currentUser?.id).presets);
+  const [isManagingPresets, setIsManagingPresets] = useState(false);
+  const [editingPresetIndex, setEditingPresetIndex] = useState<number | null>(null);
+  const [editingPresetText, setEditingPresetText] = useState('');
+  const [newPresetText, setNewPresetText] = useState('');
+  const [isAddingPreset, setIsAddingPreset] = useState(false);
   const [selectedLibId, setSelectedLibId] = useState(resolvedInitial.item?.id ?? '');
   const [minutes, setMinutes] = useState(String(resolvedInitial.item?.defaultMinutes ?? 30));
   const [lessons, setLessons] = useState('1');
@@ -90,6 +96,11 @@ export const AddPlanModal: React.FC<{
       setSelectedLibId('');
       setMinutes('30');
       setErrorMsg('');
+      setPresets(stored.presets);
+      setIsManagingPresets(false);
+      setEditingPresetIndex(null);
+      setIsAddingPreset(false);
+      setNewPresetText('');
       rememberScheduleSelection(currentUser?.id, 'custom', customSub, '');
       return;
     }
@@ -107,8 +118,59 @@ export const AddPlanModal: React.FC<{
     }
   };
   useEffect(() => {
-    if (isOpen) restoreSelection(undefined, initialLibraryId);
+    if (isOpen) {
+      restoreSelection(undefined, initialLibraryId);
+      const stored = readScheduleSelection(currentUser?.id);
+      setPresets(stored.presets);
+      setIsManagingPresets(false);
+      setEditingPresetIndex(null);
+      setIsAddingPreset(false);
+      setNewPresetText('');
+    }
   }, [isOpen, initialLibraryId, currentUser?.id]);
+
+  const currentSubjectPresets = presets[customSubject] ?? [];
+
+  const updateSubjectPresets = (nextList: string[]) => {
+    const updated = { ...presets, [customSubject]: nextList };
+    setPresets(updated);
+    savePresets(currentUser?.id, updated);
+  };
+
+  const handleSelectPreset = (preset: string) => {
+    setCustomName(preset);
+  };
+
+  const handleDeletePreset = (index: number) => {
+    const nextList = currentSubjectPresets.filter((_, i) => i !== index);
+    updateSubjectPresets(nextList);
+  };
+
+  const handleStartEditPreset = (index: number, text: string) => {
+    setEditingPresetIndex(index);
+    setEditingPresetText(text);
+  };
+
+  const handleSaveEditPreset = (index: number) => {
+    const trimmed = editingPresetText.trim();
+    if (trimmed.length > 0 && trimmed.length <= 100) {
+      const nextList = [...currentSubjectPresets];
+      nextList[index] = trimmed;
+      updateSubjectPresets(nextList);
+    }
+    setEditingPresetIndex(null);
+    setEditingPresetText('');
+  };
+
+  const handleAddPreset = () => {
+    const trimmed = newPresetText.trim();
+    if (trimmed.length > 0 && trimmed.length <= 100 && !currentSubjectPresets.includes(trimmed)) {
+      const nextList = [...currentSubjectPresets, trimmed];
+      updateSubjectPresets(nextList);
+      setNewPresetText('');
+      setIsAddingPreset(false);
+    }
+  };
   useEffect(() => {
     if (!isOpen || type === 'custom' || items.some(item => item.id === selectedLibId)) return;
     const id = items[0]?.id ?? '';
@@ -147,11 +209,189 @@ export const AddPlanModal: React.FC<{
             onChange={val => {
               const nextSub = val as StudySubject;
               setCustomSubject(nextSub);
+              setEditingPresetIndex(null);
+              setIsAddingPreset(false);
+              setNewPresetText('');
               rememberScheduleSelection(currentUser?.id, 'custom', nextSub, '');
             }}
           />
         </div>
-        <label className="block text-xs text-ink-muted">事项名称<input aria-label="事项名称" type="text" required maxLength={200} disabled={isSaving} value={customName} onChange={e => setCustomName(e.target.value)} placeholder="例如：晨读时政、整理错题" className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm" /></label>
+        <div>
+          <label className="block text-xs text-ink-muted">
+            事项名称
+            <input
+              aria-label="事项名称"
+              type="text"
+              required
+              maxLength={200}
+              disabled={isSaving}
+              value={customName}
+              onChange={e => setCustomName(e.target.value)}
+              placeholder="例如：晨读时政、整理错题"
+              className="mt-1 w-full px-3 py-2.5 bg-cream/70 border border-line rounded-xl text-sm"
+            />
+          </label>
+          <div className="mt-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-ink-muted">快速预设（{customSubject}）</span>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => {
+                  setIsManagingPresets(!isManagingPresets);
+                  setEditingPresetIndex(null);
+                  setIsAddingPreset(false);
+                  setNewPresetText('');
+                }}
+                className="text-xs text-sage hover:underline flex items-center gap-1 font-medium"
+              >
+                <Edit2 size={11} />
+                {isManagingPresets ? '完成管理' : '管理预设'}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 min-h-[28px]">
+              {currentSubjectPresets.map((preset, idx) => {
+                if (isManagingPresets && editingPresetIndex === idx) {
+                  return (
+                    <div key={idx} className="flex items-center gap-1 bg-cream border border-sage/60 rounded-lg px-2 py-1">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingPresetText}
+                        maxLength={100}
+                        onChange={e => setEditingPresetText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveEditPreset(idx);
+                          }
+                          if (e.key === 'Escape') {
+                            setEditingPresetIndex(null);
+                          }
+                        }}
+                        className="text-xs bg-transparent border-none outline-none w-24 text-ink-main"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveEditPreset(idx)}
+                        className="text-xs text-sage font-bold px-1"
+                        title="保存"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPresetIndex(null)}
+                        className="text-xs text-ink-muted px-1"
+                        title="取消"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                }
+
+                const isSelected = customName === preset;
+                return (
+                  <div
+                    key={idx}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs transition-colors border ${
+                      isSelected
+                        ? 'bg-sage-light text-sage-dark border-sage/60 font-medium'
+                        : 'bg-cream/70 text-ink-main border-line hover:border-sage/40'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => {
+                        if (isManagingPresets) {
+                          handleStartEditPreset(idx, preset);
+                        } else {
+                          handleSelectPreset(preset);
+                        }
+                      }}
+                      className="text-left"
+                    >
+                      {preset}
+                    </button>
+                    {isManagingPresets && (
+                      <div className="flex items-center gap-0.5 ml-1 pl-1 border-l border-line/60">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditPreset(idx, preset)}
+                          className="text-ink-muted hover:text-sage p-0.5"
+                          title="修改"
+                        >
+                          <Edit2 size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePreset(idx)}
+                          className="text-ink-muted hover:text-alarm p-0.5"
+                          title="删除"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {isAddingPreset ? (
+                <div className="flex items-center gap-1 bg-cream border border-sage/60 rounded-lg px-2 py-1">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newPresetText}
+                    maxLength={100}
+                    placeholder="输入预设名称"
+                    onChange={e => setNewPresetText(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPreset();
+                      }
+                      if (e.key === 'Escape') {
+                        setIsAddingPreset(false);
+                        setNewPresetText('');
+                      }
+                    }}
+                    className="text-xs bg-transparent border-none outline-none w-24 text-ink-main"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddPreset}
+                    className="text-xs text-sage font-bold px-1"
+                  >
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingPreset(false);
+                      setNewPresetText('');
+                    }}
+                    className="text-xs text-ink-muted px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setIsAddingPreset(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border border-dashed border-line text-ink-muted hover:border-sage/60 hover:text-sage transition-colors"
+                >
+                  <Plus size={11} />
+                  添加预设
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </> : <>
         <div>
           <span className="block text-xs text-ink-muted mb-1.5">筛选科目</span>

@@ -28,17 +28,24 @@ export interface CheckResult {
 
 const REPO_ROOT = resolveRepoRoot();
 
+let cachedHarnessPromise: Promise<string> | null = null;
+
 export async function buildBrowserHarness(): Promise<string> {
-  const entryPath = path.join(REPO_ROOT, 'tests', 'fixtures', 'boundaries-browser-entry.tsx');
-  const built = await Bun.build({
-    entrypoints: [entryPath],
-    target: 'browser',
-    format: 'esm',
-  });
-  if (!built.success) {
-    throw new Error(`Failed to bundle boundary browser harness:\n${built.logs.join('\n')}`);
+  if (!cachedHarnessPromise) {
+    cachedHarnessPromise = (async () => {
+      const entryPath = path.join(REPO_ROOT, 'tests', 'fixtures', 'boundaries-browser-entry.tsx');
+      const built = await Bun.build({
+        entrypoints: [entryPath],
+        target: 'browser',
+        format: 'esm',
+      });
+      if (!built.success) {
+        throw new Error(`Failed to bundle boundary browser harness:\n${built.logs.join('\n')}`);
+      }
+      return await built.outputs[0].text();
+    })();
   }
-  return await built.outputs[0].text();
+  return await cachedHarnessPromise;
 }
 
 export async function createHarnessPage(browser: Browser, harnessSource: string): Promise<{ page: Page; context: BrowserContext }> {

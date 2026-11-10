@@ -9,7 +9,8 @@ import { buildGuestMigration } from '../src/utils/guestMigration';
 import { AddPlanModal, CustomAddModal, OverallLegendModal } from '../src/components/views/EditModals';
 import { AnalysisView } from '../src/components/views/AnalysisView';
 import { TimeDistribution } from '../src/components/views/TimeDistribution';
-import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection } from '../src/utils/scheduleSelection';
+import { readScheduleSelection, rememberScheduleSelection, resolveScheduleSelection, savePresets } from '../src/utils/scheduleSelection';
+import { DailyBookPractice, renderPracticeDetail } from '../src/components/views/DailyBookPractice';
 
 const date = '2026-10-28';
 const noop = () => {};
@@ -166,5 +167,97 @@ it('persists custom subject selection across schedule modal opens and defaults c
   const customResolved = resolveScheduleSelection(courseOnlyState.library, userId);
   expect(customResolved.type).toBe('custom');
   expect(customResolved.subject).toBe('数量关系');
+});
+
+it('isolates custom schedule presets per subject and supports persistence', () => {
+  const userId = 'user-preset-test';
+  
+  // Initially empty for all subjects
+  const initialPrefs = readScheduleSelection(userId);
+  expect(initialPrefs.presets['常识判断']).toEqual([]);
+  expect(initialPrefs.presets['言语理解']).toEqual([]);
+  
+  // Save presets for 常识判断
+  savePresets(userId, '常识判断', ['时政晨读', '常识真题50道']);
+  
+  // Save presets for 言语理解
+  savePresets(userId, '言语理解', ['言语选词填空', '片段阅读模块突破']);
+  
+  const updated = readScheduleSelection(userId);
+  expect(updated.presets['常识判断']).toEqual(['时政晨读', '常识真题50道']);
+  expect(updated.presets['言语理解']).toEqual(['言语选词填空', '片段阅读模块突破']);
+  expect(updated.presets['数量关系']).toEqual([]);
+  expect(updated.presets['申论']).toEqual([]);
+  
+  // Supports saving batch presets
+  savePresets(userId, {
+    ...updated.presets,
+    '申论': ['申论小题归纳', '大作文框架'],
+  });
+  
+  const finalPrefs = readScheduleSelection(userId);
+  expect(finalPrefs.presets['申论']).toEqual(['申论小题归纳', '大作文框架']);
+  expect(finalPrefs.presets['常识判断']).toEqual(['时政晨读', '常识真题50道']);
+});
+
+it('renders custom presets and management controls in AddPlanModal', () => {
+  const userId = 'user-modal-preset-test';
+  savePresets(userId, '常识判断', ['时政要闻速记']);
+  rememberScheduleSelection(userId, 'custom', '常识判断', '');
+  
+  const state = fresh();
+  const html = renderToStaticMarkup(
+    <AppContext.Provider value={{ state, activeDate: date, currentUser: { id: userId, username: 'tester' } } as any}>
+      <AddPlanModal isOpen onClose={noop} onToast={noop} onOpenCustomAdd={noop} />
+    </AppContext.Provider>
+  );
+  
+  expect(html).toContain('快速预设（常识判断）');
+  expect(html).toContain('时政要闻速记');
+  expect(html).toContain('管理预设');
+  expect(html).toContain('添加预设');
+});
+
+it('displays practice accuracy in DailyBookPractice summary and detail rows', () => {
+  const state = fresh();
+  const bookRecord = {
+    id: 'rec-1',
+    date: '2026-10-28',
+    type: 'book' as const,
+    sourceId: 'book-1',
+    subject: '言语理解' as const,
+    minutes: 40,
+    questions: 30,
+    errors: 6,
+  };
+  state.library.push({
+    id: 'book-1',
+    type: 'book',
+    sourceId: 'b1',
+    name: '行测言语500题',
+    subject: '言语理解',
+    defaultMinutes: 30,
+  });
+
+  const html = renderToStaticMarkup(
+    <DailyBookPractice state={state} records={[bookRecord as any]} rangeKey="all" />
+  );
+
+  // Summary row shows 刷题 30, 正确 24, 正确率 80%
+  expect(html).toContain('刷题 <b class="font-mono">30</b>');
+  expect(html).toContain('正确 <b class="font-mono text-sage">24</b>');
+  expect(html).toContain('正确率 <b class="font-mono text-sage">80%</b>');
+
+  // Detail row rendering contains data-testid="accuracy" and correct accuracy percentage
+  const detailHtml = renderToStaticMarkup(
+    renderPracticeDetail({
+      date: '2026-10-28',
+      rows: [['book-1', { name: '行测言语500题', questions: 30, correct: 24 }]],
+    })
+  );
+  expect(detailHtml).toContain('data-testid="accuracy"');
+  expect(detailHtml).toContain('data-testid="questions"');
+  expect(detailHtml).toContain('data-testid="correct"');
+  expect(detailHtml).toContain('80%');
 });
 
