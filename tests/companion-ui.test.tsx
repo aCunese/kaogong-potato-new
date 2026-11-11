@@ -47,6 +47,7 @@ describe('Floating Companion Note Banner & Modals', () => {
     // Absolute floating banner
     expect(html).toContain('role="banner"');
     expect(html).toContain('aria-label="学友打气便签"');
+    expect(html).toContain('touch-none');
     expect(html).toContain('阿土同学');
     expect(html).toContain('打气便签');
     expect(html).toContain('今天行测刷满100题');
@@ -240,12 +241,54 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     );
 
     expect(html).toContain('打气便签箱 · 往常与今日');
-    expect(html).toContain('今日便签');
-    expect(html).toContain('往常便签回忆');
+    expect(html).toContain('今日收到');
+    expect(html).toContain('往常回忆');
+    expect(html).toContain('我写出的');
     expect(html).toContain('今天行测真题冲80分！');
     expect(html).not.toContain('我自己发给学友的便签不应该出现在我自己的便签箱中');
     expect(html).toContain('置顶展示');
     expect(html).toContain('回赠爱心');
+  });
+
+  it('renders CompanionNotesHistoryModal sent tab with recipient info, love back feedback, and re-note button without self-pin/self-heart', () => {
+    const sampleNotes: CompanionNote[] = [
+      {
+        id: 'n-sent-1',
+        fromUserId: 'u1',
+        fromNickname: '我',
+        fromAvatar: 'pose-0',
+        toUserId: 'u2',
+        toNickname: '阿土',
+        toAvatar: 'pose-2',
+        message: '今天写给阿土的冲刺打气便签！',
+        imageUrl: 'data:image/png;base64,sentSticker',
+        hearts: 3,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const html = render(
+      <CompanionNotesHistoryModal
+        isOpen
+        onClose={() => {}}
+        notes={sampleNotes}
+        currentUserId="u1"
+        initialTab="sent"
+        onPinNoteToTop={() => {}}
+        onReply={() => {}}
+      />
+    );
+
+    expect(html).toContain('打气便签箱 · 往常与今日');
+    expect(html).toContain('我写出的');
+    expect(html).toContain('阿土');
+    expect(html).toContain('寄给学友');
+    expect(html).toContain('今天写给阿土的冲刺打气便签！');
+    expect(html).toContain('学友已回赠 3 颗爱心');
+    expect(html).toContain('再贴一张');
+    // Cannot self-pin or self-heart in sent tab
+    expect(html).not.toContain('置顶展示');
+    expect(html).not.toContain('回赠爱心');
   });
 
   it('renders PokeCustomModal with customizable message, quick phrases, and checklist items', () => {

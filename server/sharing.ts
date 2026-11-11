@@ -523,16 +523,30 @@ export async function pokeCompanion(
   };
 }
 
+function resolveUserAvatar(db: any, userId: string): string {
+  let avatar = 'pose-0';
+  const ws = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(userId) as { state_json: string } | undefined;
+  if (ws?.state_json) {
+    try {
+      const parsed = JSON.parse(ws.state_json);
+      if (parsed?.profile?.avatar) avatar = parsed.profile.avatar;
+    } catch {}
+  }
+  return avatar;
+}
+
 export function listCompanionNotes(userId: string): { ok: true; notes: CompanionNote[] } {
   const db = getDb();
   const rows = db.prepare(`
     SELECT n.id, n.from_user_id, n.to_user_id, n.grant_id, n.message, n.image_url, n.hearts, n.created_at,
-           u.nickname AS from_nickname
+           u_from.nickname AS from_nickname,
+           u_to.nickname AS to_nickname
     FROM companion_notes n
-    JOIN users u ON u.id = n.from_user_id AND u.is_active = 1
-    WHERE n.to_user_id = ? AND n.from_user_id <> ?
+    JOIN users u_from ON u_from.id = n.from_user_id AND u_from.is_active = 1
+    LEFT JOIN users u_to ON u_to.id = n.to_user_id
+    WHERE (n.to_user_id = ? OR n.from_user_id = ?)
     ORDER BY n.created_at DESC
-    LIMIT 30
+    LIMIT 50
   `).all(userId, userId) as {
     id: string;
     from_user_id: string;
@@ -543,22 +557,17 @@ export function listCompanionNotes(userId: string): { ok: true; notes: Companion
     hearts: number;
     created_at: string;
     from_nickname: string;
+    to_nickname: string | null;
   }[];
 
   const userAvatars = new Map<string, string>();
-  for (const r of rows) {
-    if (!userAvatars.has(r.from_user_id)) {
-      let avatar = 'pose-0';
-      const ws = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(r.from_user_id) as { state_json: string } | undefined;
-      if (ws?.state_json) {
-        try {
-          const parsed = JSON.parse(ws.state_json);
-          if (parsed?.profile?.avatar) avatar = parsed.profile.avatar;
-        } catch {}
-      }
-      userAvatars.set(r.from_user_id, avatar);
+  const getAvatar = (uid: string) => {
+    if (!uid) return 'pose-0';
+    if (!userAvatars.has(uid)) {
+      userAvatars.set(uid, resolveUserAvatar(db, uid));
     }
-  }
+    return userAvatars.get(uid) || 'pose-0';
+  };
 
   return {
     ok: true,
@@ -566,8 +575,10 @@ export function listCompanionNotes(userId: string): { ok: true; notes: Companion
       id: r.id,
       fromUserId: r.from_user_id,
       fromNickname: displayName(r.from_nickname, '备考伙伴', 64),
-      fromAvatar: userAvatars.get(r.from_user_id) || 'pose-0',
+      fromAvatar: getAvatar(r.from_user_id),
       toUserId: r.to_user_id,
+      toNickname: r.to_nickname ? displayName(r.to_nickname, '备考伙伴', 64) : undefined,
+      toAvatar: r.to_user_id ? getAvatar(r.to_user_id) : undefined,
       grantId: r.grant_id ?? undefined,
       message: r.message,
       imageUrl: r.image_url ?? undefined,
@@ -637,20 +648,26 @@ export function createCompanionNote(fromUserId: string, raw: unknown): Companion
   `).run(id, fromUserId, toUserId, grantId ?? null, message, imageUrl ?? null, now);
 
   const sender = db.prepare('SELECT nickname FROM users WHERE id = ?').get(fromUserId) as { nickname: string } | undefined;
-  const senderWs = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(fromUserId) as { state_json: string } | undefined;
-  let senderAvatar = 'pose-0';
-  if (senderWs?.state_json) {
-    try {
-      const parsed = JSON.parse(senderWs.state_json);
-      if (parsed?.profile?.avatar) senderAvatar = parsed.profile.avatar;
-    } catch {}
+  const senderAvatar = resolveUserAvatar(db, fromUserId);
+
+  let toNickname: string | undefined;
+  let toAvatar: string | undefined;
+  if (toUserId) {
+    const toUser = db.prepare('SELECT nickname FROM users WHERE id = ?').get(toUserId) as { nickname: string } | undefined;
+    if (toUser?.nickname) {
+      toNickname = displayName(toUser.nickname, '备考伙伴', 64);
+      toAvatar = resolveUserAvatar(db, toUserId);
+    }
   }
+
   return {
     id,
     fromUserId,
     fromNickname: displayName(sender?.nickname, '备考伙伴', 64),
     fromAvatar: senderAvatar,
     toUserId,
+    toNickname,
+    toAvatar,
     grantId: grantId ?? undefined,
     message,
     imageUrl,

@@ -147,7 +147,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
     return () => window.removeEventListener('companion_remark_changed', handleRemarkChange);
   }, []);
   const [isDismissing, setIsDismissing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [swipeOffsetY, setSwipeOffsetY] = useState(0);
+  const [noteReplyTarget, setNoteReplyTarget] = useState<{ id?: string; nickname?: string; grantId?: string } | null>(null);
   const touchStartY = useRef<number | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
@@ -276,15 +278,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (Array.isArray(data?.notes) && data.notes.length > 0) {
+            setAllNotes(data.notes);
             const incomingNotes = data.notes.filter((n: CompanionNote) => n.fromUserId !== currentUser.id);
             if (incomingNotes.length > 0) {
-              setAllNotes(incomingNotes);
               const incoming = incomingNotes[0];
               setActiveNote(incoming);
               setBannerDismissed(isNoteDismissed(incoming.id));
               try { localStorage.setItem(userStorageKey, JSON.stringify(incoming)); } catch {}
             } else {
-              setAllNotes([]);
               setActiveNote(null);
               try { localStorage.removeItem(userStorageKey); } catch {}
             }
@@ -306,19 +307,25 @@ export const TodayView: React.FC<TodayViewProps> = ({
     touchStartY.current = e.touches[0].clientY;
     touchStartX.current = e.touches[0].clientX;
     touchStartTime.current = Date.now();
+    setIsDragging(true);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (touchStartY.current === null || touchStartX.current === null) return;
     const deltaY = e.touches[0].clientY - touchStartY.current;
     const deltaX = e.touches[0].clientX - touchStartX.current;
-    if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < 0) {
-      setSwipeOffsetY(deltaY);
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      if (deltaY < 0) {
+        setSwipeOffsetY(deltaY);
+      } else {
+        setSwipeOffsetY(0);
+      }
     }
   };
 
   const dismissBanner = () => {
     setIsDismissing(true);
+    setIsDragging(false);
     if (activeNote) {
       try {
         const uid = currentUser?.id;
@@ -388,6 +395,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
   };
 
   const handleTouchEnd = () => {
+    setIsDragging(false);
     if (touchStartY.current === null) return;
     const duration = Date.now() - touchStartTime.current;
     if (swipeOffsetY < -35 || (swipeOffsetY < -18 && duration < 250)) {
@@ -396,6 +404,14 @@ export const TodayView: React.FC<TodayViewProps> = ({
       setSwipeOffsetY(0);
     }
     touchStartY.current = null;
+    touchStartX.current = null;
+  };
+
+  const handleTouchCancel = () => {
+    setIsDragging(false);
+    setSwipeOffsetY(0);
+    touchStartY.current = null;
+    touchStartX.current = null;
   };
 
   const handleBannerClick = () => {
@@ -491,17 +507,25 @@ export const TodayView: React.FC<TodayViewProps> = ({
         <div
           role="banner"
           aria-label="学友打气便签"
-          className={`transition-all duration-300 ease-out select-none mb-2 ${
-            isDismissing ? '-translate-y-4 opacity-0 max-h-0 pointer-events-none' : 'translate-y-0 opacity-100'
+          className={`touch-none select-none mb-2 ${
+            isDragging
+              ? 'transition-none'
+              : 'transition-all duration-300 ease-out'
+          } ${
+            isDismissing
+              ? '-translate-y-8 opacity-0 max-h-0 pointer-events-none'
+              : 'translate-y-0 opacity-100'
           }`}
-          style={
-            swipeOffsetY < 0
+          style={{
+            touchAction: 'none',
+            ...(swipeOffsetY < 0 && !isDismissing
               ? { transform: `translateY(${swipeOffsetY}px)`, opacity: Math.max(0, 1 + swipeOffsetY / 90) }
-              : undefined
-          }
+              : undefined),
+          }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
           onClick={handleBannerClick}
         >
           <div className="mx-0.5 bg-gradient-to-r from-[#FFFDF9] via-[#FAF7EE] to-[#F2F7EB] border border-[#DEE7D4] rounded-2xl p-2.5 shadow-md backdrop-blur-md flex items-center justify-between gap-2.5 cursor-pointer hover:shadow-lg transition-all active:scale-[0.99]">
@@ -1012,7 +1036,13 @@ export const TodayView: React.FC<TodayViewProps> = ({
         todayStr={activeDate}
         currentUserId={currentUser?.id}
         onSendHeart={handleSendHeartFromHistory}
-        onReply={() => setEditModalOpen(true)}
+        onReply={(note) => {
+          const isSent = Boolean(currentUser?.id && note.fromUserId === currentUser.id);
+          const targetId = isSent ? note.toUserId : note.fromUserId;
+          const targetNick = isSent ? note.toNickname : note.fromNickname;
+          setNoteReplyTarget({ id: targetId, nickname: targetNick, grantId: note.grantId });
+          setEditModalOpen(true);
+        }}
         onPinNoteToTop={handlePinNoteToTop}
         onToast={onToast}
       />
@@ -1033,12 +1063,18 @@ export const TodayView: React.FC<TodayViewProps> = ({
       )}
       <EditCompanionNoteModal
         isOpen={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        defaultRecipientNickname={partner?.nickname || activeNote?.fromNickname || '学习伙伴'}
-        defaultRecipientId={partner?.partnerId || (partner?.id?.startsWith('demo-') ? partner.id : activeNote?.fromUserId)}
-        defaultGrantId={partner?.id || activeNote?.grantId}
+        onClose={() => {
+          setEditModalOpen(false);
+          setNoteReplyTarget(null);
+        }}
+        defaultRecipientNickname={noteReplyTarget?.nickname || partner?.nickname || activeNote?.fromNickname || '学习伙伴'}
+        defaultRecipientId={noteReplyTarget?.id || partner?.partnerId || (partner?.id?.startsWith('demo-') ? partner.id : activeNote?.fromUserId)}
+        defaultGrantId={noteReplyTarget?.grantId || partner?.id || activeNote?.grantId}
         onNoteSent={note => {
-          onToast?.(`已成功为 ${partner?.nickname || activeNote?.fromNickname || '学友'} 贴上打气便签！💌`);
+          if (note) {
+            setAllNotes(prev => [note, ...prev.filter(n => n.id !== note.id)]);
+          }
+          onToast?.(`已成功为 ${noteReplyTarget?.nickname || partner?.nickname || activeNote?.fromNickname || '学友'} 贴上打气便签！💌`);
         }}
         onToast={onToast}
       />

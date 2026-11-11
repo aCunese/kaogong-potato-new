@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Modal, Button } from '../common/UIComponents';
 import { Avatar } from '../common/Avatar';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Heart, MessageSquarePlus, Calendar, Clock, Pin, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Heart, MessageSquarePlus, Clock, Pin, Sparkles } from 'lucide-react';
 import type { CompanionNote } from '../../types/companionNote';
 import { getCompanionDisplayName } from '../../utils/companionRemarks';
 
@@ -13,6 +13,7 @@ export interface CompanionNotesHistoryModalProps {
   partnerAvatar?: string;
   todayStr?: string;
   currentUserId?: string;
+  initialTab?: 'today' | 'past' | 'sent';
   onSendHeart?: (noteId: string) => Promise<void>;
   onReply?: (note: CompanionNote) => void;
   onPinNoteToTop?: (note: CompanionNote) => void;
@@ -44,12 +45,13 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
   partnerAvatar,
   todayStr,
   currentUserId,
+  initialTab = 'today',
   onSendHeart,
   onReply,
   onPinNoteToTop,
   onToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'today' | 'past'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'past' | 'sent'>(initialTab);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [heartLoading, setHeartLoading] = useState<Record<string, boolean>>({});
   const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
@@ -57,12 +59,16 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
 
   const effectiveToday = useMemo(() => todayStr || new Date().toISOString().slice(0, 10), [todayStr]);
 
-  const { todayNotes, pastNotes } = useMemo(() => {
+  const { todayNotes, pastNotes, sentNotes } = useMemo(() => {
     const today: CompanionNote[] = [];
     const past: CompanionNote[] = [];
+    const sent: CompanionNote[] = [];
 
     for (const note of notes) {
-      if (currentUserId && note.fromUserId === currentUserId) continue;
+      if (currentUserId && note.fromUserId === currentUserId) {
+        sent.push(note);
+        continue;
+      }
       const noteDate = note.createdAt ? note.createdAt.slice(0, 10) : '';
       if (noteDate === effectiveToday) {
         today.push(note);
@@ -70,10 +76,10 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
         past.push(note);
       }
     }
-    return { todayNotes: today, pastNotes: past };
+    return { todayNotes: today, pastNotes: past, sentNotes: sent };
   }, [notes, effectiveToday, currentUserId]);
 
-  const handleTabChange = (tab: 'today' | 'past') => {
+  const handleTabChange = (tab: 'today' | 'past' | 'sent') => {
     setActiveTab(tab);
     setVisibleCount(PAGE_SIZE);
   };
@@ -84,7 +90,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
 
   if (!isOpen) return null;
 
-  const currentList = activeTab === 'today' ? todayNotes : pastNotes;
+  const currentList = activeTab === 'today' ? todayNotes : activeTab === 'past' ? pastNotes : sentNotes;
   const displayedNotes = currentList.slice(0, visibleCount);
   const hasMore = currentList.length > visibleCount;
   const remainingCount = currentList.length - visibleCount;
@@ -116,8 +122,8 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
   return (
     <Modal isOpen onClose={onClose} title="📮 打气便签箱 · 往常与今日">
       <div className="space-y-4">
-        {/* 顶部标签切换 */}
-        <div role="tablist" aria-label="便签箱分类" className="grid grid-cols-2 gap-1 rounded-xl bg-cream p-1 text-xs font-bold">
+        {/* 顶部三标签切换 */}
+        <div role="tablist" aria-label="便签箱分类" className="grid grid-cols-3 gap-1 rounded-xl bg-cream p-1 text-xs font-bold">
           <button
             type="button"
             role="tab"
@@ -127,7 +133,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
               activeTab === 'today' ? 'bg-paper text-sage-dark shadow-xs' : 'text-ink-muted hover:text-ink-main'
             }`}
           >
-            <span>今日便签</span>
+            <span>今日收到</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage font-bold">
               {todayNotes.length}
             </span>
@@ -142,9 +148,24 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
               activeTab === 'past' ? 'bg-paper text-sage-dark shadow-xs' : 'text-ink-muted hover:text-ink-main'
             }`}
           >
-            <span>往常便签回忆</span>
+            <span>往常回忆</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cream text-ink-muted border border-line/60">
               {pastNotes.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'sent'}
+            onClick={() => handleTabChange('sent')}
+            className={`rounded-lg py-2 transition-colors flex items-center justify-center gap-1.5 ${
+              activeTab === 'sent' ? 'bg-paper text-sage-dark shadow-xs' : 'text-ink-muted hover:text-ink-main'
+            }`}
+          >
+            <span>我写出的</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E8EFF6] text-[#345A7A] border border-[#CCDCEB]">
+              {sentNotes.length}
             </span>
           </button>
         </div>
@@ -153,23 +174,35 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
         {currentList.length === 0 ? (
           <div className="py-10 text-center space-y-3">
             <div className="flex justify-center">
-              <PotatoSprite pose={activeTab === 'today' ? 0 : 2} size={64} />
+              <PotatoSprite pose={activeTab === 'today' ? 0 : activeTab === 'past' ? 2 : 1} size={64} />
             </div>
             <div>
               <p className="text-sm font-bold text-ink-main">
-                {activeTab === 'today' ? '今天还没有收到新的便签' : '往常便签箱空空如也'}
+                {activeTab === 'today'
+                  ? '今天还没有收到新的便签'
+                  : activeTab === 'past'
+                  ? '往常便签回忆空空如也'
+                  : '还没有写出过打气便签'}
               </p>
               <p className="text-xs text-ink-muted mt-1 leading-relaxed max-w-[260px] mx-auto">
                 {activeTab === 'today'
                   ? '学友贴的打气便签会第一眼展现在这里，你也可以主动给学友贴一张！'
-                  : '收到过的鼓励便签都会永久妥善保存在这里，见证共同奋斗的日夜。'}
+                  : activeTab === 'past'
+                  ? '收到过的鼓励便签都会永久妥善保存在这里，见证共同奋斗的日夜。'
+                  : '给学友写的鼓励便签和表情包都会记录在这里，去贴一张给学友打气吧！'}
               </p>
             </div>
           </div>
         ) : (
           <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-0.5">
             {displayedNotes.map(note => {
-              const displayName = getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
+              const isSentTab = activeTab === 'sent' || (Boolean(currentUserId) && note.fromUserId === currentUserId);
+              const displayName = isSentTab
+                ? getCompanionDisplayName(note.toUserId || note.grantId || '', note.toNickname || '学友', note.grantId)
+                : getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
+              const avatar = isSentTab
+                ? (note.toAvatar || partnerAvatar || 'pose-0')
+                : ((note.fromUserId !== currentUserId ? partnerAvatar : undefined) || note.fromAvatar || 'pose-0');
               const timeDisplay = formatNoteTime(note.createdAt);
               const message = note.message || '考公路上一起加油稳稳上岸！🥔🔥';
               const isLongText = message.length > 70 || (message.match(/\n/g) || []).length >= 3;
@@ -183,12 +216,16 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                   {/* 便签头部：好友头像 + 备注名 + 时间 */}
                   <div className="flex items-center justify-between gap-2 border-b border-line/50 pb-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <Avatar avatar={(note.fromUserId !== currentUserId ? partnerAvatar : undefined) || note.fromAvatar || 'pose-0'} size={38} className="shadow-2xs" />
+                      <Avatar avatar={avatar} size={38} className="shadow-2xs" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-bold text-ink-main truncate">{displayName}</span>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E5ECD9] text-[#4F6344] font-semibold">
-                            学友打气
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+                              isSentTab ? 'bg-[#E5ECF6] text-[#2F4D6B]' : 'bg-[#E5ECD9] text-[#4F6344]'
+                            }`}
+                          >
+                            {isSentTab ? '寄给学友' : '学友打气'}
                           </span>
                         </div>
                         <div className="flex items-center gap-1 text-[10px] text-ink-muted mt-0.5">
@@ -198,8 +235,8 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                       </div>
                     </div>
 
-                    {/* 置顶展示按钮 */}
-                    {onPinNoteToTop && (
+                    {/* 置顶展示按钮（仅在收件箱显示，不置顶自己发给好友的便签） */}
+                    {!isSentTab && onPinNoteToTop && (
                       <button
                         type="button"
                         onClick={() => handlePin(note)}
@@ -246,25 +283,31 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                     )}
                   </div>
 
-                  {/* 底部操作区：爱心数 + 回赠爱心 + 回贴一张 */}
+                  {/* 底部操作区：爱心数 + 交互操作 */}
                   <div className="pt-2 border-t border-line/40 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 text-xs text-[#C04940] font-bold">
-                      <Heart size={13} className="fill-[#D32F2F] text-[#D32F2F]" />
-                      <span>{note.hearts} 颗爱心</span>
+                      <Heart size={13} className={note.hearts > 0 ? 'fill-[#D32F2F] text-[#D32F2F]' : 'text-[#D32F2F]'} />
+                      <span>
+                        {isSentTab
+                          ? (note.hearts > 0 ? `学友已回赠 ${note.hearts} 颗爱心` : '学友暂未回赠爱心')
+                          : `${note.hearts} 颗爱心`}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleHeart(note.id)}
-                        disabled={heartLoading[note.id]}
-                        className="px-2.5 py-1 text-[11px] h-7 border-[#E2BFB8] bg-[#FDF5F4] hover:bg-[#FCEAE8] text-[#C04940] font-bold flex items-center gap-1"
-                      >
-                        <Heart size={12} className="fill-current" />
-                        <span>回赠爱心</span>
-                      </Button>
+                      {!isSentTab && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleHeart(note.id)}
+                          disabled={heartLoading[note.id]}
+                          className="px-2.5 py-1 text-[11px] h-7 border-[#E2BFB8] bg-[#FDF5F4] hover:bg-[#FCEAE8] text-[#C04940] font-bold flex items-center gap-1"
+                        >
+                          <Heart size={12} className="fill-current" />
+                          <span>回赠爱心</span>
+                        </Button>
+                      )}
 
                       {onReply && (
                         <Button
@@ -278,7 +321,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
                           className="px-2.5 py-1 text-[11px] h-7 font-bold flex items-center gap-1"
                         >
                           <MessageSquarePlus size={12} />
-                          <span>回贴便签</span>
+                          <span>{isSentTab ? '再贴一张' : '回贴便签'}</span>
                         </Button>
                       )}
                     </div>

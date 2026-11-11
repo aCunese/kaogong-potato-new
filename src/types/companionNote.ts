@@ -4,6 +4,8 @@ export interface CompanionNote {
   fromNickname: string;
   fromAvatar?: string;
   toUserId?: string;
+  toNickname?: string;
+  toAvatar?: string;
   grantId?: string;
   message: string;
   imageUrl?: string;
