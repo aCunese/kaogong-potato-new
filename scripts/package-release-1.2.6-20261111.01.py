@@ -245,11 +245,14 @@ with os.fdopen(fd, 'w') as f:
         assert '\\n' not in entry and '\\r' not in entry
         f.write(entry + '\\n')
 host = old['HostConfig']
-assert host['NetworkMode'] in ('default', 'bridge')
-assert len(old['Mounts']) == 1
+net_mode = host.get('NetworkMode') or 'default'
+assert net_mode in ('default', 'bridge', 'kaogong-app_default')
 args = ['docker', 'create', '--name', candidate, '--env-file', str(env_file), '--user', old['Config']['User'] or 'node',
     '--restart', host['RestartPolicy']['Name'], '-p', '127.0.0.1:3000:3000',
-    '--mount', 'type=bind,src=' + mount['Source'] + ',dst=/app/data']
+    '--network', net_mode]
+for m in old['Mounts']:
+    ro_flag = '' if m.get('RW', True) else ',readonly'
+    args += ['--mount', 'type=' + m.get('Type', 'bind') + ',src=' + m['Source'] + ',dst=' + m['Destination'] + ro_flag]
 for cap in host.get('CapDrop') or []:
     args += ['--cap-drop', cap]
 for opt in host.get('SecurityOpt') or []:
@@ -315,6 +318,7 @@ try:
         time.sleep(1)
     else:
         raise RuntimeError('New production container failed readiness checks')
+    subprocess.run(['docker', 'tag', image, 'kaogong-potato:latest'], check=False)
     after = json.loads(subprocess.check_output(['docker', 'exec', '-i', primary, 'node'], input=audit, text=True))
     (root / 'data-after.json').write_text(json.dumps(after, indent=2))
     for key in ['generation', 'counts', 'workspaceTotals', 'workspaceDigest', 'attachmentAudit']:
