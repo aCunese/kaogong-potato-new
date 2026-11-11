@@ -57,6 +57,27 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
   const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
   const [expandedNoteIds, setExpandedNoteIds] = useState<Record<string, boolean>>({});
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+      setVisibleCount(PAGE_SIZE);
+    }
+  }, [isOpen, initialTab]);
+
+  const effectiveUserId = useMemo(() => {
+    if (currentUserId) return currentUserId;
+    try {
+      if (typeof window !== 'undefined') {
+        const cachedUser = localStorage.getItem('kaogong_last_user');
+        if (cachedUser) {
+          const u = JSON.parse(cachedUser);
+          if (u?.id) return u.id;
+        }
+      }
+    } catch {}
+    return undefined;
+  }, [currentUserId]);
+
   const effectiveToday = useMemo(() => todayStr || new Date().toISOString().slice(0, 10), [todayStr]);
 
   const { todayNotes, pastNotes, sentNotes } = useMemo(() => {
@@ -65,7 +86,8 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
     const sent: CompanionNote[] = [];
 
     for (const note of notes) {
-      if (currentUserId && note.fromUserId === currentUserId) {
+      const isSent = Boolean((effectiveUserId && note.fromUserId === effectiveUserId) || note.fromUserId === 'me');
+      if (isSent) {
         sent.push(note);
         continue;
       }
@@ -77,7 +99,7 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
       }
     }
     return { todayNotes: today, pastNotes: past, sentNotes: sent };
-  }, [notes, effectiveToday, currentUserId]);
+  }, [notes, effectiveToday, effectiveUserId]);
 
   const handleTabChange = (tab: 'today' | 'past' | 'sent') => {
     setActiveTab(tab);
@@ -196,13 +218,13 @@ export const CompanionNotesHistoryModal: React.FC<CompanionNotesHistoryModalProp
         ) : (
           <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-0.5">
             {displayedNotes.map(note => {
-              const isSentTab = activeTab === 'sent' || (Boolean(currentUserId) && note.fromUserId === currentUserId);
+              const isSentTab = activeTab === 'sent' || Boolean((effectiveUserId && note.fromUserId === effectiveUserId) || note.fromUserId === 'me');
               const displayName = isSentTab
                 ? getCompanionDisplayName(note.toUserId || note.grantId || '', note.toNickname || '学友', note.grantId)
                 : getCompanionDisplayName(note.fromUserId, note.fromNickname, note.grantId);
               const avatar = isSentTab
-                ? (note.toAvatar || partnerAvatar || 'pose-0')
-                : ((note.fromUserId !== currentUserId ? partnerAvatar : undefined) || note.fromAvatar || 'pose-0');
+                ? (note.toAvatar || partnerAvatar || 'pose-2')
+                : ((note.fromUserId !== effectiveUserId ? partnerAvatar : undefined) || note.fromAvatar || 'pose-0');
               const timeDisplay = formatNoteTime(note.createdAt);
               const message = note.message || '考公路上一起加油稳稳上岸！🥔🔥';
               const isLongText = message.length > 70 || (message.match(/\n/g) || []).length >= 3;

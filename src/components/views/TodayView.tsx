@@ -150,6 +150,8 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [swipeOffsetY, setSwipeOffsetY] = useState(0);
   const [noteReplyTarget, setNoteReplyTarget] = useState<{ id?: string; nickname?: string; grantId?: string } | null>(null);
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+  const swipedRef = useRef(false);
   const touchStartY = useRef<number | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartTime = useRef<number>(0);
@@ -281,10 +283,20 @@ export const TodayView: React.FC<TodayViewProps> = ({
             setAllNotes(data.notes);
             const incomingNotes = data.notes.filter((n: CompanionNote) => n.fromUserId !== currentUser.id);
             if (incomingNotes.length > 0) {
-              const incoming = incomingNotes[0];
-              setActiveNote(incoming);
-              setBannerDismissed(isNoteDismissed(incoming.id));
-              try { localStorage.setItem(userStorageKey, JSON.stringify(incoming)); } catch {}
+              let selected = incomingNotes[0];
+              try {
+                const cached = localStorage.getItem(userStorageKey);
+                if (cached) {
+                  const parsed = JSON.parse(cached);
+                  if (parsed && parsed.fromUserId !== currentUser.id) {
+                    const matched = incomingNotes.find((n: CompanionNote) => n.id === parsed.id);
+                    if (matched) selected = matched;
+                  }
+                }
+              } catch {}
+              setActiveNote(selected);
+              setBannerDismissed(isNoteDismissed(selected.id));
+              try { localStorage.setItem(userStorageKey, JSON.stringify(selected)); } catch {}
             } else {
               setActiveNote(null);
               try { localStorage.removeItem(userStorageKey); } catch {}
@@ -303,10 +315,30 @@ export const TodayView: React.FC<TodayViewProps> = ({
     }
   }, [currentUser, userStorageKey]);
 
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchStartY.current === null || touchStartX.current === null) return;
+      const deltaY = e.touches[0].clientY - touchStartY.current;
+      const deltaX = e.touches[0].clientX - touchStartX.current;
+      if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < 0) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    };
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [bannerDismissed, activeNote]);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartY.current = e.touches[0].clientY;
     touchStartX.current = e.touches[0].clientX;
     touchStartTime.current = Date.now();
+    swipedRef.current = false;
     setIsDragging(true);
   };
 
@@ -315,6 +347,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
     const deltaY = e.touches[0].clientY - touchStartY.current;
     const deltaX = e.touches[0].clientX - touchStartX.current;
     if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      if (Math.abs(deltaY) > 8) {
+        swipedRef.current = true;
+      }
       if (deltaY < 0) {
         setSwipeOffsetY(deltaY);
       } else {
@@ -398,10 +433,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
     setIsDragging(false);
     if (touchStartY.current === null) return;
     const duration = Date.now() - touchStartTime.current;
-    if (swipeOffsetY < -35 || (swipeOffsetY < -18 && duration < 250)) {
+    if (swipeOffsetY < -35 || (swipeOffsetY < -18 && duration < 300)) {
       dismissBanner();
     } else {
       setSwipeOffsetY(0);
+      swipedRef.current = false;
     }
     touchStartY.current = null;
     touchStartX.current = null;
@@ -410,14 +446,16 @@ export const TodayView: React.FC<TodayViewProps> = ({
   const handleTouchCancel = () => {
     setIsDragging(false);
     setSwipeOffsetY(0);
+    swipedRef.current = false;
     touchStartY.current = null;
     touchStartX.current = null;
   };
 
   const handleBannerClick = () => {
-    if (Math.abs(swipeOffsetY) < 10) {
-      setDetailModalOpen(true);
+    if (swipedRef.current || isDismissing || Math.abs(swipeOffsetY) >= 8) {
+      return;
     }
+    setDetailModalOpen(true);
   };
 
   // Keep live timer tick
@@ -481,6 +519,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }, 0);
   const totalMinutes = Math.floor(totalElapsedMs / 60000);
 
+  const pendingPlans = displayedPlans.filter(p => !p.done && ((p.accumulatedMs ?? 0) > 0 || isPlanRunning(p)));
+  const pendingCount = pendingPlans.length;
+  const pendingElapsedMs = pendingPlans.reduce((sum, p) => sum + getPlanElapsedMs(p), 0);
+  const pendingMinutes = Math.floor(pendingElapsedMs / 60000);
+
   // 倒数日展示：未设置日期 / 今天 / N 天 / 已结束
   const countdownState = (targetDate: string) => {
     if (!targetDate) return { text: '--', ended: false, unset: true };
@@ -505,21 +548,22 @@ export const TodayView: React.FC<TodayViewProps> = ({
       {/* 悬浮打气便签 (Floating Banner) - 顶部自然排版，不覆盖下方 0 分钟卡片 */}
       {!bannerDismissed && activeNote && (
         <div
+          ref={bannerRef}
           role="banner"
           aria-label="学友打气便签"
-          className={`touch-none select-none mb-2 ${
+          className={`touch-none select-none overflow-hidden ${
             isDragging
-              ? 'transition-none'
+              ? 'transition-none max-h-32 mb-2'
               : 'transition-all duration-300 ease-out'
           } ${
             isDismissing
-              ? '-translate-y-8 opacity-0 max-h-0 pointer-events-none'
-              : 'translate-y-0 opacity-100'
+              ? '-translate-y-full opacity-0 max-h-0 mb-0 pointer-events-none'
+              : 'translate-y-0 opacity-100 max-h-32 mb-2'
           }`}
           style={{
             touchAction: 'none',
             ...(swipeOffsetY < 0 && !isDismissing
-              ? { transform: `translateY(${swipeOffsetY}px)`, opacity: Math.max(0, 1 + swipeOffsetY / 90) }
+              ? { transform: `translateY(${swipeOffsetY}px)`, opacity: Math.max(0, 1 + swipeOffsetY / 100) }
               : undefined),
           }}
           onTouchStart={handleTouchStart}
@@ -758,6 +802,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
           <div className="text-xs text-[#657657] mt-1.5 font-medium">
             <strong>{doneCount} / {displayedPlans.length}</strong> 项日程已完成
+            {pendingMinutes > 0 && (
+              <span className="block text-[11px] text-[#657657]/90 font-normal mt-0.5">
+                （含 {pendingMinutes} 分钟待登记投入）
+              </span>
+            )}
           </div>
         </div>
 
@@ -821,6 +870,24 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* 待登记投入轻量级辅助提示：当检测到今日计划存在投入但未登记时展示 */}
+      {pendingCount > 0 && (
+        <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 shadow-2xs">
+          <span className="text-sm shrink-0">💡</span>
+          <span className="flex-1 text-[11px] leading-relaxed">
+            {pendingMinutes > 0 ? (
+              <>
+                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项已投入 <strong className="font-bold text-amber-950">{pendingMinutes}</strong> 分钟待登记，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
+              </>
+            ) : (
+              <>
+                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项正在计时中，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* 3. 待执行日程列表头部 */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -1017,7 +1084,10 @@ export const TodayView: React.FC<TodayViewProps> = ({
         onClose={() => setDetailModalOpen(false)}
         note={activeNote}
         partnerAvatar={partner?.avatar}
-        onReply={() => setEditModalOpen(true)}
+        onReply={(note) => {
+          setNoteReplyTarget({ id: note?.fromUserId, nickname: note?.fromNickname, grantId: note?.grantId });
+          setEditModalOpen(true);
+        }}
         onPoke={() => {
           setDetailModalOpen(false);
           setPokeModalOpen(true);

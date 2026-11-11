@@ -48,6 +48,8 @@ describe('Floating Companion Note Banner & Modals', () => {
     expect(html).toContain('role="banner"');
     expect(html).toContain('aria-label="学友打气便签"');
     expect(html).toContain('touch-none');
+    expect(html).toContain('overflow-hidden');
+    expect(html).toContain('max-h-32 mb-2');
     expect(html).toContain('阿土同学');
     expect(html).toContain('打气便签');
     expect(html).toContain('今天行测刷满100题');
@@ -289,6 +291,42 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     // Cannot self-pin or self-heart in sent tab
     expect(html).not.toContain('置顶展示');
     expect(html).not.toContain('回赠爱心');
+  });
+
+  it('correctly categorizes local notes sent as "me" into sent tab and suppresses self actions', () => {
+    const localSentNotes: CompanionNote[] = [
+      {
+        id: 'local-note-1',
+        fromUserId: 'me',
+        fromNickname: '我',
+        toUserId: 'demo-atu',
+        toNickname: '阿土同学',
+        toAvatar: 'pose-2',
+        message: '阿土同学加油！',
+        hearts: 0,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    const html = render(
+      <CompanionNotesHistoryModal
+        isOpen
+        onClose={() => {}}
+        notes={localSentNotes}
+        initialTab="sent"
+        onPinNoteToTop={() => {}}
+        onReply={() => {}}
+      />
+    );
+
+    expect(html).toContain('我写出的');
+    expect(html).toContain('阿土同学');
+    expect(html).toContain('寄给学友');
+    expect(html).toContain('阿土同学加油！');
+    expect(html).toContain('学友暂未回赠爱心');
+    expect(html).toContain('再贴一张');
+    expect(html).not.toContain('置顶展示');
+    expect(html).not.toContain('>回赠爱心<');
   });
 
   it('renders PokeCustomModal with customizable message, quick phrases, and checklist items', () => {
@@ -600,6 +638,133 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     );
     expect(htmlClean).not.toContain('已自动恢复未发送内容');
     expect(htmlClean).not.toContain('这是未发送成功的考公骚话！');
+  });
+
+  it('TodayView displays pending unregistered study time banner when plans have unrecorded elapsed time and hides when completed', () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const mockStateWithPending = {
+      ...BLANK_STATE,
+      plans: [
+        {
+          id: 'p1',
+          name: '超格600图推纠错',
+          date: todayStr,
+          libraryId: 'lib1',
+          type: 'book' as const,
+          sourceId: 'b1',
+          subject: '判断推理' as const,
+          plannedMinutes: 60,
+          actualMinutes: 45,
+          accumulatedMs: 45 * 60 * 1000,
+          done: false,
+        },
+        {
+          id: 'p2',
+          name: '申论范文精读',
+          date: todayStr,
+          libraryId: 'lib2',
+          type: 'custom' as const,
+          sourceId: '',
+          subject: '申论' as const,
+          plannedMinutes: 30,
+          actualMinutes: 30,
+          accumulatedMs: 30 * 60 * 1000,
+          done: true,
+        },
+      ],
+    };
+
+    const pendingHtml = render(
+      <AppContext.Provider value={{ state: mockStateWithPending, dispatch: () => {}, activeDate: todayStr } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+
+    // Main summary card includes note about pending registration minutes
+    expect(pendingHtml).toContain('今日已累计学习');
+    expect(pendingHtml).toContain('含 45 分钟待登记投入');
+
+    // Helper banner above plan list reminds user to click 完成登记
+    expect(pendingHtml).toContain('项已投入');
+    expect(pendingHtml).toContain('45');
+    expect(pendingHtml).toContain('分钟待登记');
+    expect(pendingHtml).toContain('完成登记');
+
+    // State with all plans completed: no pending banner
+    const mockStateCompleted = {
+      ...mockStateWithPending,
+      plans: mockStateWithPending.plans.map(p => ({ ...p, done: true })),
+    };
+
+    const completedHtml = render(
+      <AppContext.Provider value={{ state: mockStateCompleted, dispatch: () => {}, activeDate: todayStr } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+
+    expect(completedHtml).not.toContain('待登记投入');
+    expect(completedHtml).not.toContain('有 1 项已投入');
+  });
+
+  it('SharingModal renders dedicated focus status row in header and helper prompt in SharedOverview without truncation', () => {
+    // When focusing: header card has dedicated full-width emerald row
+    const demoGrant: SharedGrant = {
+      id: 'demo-atu',
+      nickname: '阿土同学',
+      createdAt: '',
+      liveStatus: {
+        state: 'focusing',
+        focusTitle: '超格600图推纠错',
+        focusMinutes: 13,
+        pendingMinutes: 119,
+      },
+    };
+
+    const mockOverview = {
+      ownerNickname: '阿土同学',
+      updatedAt: new Date().toISOString(),
+      range: { from: null, to: null },
+      selectedTotals: { minutes: 324, questions: 80, errors: 12, accuracy: 85, lessons: 0 },
+      allTimeTotals: { minutes: 324, questions: 80, errors: 12, accuracy: 85, lessons: 0 },
+      books: [],
+      courses: [],
+      records: { items: [], page: 1, pageSize: 30, total: 0 },
+      studyDates: [new Date().toISOString().slice(0, 10)],
+    };
+
+    const html = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialSelectedId="demo-atu"
+        initialOverview={mockOverview}
+        initialGrants={{ owned: [], received: [demoGrant], codes: [] }}
+      />
+    );
+
+    // Dedicated focus row prevents mobile truncation
+    expect(html).toContain('🟢 正在专注');
+    expect(html).toContain('《超格600图推纠错》');
+    expect(html).toContain('13m');
+
+    // SharedOverview explains the discrepancy between recorded 324m and live/pending 119m
+    expect(html).toContain('今日学情概况');
+    expect(html).toContain('学友当前正在专注《超格600图推纠错》');
+    expect(html).toContain('约 13 分钟进行中');
+    expect(html).toContain('另有约 106 分钟暂存待登记');
+    expect(html).toContain('完成登记');
   });
 });
 

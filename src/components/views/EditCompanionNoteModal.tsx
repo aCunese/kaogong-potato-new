@@ -239,7 +239,8 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
     try {
       let createdNote: CompanionNote;
 
-      if (currentUser && csrfToken) {
+      const isDemoPartner = Boolean(defaultRecipientId?.startsWith('demo-'));
+      if (currentUser && csrfToken && !isDemoPartner) {
         const res = await fetch('/api/sharing/notes', {
           method: 'POST',
           headers: {
@@ -262,12 +263,15 @@ export const EditCompanionNoteModal: React.FC<EditCompanionNoteModalProps> = ({
         const data = await res.json();
         createdNote = data.note;
       } else {
-        // Offline / Guest fallback
+        // Offline / Demo / Guest fallback
         createdNote = {
           id: `local-note-${Date.now()}`,
           fromUserId: currentUser?.id || 'me',
           fromNickname: currentUser?.nickname || '我',
+          fromAvatar: currentUser ? undefined : 'pose-0',
           toUserId: defaultRecipientId,
+          toNickname: defaultRecipientNickname || '学友',
+          toAvatar: isDemoPartner ? (defaultRecipientId === 'demo-bean' ? 'pose-1' : 'pose-2') : 'pose-2',
           grantId: defaultGrantId,
           message: trimmed || '给你贴了一张打气表情包！🥔✨',
           imageUrl: imageUrl || undefined,

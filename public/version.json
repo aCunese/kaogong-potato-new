@@ -1,6 +1,6 @@
 {
   "version": "1.2.6",
-  "build": "20261111.01",
+  "build": "20261111.02",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-11T10:00:00Z",
-  "summary": "修复悬浮便签上滑联动主页滚动问题并支持平滑收起动效，便签箱新增「我写出的」记录与学友爱心回赠状态查看。"
+  "deployedAt": "2026-11-11T15:00:00Z",
+  "summary": "修复移动端学友专注状态截断问题与学情统计口径对齐提示，主页新增待登记投入时长轻量提醒。"
 }

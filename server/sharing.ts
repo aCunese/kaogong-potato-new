@@ -213,6 +213,20 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
     const nowMs = now.getTime();
     const MAX_ACTIVE_FOCUS_MS = 4 * 3600 * 1000; // 4 hours maximum sensible continuous timer duration
 
+    // Calculate pending unrecorded study minutes for today's unfinished plans
+    const todayStr = now.toISOString().slice(0, 10);
+    const todayUnfinishedPlans = state.plans?.filter(p => p.date === todayStr && !p.done && !p.archived) ?? [];
+    let pendingMinutes = 0;
+    for (const p of todayUnfinishedPlans) {
+      let pMs = p.accumulatedMs || 0;
+      if (p.timerStart > 0 && p.timerPhase !== 'rest' && (nowMs - p.timerStart) < MAX_ACTIVE_FOCUS_MS) {
+        pMs += Math.max(0, nowMs - p.timerStart);
+      }
+      if (pMs > 0) {
+        pendingMinutes += Math.floor(pMs / 60000);
+      }
+    }
+
     // 2.1 Check active plan timer (must be not done, not archived, timerStart > 0, NOT in rest phase, within 4 hours)
     const runningPlan = state.plans?.find(p =>
       !p.done &&
@@ -255,6 +269,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
         hasEmailBinding: Boolean(binding?.email),
         canPoke: false,
         cooldownSeconds,
+        pendingMinutes: pendingMinutes > 0 ? pendingMinutes : undefined,
       };
     }
 
@@ -286,11 +301,11 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
         hasEmailBinding: Boolean(binding?.email),
         canPoke: false,
         cooldownSeconds,
+        pendingMinutes: pendingMinutes > 0 ? pendingMinutes : undefined,
       };
     }
 
     // 2.3 When NOT timing: Partner is not studying. Focus badge/state is strictly not returned.
-    const todayStr = now.toISOString().slice(0, 10);
     const todayPlans = state.plans?.filter(p => p.date === todayStr) ?? [];
     const todayRecords = state.records?.filter(r => r.date === todayStr) ?? [];
     const totalMinutesToday = Math.round(
@@ -328,6 +343,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
       hasEmailBinding: Boolean(binding?.email),
       canPoke,
       cooldownSeconds,
+      pendingMinutes: pendingMinutes > 0 ? pendingMinutes : undefined,
     };
   }
 
@@ -542,7 +558,7 @@ export function listCompanionNotes(userId: string): { ok: true; notes: Companion
            u_from.nickname AS from_nickname,
            u_to.nickname AS to_nickname
     FROM companion_notes n
-    JOIN users u_from ON u_from.id = n.from_user_id AND u_from.is_active = 1
+    LEFT JOIN users u_from ON u_from.id = n.from_user_id
     LEFT JOIN users u_to ON u_to.id = n.to_user_id
     WHERE (n.to_user_id = ? OR n.from_user_id = ?)
     ORDER BY n.created_at DESC

@@ -21,6 +21,7 @@ export interface PartnerLiveStatus {
   hasEmailBinding?: boolean;
   canPoke?: boolean;
   cooldownSeconds?: number;
+  pendingMinutes?: number;
 }
 
 export interface SharedGrant {

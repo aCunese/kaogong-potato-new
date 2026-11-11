@@ -15,7 +15,7 @@ test('SIGTERM closes the real server only after in-flight OCR descendants and sc
   const executable = path.join(temp, 'stalled-tesseract');
   // Stall the external native boundary while retaining the real Python helper,
   // process groups, auth/media route and production SIGTERM handler.
-  fs.writeFileSync(executable, `#!${process.env.PYTHON_BIN || '/usr/bin/python3'}\nimport os,json,time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text(json.dumps({'pids':[os.getppid(),os.getpid()],'group':os.getpgrp(),'scratch':os.environ['TMPDIR']}))\ntime.sleep(60)\n`, { mode: 0o700 });
+  fs.writeFileSync(executable, `#!/usr/bin/env ${process.env.PYTHON_BIN || 'python3'}\nimport os,json,time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text(json.dumps({'pids':[os.getppid(),os.getpid()],'group':os.getpgrp(),'scratch':os.environ['TMPDIR']}))\ntime.sleep(60)\n`, { mode: 0o700 });
   const reservation = net.createServer();
   await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
   const port = (reservation.address() as net.AddressInfo).port;

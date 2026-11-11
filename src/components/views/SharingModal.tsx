@@ -51,6 +51,8 @@ export interface SharingModalProps {
   initialSelectedId?: string | null;
   initialTab?: 'received' | 'owned';
   initialPartnerTab?: 'daily' | 'library' | 'all';
+  initialOverview?: SharedStudyOverview | null;
+  initialGrants?: { owned: SharedGrant[]; received: SharedGrant[]; codes: SharingCodeMetadata[] };
 }
 
 class SharingRequestError extends Error {
@@ -154,13 +156,15 @@ function SharingSession({
   initialSelectedId = null,
   initialTab = 'received',
   initialPartnerTab = 'daily',
+  initialOverview = null,
+  initialGrants,
 }: SharingModalProps & { userId: string; csrfToken: string }) {
   const { activeDate } = useApp();
   const todayStr = activeDate || new Date().toISOString().slice(0, 10);
 
-  const [owned, setOwned] = useState<SharedGrant[]>([]);
-  const [received, setReceived] = useState<SharedGrant[]>([]);
-  const [codes, setCodes] = useState<SharingCodeMetadata[]>([]);
+  const [owned, setOwned] = useState<SharedGrant[]>(() => initialGrants?.owned ?? []);
+  const [received, setReceived] = useState<SharedGrant[]>(() => initialGrants?.received ?? []);
+  const [codes, setCodes] = useState<SharingCodeMetadata[]>(() => initialGrants?.codes ?? []);
   const [createdCode, setCreatedCode] = useState<CreatedSharingCode | null>(null);
   const [redeemCode, setRedeemCode] = useState('');
   const [tab, setTab] = useState<'received' | 'owned'>(initialTab);
@@ -325,7 +329,13 @@ function SharingSession({
 
   // 学情查看状态
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
-  const [overview, setOverview] = useState<SharedStudyOverview | null>(null);
+  const [overview, setOverview] = useState<SharedStudyOverview | null>(() => {
+    if (initialOverview) return initialOverview;
+    if (initialSelectedId && initialSelectedId.startsWith('demo-')) {
+      return getDemoOverview(initialSelectedId, todayStr);
+    }
+    return null;
+  });
   const [viewLoading, setViewLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [partnerTab, setPartnerTab] = useState<'daily' | 'library' | 'all'>(initialPartnerTab);
@@ -520,64 +530,83 @@ function SharingSession({
               </div>
 
               {/* 顶部伙伴实时动态与打气/催学直达卡片 */}
-              <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-gradient-to-r from-cream via-[#FAF7EE] to-sage-light/35 border border-line">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-[#E8EFE2] text-[#4B6240] font-bold flex items-center justify-center text-sm shrink-0 border border-[#D5E1CB] shadow-2xs">
-                    🥔
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs font-bold text-ink-main block truncate">{selectedNickname || '学习伙伴'}</span>
-                    {selectedGrant?.liveStatus?.state === 'focusing' ? (
-                      <span className="text-[11px] text-emerald-700 font-medium block truncate">
-                        🟢 正在专注《{selectedGrant.liveStatus.focusTitle || '备考'}》{selectedGrant.liveStatus.focusMinutes ?? 0}m
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-cream via-[#FAF7EE] to-sage-light/35 border border-line space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-[#E8EFE2] text-[#4B6240] font-bold flex items-center justify-center text-sm shrink-0 border border-[#D5E1CB] shadow-2xs">
+                      🥔
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-ink-main block truncate">{selectedNickname || '学习伙伴'}</span>
+                      <span className="text-[10px] text-ink-muted block truncate">
+                        {selectedGrant?.liveStatus?.state === 'focusing'
+                          ? '正在专注备考中 · 守护专注流'
+                          : selectedGrant?.liveStatus?.state === 'completed'
+                          ? '今日任务已全部完成 👏'
+                          : selectedGrant?.liveStatus?.missedText || '今日备考中'}
                       </span>
-                    ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="px-2.5 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
+                      onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '学友' })}
+                    >
+                      <MessageSquarePlus size={13} />
+                      <span>贴便签</span>
+                    </Button>
+                    {selectedGrant && (
+                      selectedGrant.liveStatus?.state === 'focusing' ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled
+                          className="px-2.5 py-1 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center gap-1"
+                          title="学友正在专注学习中，请勿打扰~"
+                        >
+                          <Zap size={13} />
+                          <span>专注中</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          className="font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white"
+                          disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
+                          onClick={() => handlePoke(selectedGrant)}
+                          title="向学友发送小猫催学信"
+                        >
+                          <Zap size={13} className="fill-current" />
+                          <span>
+                            {poking[selectedGrant.id]
+                              ? '发送中…'
+                              : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
+                              ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
+                              : '⚡️ 戳一下'}
+                          </span>
+                        </Button>
+                      )
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="px-2.5 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
-                    onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '学友' })}
-                  >
-                    <MessageSquarePlus size={13} />
-                    <span>贴便签</span>
-                  </Button>
-                  {selectedGrant && (
-                    selectedGrant.liveStatus?.state === 'focusing' ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled
-                        className="px-2.5 py-1 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center gap-1"
-                        title="学友正在专注学习中，请勿打扰~"
-                      >
-                        <Zap size={13} />
-                        <span>专注中</span>
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        className="font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white"
-                        disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
-                        onClick={() => handlePoke(selectedGrant)}
-                        title="向学友发送小猫催学信"
-                      >
-                        <Zap size={13} className="fill-current" />
-                        <span>
-                          {poking[selectedGrant.id]
-                            ? '发送中…'
-                            : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
-                            ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
-                            : '⚡️ 戳一下'}
-                        </span>
-                      </Button>
-                    )
-                  )}
-                </div>
+                {/* 专注状态独占整行，彻底解决移动端被右侧按钮挤压截断问题 */}
+                {selectedGrant?.liveStatus?.state === 'focusing' && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-800">
+                    <span className="flex h-2 w-2 relative shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                    </span>
+                    <span className="font-bold shrink-0">🟢 正在专注</span>
+                    <span className="truncate flex-1 font-medium">《{selectedGrant.liveStatus.focusTitle || '备考'}》</span>
+                    <span className="font-mono font-bold text-emerald-700 shrink-0 bg-emerald-100/70 px-2 py-0.5 rounded-lg text-[11px]">
+                      {selectedGrant.liveStatus.focusMinutes ?? 0}m
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-start gap-2 rounded-xl bg-sage-light/50 px-3 py-2.5">
@@ -623,6 +652,7 @@ function SharingSession({
               {overview && (
                 <SharedOverview
                   overview={overview}
+                  selectedGrant={selectedGrant}
                   partnerTab={partnerTab}
                   setPartnerTab={setPartnerTab}
                   selectedDate={selectedDate}
@@ -930,9 +960,11 @@ function SharingSession({
                                     {/* 状态胶囊：仅当好友在学习计时的时候显示其专注状态与内容，未计时证明没有学习，状态不显示 */}
                                     {grant.liveStatus?.state === 'focusing' ? (
                                       <div className="mt-1">
-                                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2 py-0.5">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                          <span>🟢 正在专注《{grant.liveStatus.focusTitle || '备考'}》{grant.liveStatus.focusMinutes ?? 0}m</span>
+                                        <span className="inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2 py-0.5">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                          <span className="shrink-0">🟢 正在专注</span>
+                                          <span className="truncate">《{grant.liveStatus.focusTitle || '备考'}》</span>
+                                          <span className="shrink-0 font-mono font-bold text-emerald-700">{grant.liveStatus.focusMinutes ?? 0}m</span>
                                         </span>
                                       </div>
                                     ) : null}
@@ -1046,7 +1078,16 @@ function SharingSession({
           defaultGrantId={noteTarget.grantId}
           defaultRecipientNickname={noteTarget.nickname}
           onClose={() => setNoteTarget(null)}
-          onNoteSent={() => {
+          onNoteSent={(newNote) => {
+            if (newNote) {
+              setCompanionNotes(prev => [newNote, ...prev.filter(n => n.id !== newNote.id)]);
+            }
+            if (userId) {
+              fetch('/api/sharing/notes', { headers: { 'x-workspace-user': userId } })
+                .then(res => res.ok ? res.json() : null)
+                .then(data => { if (data?.notes) setCompanionNotes(data.notes); })
+                .catch(() => {});
+            }
             setNoteTarget(null);
             onToast?.(`已成功为 ${noteTarget.nickname} 贴上打气便签！💌`);
             refreshData();
@@ -1096,7 +1137,10 @@ function SharingSession({
             onToast?.('❤️ 已回赠爱心！');
           }}
           onReply={(note) => {
-            setNoteTarget({ id: note.fromUserId, grantId: note.grantId, nickname: note.fromNickname });
+            const isSent = Boolean(userId && note.fromUserId === userId);
+            const targetId = isSent ? note.toUserId : note.fromUserId;
+            const targetNick = isSent ? (note.toNickname || '学友') : (note.fromNickname || '学友');
+            setNoteTarget({ id: targetId, grantId: note.grantId, nickname: targetNick });
           }}
           onToast={onToast}
         />
@@ -1179,6 +1223,7 @@ function Totals({
 
 function SharedOverview({
   overview,
+  selectedGrant,
   partnerTab,
   setPartnerTab,
   selectedDate,
@@ -1195,6 +1240,7 @@ function SharedOverview({
   onPage,
 }: {
   overview: SharedStudyOverview;
+  selectedGrant?: SharedGrant;
   partnerTab: 'daily' | 'library' | 'all';
   setPartnerTab: (tab: 'daily' | 'library' | 'all') => void;
   selectedDate: string;
@@ -1735,6 +1781,30 @@ function SharedOverview({
         </div>
 
         <Totals totals={overview.selectedTotals} />
+
+        {/* 当日待登记或实时专注辅助提示：消除口径偏差困惑 */}
+        {isTodaySelected && (selectedGrant?.liveStatus?.state === 'focusing' || (selectedGrant?.liveStatus?.pendingMinutes ?? 0) > 0) && (
+          <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#FAF7EE] border border-sage/20 text-xs text-ink-main shadow-2xs">
+            <span className="text-sm shrink-0 mt-0.5">💡</span>
+            <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-muted">
+              {selectedGrant?.liveStatus?.state === 'focusing' ? (
+                <>
+                  <span className="font-semibold text-emerald-800">学友当前正在专注《{selectedGrant.liveStatus.focusTitle || '备考'}》</span>
+                  <span className="text-ink-main font-mono font-bold">（约 {selectedGrant.liveStatus.focusMinutes ?? 0} 分钟进行中）</span>
+                  {(selectedGrant.liveStatus.pendingMinutes ?? 0) > (selectedGrant.liveStatus.focusMinutes ?? 0) && (
+                    <span>，另有约 {(selectedGrant.liveStatus.pendingMinutes ?? 0) - (selectedGrant.liveStatus.focusMinutes ?? 0)} 分钟暂存待登记</span>
+                  )}
+                  <span>。学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-ink-main">学友今日另有约 {selectedGrant?.liveStatus?.pendingMinutes} 分钟学习投入待登记</span>
+                  <span>，待学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 累计全部统计快捷胶囊（满足第一点需求：点击看全部统计） */}
         <button

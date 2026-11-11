@@ -173,6 +173,12 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(hearts1, 1);
       const hearts2 = heartCompanionNote(receiver.id, note.id);
       assert.equal(hearts2, 2);
+
+      // Verify inactive sender notes remain viewable by recipient (LEFT JOIN protection)
+      getDb().prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(sender.id);
+      const listWithInactiveSender = listCompanionNotes(receiver.id);
+      assert.equal(listWithInactiveSender.notes.some(n => n.id === note.id), true);
+      getDb().prepare('UPDATE users SET is_active = 1 WHERE id = ?').run(sender.id);
     });
 
     await t.test('listSharingGrants populates partner liveStatus for focusing and missed states', async () => {
