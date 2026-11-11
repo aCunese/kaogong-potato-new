@@ -754,8 +754,12 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
       />
     );
 
-    // Dedicated focus row prevents mobile truncation
-    expect(html).toContain('🟢 正在专注');
+    // Dedicated focus row prevents mobile truncation and eliminates duplicate green circle emoji
+    expect(html).toContain('data-testid="partner-detail-focus-banner"');
+    expect(html).toContain('bg-emerald-500');
+    expect(html).toContain('正在专注');
+    expect(html).not.toContain('🟢 正在专注');
+    expect(html).not.toContain('⚡️ 戳一下');
     expect(html).toContain('《超格600图推纠错》');
     expect(html).toContain('13m');
 
@@ -765,6 +769,186 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(html).toContain('约 13 分钟进行中');
     expect(html).toContain('另有约 106 分钟暂存待登记');
     expect(html).toContain('完成登记');
+  });
+
+  it('TodayView handles legacy actualMinutes pending plans, paused <1m vs running <1m copy accurately', () => {
+    const todayStr = '2026-11-12';
+
+    // 1. Legacy plan lacking accumulatedMs but with actualMinutes = 25
+    const legacyState = {
+      ...BLANK_STATE,
+      plans: [
+        {
+          id: 'p-legacy',
+          name: '历史字段计划',
+          date: todayStr,
+          libraryId: 'lib1',
+          type: 'custom' as const,
+          sourceId: '',
+          subject: '申论' as const,
+          plannedMinutes: 40,
+          actualMinutes: 25,
+          timerStart: 0,
+          done: false,
+        },
+      ],
+    };
+    const legacyHtml = render(
+      <TodayView
+        onOpenAddPlan={() => {}}
+        onOpenFocus={() => {}}
+        onOpenComplete={() => {}}
+        onOpenCountdownEdit={() => {}}
+        onAddCountdown={() => {}}
+      />,
+      legacyState
+    );
+    // Note activeDate defaults to 2026-10-28 in helper render, so override activeDate to todayStr:
+    const legacyWithDateHtml = renderToStaticMarkup(
+      <AppContext.Provider value={{ state: legacyState, dispatch: () => {}, activeDate: todayStr, currentUser: { id: 'u1', nickname: '我' }, csrfToken: 't' } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+    expect(legacyHtml).toBeTruthy();
+    expect(legacyWithDateHtml).toContain('含 25 分钟待登记投入');
+    expect(legacyWithDateHtml).toContain('25');
+
+    // 2. Paused <1m plan (45s accumulatedMs, timerStart: 0): MUST NOT say "正在计时中"
+    const pausedSubMinState = {
+      ...BLANK_STATE,
+      plans: [
+        {
+          id: 'p-submin-paused',
+          name: '暂停不到一分钟',
+          date: todayStr,
+          libraryId: 'lib2',
+          type: 'custom' as const,
+          sourceId: '',
+          subject: '资料分析' as const,
+          plannedMinutes: 30,
+          actualMinutes: 0,
+          accumulatedMs: 45_000,
+          timerStart: 0,
+          done: false,
+        },
+      ],
+    };
+    const pausedHtml = renderToStaticMarkup(
+      <AppContext.Provider value={{ state: pausedSubMinState, dispatch: () => {}, activeDate: todayStr, currentUser: { id: 'u1', nickname: '我' }, csrfToken: 't' } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+    expect(pausedHtml).toContain('已累计不足 1 分钟待登记');
+    expect(pausedHtml).not.toContain('正在计时中');
+
+    // 3. Running <1m plan: accurately shows 正在计时中（暂不足 1 分钟）
+    const runningSubMinState = {
+      ...BLANK_STATE,
+      plans: [
+        {
+          id: 'p-submin-running',
+          name: '刚开始计时',
+          date: todayStr,
+          libraryId: 'lib3',
+          type: 'custom' as const,
+          sourceId: '',
+          subject: '言语理解' as const,
+          plannedMinutes: 30,
+          actualMinutes: 0,
+          accumulatedMs: 0,
+          timerStart: Date.now() - 15_000,
+          done: false,
+        },
+      ],
+    };
+    const runningHtml = renderToStaticMarkup(
+      <AppContext.Provider value={{ state: runningSubMinState, dispatch: () => {}, activeDate: todayStr, currentUser: { id: 'u1', nickname: '我' }, csrfToken: 't' } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+    expect(runningHtml).toContain('正在计时中（暂不足 1 分钟）');
+  });
+
+  it('SharingModal uses otherPendingMinutes for Pomodoro sessions and renders untruncated full-width partner list banner', () => {
+    const focusingGrant: SharedGrant = {
+      id: 'g-pomo',
+      nickname: '考研考公双料长昵称学友同学',
+      createdAt: '',
+      liveStatus: {
+        state: 'focusing',
+        focusTitle: '超格600图推纠错与资料分析速算高阶专项训练',
+        focusMinutes: 25,
+        pendingMinutes: 40,
+        otherPendingMinutes: 40,
+      },
+    };
+    const missedGrant: SharedGrant = {
+      id: 'g-missed',
+      nickname: '小豆子',
+      createdAt: '',
+      liveStatus: {
+        state: 'missed',
+        scheduledTime: '14:00',
+        overdueHours: 2,
+        missedText: '约定 14:00 学习，已超 2 小时未学',
+        canPoke: true,
+      },
+    };
+
+    // Partner list card view
+    const listHtml = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialGrants={{ owned: [], received: [focusingGrant, missedGrant], codes: [] }}
+      />
+    );
+    expect(listHtml).toContain('data-testid="partner-list-focus-banner"');
+    expect(listHtml).toContain('《超格600图推纠错与资料分析速算高阶专项训练》');
+    expect(listHtml).not.toContain('🟢 正在专注');
+    expect(listHtml).not.toContain('⚡️ 戳一戳');
+    expect(listHtml).not.toContain('max-w-[180px]');
+
+    // Detail view with explicit otherPendingMinutes (25m Pomodoro + 40m paused plan = show 40m pending, NOT 15m)
+    const detailHtml = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialSelectedId="g-pomo"
+        initialOverview={{
+          ownerNickname: '考研考公双料长昵称学友同学',
+          updatedAt: new Date().toISOString(),
+          range: { from: null, to: null },
+          selectedTotals: { minutes: 120, questions: 30, errors: 3, accuracy: 90, lessons: 1 },
+          allTimeTotals: { minutes: 500, questions: 300, errors: 30, accuracy: 90, lessons: 5 },
+          books: [],
+          courses: [],
+          records: { items: [], page: 1, pageSize: 30, total: 0 },
+          studyDates: ['2026-10-28'],
+        }}
+        initialGrants={{ owned: [], received: [focusingGrant, missedGrant], codes: [] }}
+      />
+    );
+    expect(detailHtml).toContain('约 25 分钟进行中');
+    expect(detailHtml).toContain('另有约 40 分钟暂存待登记');
   });
 });
 

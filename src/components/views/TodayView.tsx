@@ -2,6 +2,7 @@ import { StandaloneTimerModal } from './StandaloneTimerModal';
 import { StudyRecordsView } from './StudyRecordsView';
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { getLocalDateString } from '../../constants/initialData';
 import { PotatoSprite } from '../common/PotatoSprite';
 import { Avatar } from '../common/Avatar';
 import { StudyRecordItem } from '../common/StudyRecordItem';
@@ -196,9 +197,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
       setPartner(null);
       return;
     }
+    if (initialPartner !== undefined) {
+      setPartner(initialPartner);
+      return;
+    }
 
     const refreshGrants = () => {
-      fetch('/api/sharing/grants')
+      const localDate = encodeURIComponent(getLocalDateString());
+      const tzOffset = encodeURIComponent(String(new Date().getTimezoneOffset()));
+      fetch(`/api/sharing/grants?localDate=${localDate}&tzOffset=${tzOffset}`)
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (Array.isArray(data?.received) && data.received.length > 0) {
@@ -519,10 +526,11 @@ export const TodayView: React.FC<TodayViewProps> = ({
   }, 0);
   const totalMinutes = Math.floor(totalElapsedMs / 60000);
 
-  const pendingPlans = displayedPlans.filter(p => !p.done && ((p.accumulatedMs ?? 0) > 0 || isPlanRunning(p)));
+  const pendingPlans = displayedPlans.filter(p => !p.done && (getPlanElapsedMs(p) > 0 || isPlanRunning(p)));
   const pendingCount = pendingPlans.length;
   const pendingElapsedMs = pendingPlans.reduce((sum, p) => sum + getPlanElapsedMs(p), 0);
   const pendingMinutes = Math.floor(pendingElapsedMs / 60000);
+  const hasRunningPending = pendingPlans.some(p => isPlanRunning(p) && p.timerPhase !== 'rest');
 
   // 倒数日展示：未设置日期 / 今天 / N 天 / 已结束
   const countdownState = (targetDate: string) => {
@@ -675,15 +683,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
                 <div
                   role="region"
                   aria-label="学友实时学情详情"
-                  className="absolute left-0 top-full mt-1.5 z-40 w-[290px] sm:w-[320px] max-w-[calc(100vw-24px)] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-center justify-between gap-2 backdrop-blur-md animate-pop-in cursor-pointer select-none"
+                  className="absolute left-0 top-full mt-1.5 z-40 w-[min(320px,calc(100vw-32px))] p-2.5 rounded-2xl bg-[#FAF7EE] border border-[#DEE7D4] shadow-lg flex items-start justify-between gap-2 backdrop-blur-md animate-pop-in cursor-pointer select-none"
                   onClick={() => setShowStatusDetail(false)}
                   title="点击可收起"
                 >
-                  <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs ${
+                  <div className="flex items-start gap-2 min-w-0 flex-1">
+                    <span className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs ${
                       partner.liveStatus?.state === 'focusing' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'
                     }`} />
-                    <span className="text-xs text-ink-main font-medium truncate">
+                    <span className="text-xs text-ink-main font-medium leading-snug break-words min-w-0">
                       {partner.liveStatus?.state === 'focusing'
                         ? `正在专注《${partner.liveStatus.focusTitle || '备考'}》${partner.liveStatus.focusMinutes ?? 0}m`
                         : `${getCompanionDisplayName(partner.id, partner.nickname)} 未在学习`}
@@ -873,16 +881,23 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
       {/* 待登记投入轻量级辅助提示：当检测到今日计划存在投入但未登记时展示 */}
       {pendingCount > 0 && (
-        <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 shadow-2xs">
-          <span className="text-sm shrink-0">💡</span>
-          <span className="flex-1 text-[11px] leading-relaxed">
+        <div
+          data-testid="today-pending-banner"
+          className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 shadow-2xs"
+        >
+          <span className="text-sm shrink-0 mt-0.5">💡</span>
+          <span className="flex-1 min-w-0 text-[11px] leading-relaxed">
             {pendingMinutes > 0 ? (
               <>
                 有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项已投入 <strong className="font-bold text-amber-950">{pendingMinutes}</strong> 分钟待登记，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
               </>
+            ) : hasRunningPending ? (
+              <>
+                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项正在计时中（暂不足 1 分钟），记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
+              </>
             ) : (
               <>
-                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项正在计时中，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
+                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项已累计不足 1 分钟待登记，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
               </>
             )}
           </span>

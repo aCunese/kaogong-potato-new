@@ -48,7 +48,10 @@ sharingRouter.post('/api/sharing/redeem', limited('redeem', 20, 120), handle((re
   res.json({ ok: true, grant: redeemSharingCode(req.user!.id, req.body?.code) });
 }));
 sharingRouter.get('/api/sharing/grants', limited('list', 120, 300, 60_000), handle((req, res) => {
-  res.json(listSharingGrants(req.user!.id));
+  res.json(listSharingGrants(req.user!.id, {
+    localDate: req.query.localDate,
+    tzOffset: req.query.tzOffset,
+  }));
 }));
 sharingRouter.delete('/api/sharing/grants/:id', limited('revoke', 30, 120), handle((req, res) => {
   revokeSharingGrant(req.user!.id, String(req.params.id)); res.json({ ok: true });

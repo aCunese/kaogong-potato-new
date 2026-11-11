@@ -22,6 +22,7 @@ export interface PartnerLiveStatus {
   canPoke?: boolean;
   cooldownSeconds?: number;
   pendingMinutes?: number;
+  otherPendingMinutes?: number;
 }
 
 export interface SharedGrant {

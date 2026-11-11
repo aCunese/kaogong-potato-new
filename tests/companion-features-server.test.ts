@@ -560,6 +560,240 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(emptyErr.code, 'INVALID_NOTE');
     });
 
+    await t.test('liveStatus resolves local timezone clock, pendingMinutes, otherPendingMinutes, and prevents double counting under UTC runtime', async () => {
+      const { createReminderService } = await import('../server/reminders');
+      const viewer = createUser('跨时区查看者');
+      const nightOwl = createUser('凌晨冲刺同学');
+      const pomodoroWithPaused = createUser('番茄兼暂停同学');
+      const doubleCountOwner = createUser('已完成打卡同学');
+
+      const grantNight = createGrant(nightOwl, viewer);
+      const grantPomoPaused = createGrant(pomodoroWithPaused, viewer);
+      const grantCompleted = createGrant(doubleCountOwner, viewer);
+
+      // Simulate 01:30 CST (Asia/Shanghai) = 17:30 UTC of previous calendar day
+      const simulatedUtcMs = Date.parse('2026-11-11T17:30:00.000Z');
+
+      // Owner has email reminder in Asia/Shanghai for 09:00 CST on 2026-11-12
+      db.prepare('INSERT INTO account_email_bindings (user_id, email, verified_at) VALUES (?, ?, ?)')
+        .run(nightOwl.id, 'night@example.com', simulatedUtcMs - 1000);
+      createReminderService({ db, now: () => simulatedUtcMs }).create(nightOwl.id, {
+        requestId: 'req-tz-1',
+        title: '早上 9 点开工',
+        sendAt: '2026-11-12T01:00:00.000Z', // 09:00 CST
+        timezone: 'Asia/Shanghai',
+      });
+
+      // Night owl completed yesterday's (2026-11-11) plan, has an archived finished plan today,
+      // and has two unfinished paused plans today with fractional ms (40s + 40s + 118m = 119m20s -> floor 119m),
+      // plus a legacy plan lacking accumulatedMs (actualMinutes = 10 -> +10m = 129m total pending).
+      const nightState: any = structuredClone(BLANK_STATE);
+      nightState.plans = [
+        {
+          id: 'y-done',
+          name: '昨日行测计划',
+          date: '2026-11-11',
+          type: 'book',
+          subject: '资料分析',
+          done: true,
+          timerStart: 0,
+          accumulatedMs: 60 * 60000,
+        },
+        {
+          id: 'today-archived',
+          name: '已归档测试计划',
+          date: '2026-11-12',
+          type: 'custom',
+          subject: '申论',
+          done: true,
+          archived: true,
+          timerStart: 0,
+          accumulatedMs: 999 * 60000,
+        },
+        {
+          id: 't-frac-1',
+          name: '图推专项一',
+          date: '2026-11-12',
+          type: 'book',
+          subject: '判断推理',
+          done: false,
+          timerStart: 0,
+          accumulatedMs: 59 * 60000 + 40_000,
+        },
+        {
+          id: 't-frac-2',
+          name: '图推专项二',
+          date: '2026-11-12',
+          type: 'book',
+          subject: '判断推理',
+          done: false,
+          timerStart: 0,
+          accumulatedMs: 58 * 60000 + 40_000,
+        },
+        {
+          id: 't-legacy',
+          name: '老版本无accumulatedMs字段',
+          date: '2026-11-12',
+          type: 'custom',
+          subject: '言语理解',
+          done: false,
+          timerStart: 0,
+          actualMinutes: 10,
+        },
+      ];
+      nightState.records = [
+        {
+          id: 'rec-today-1',
+          date: '2026-11-12',
+          type: 'book',
+          sourceId: 'b1',
+          questions: 40,
+          errors: 5,
+          minutes: 100,
+          subject: '资料分析',
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(nightOwl.id, getCurrentGenerationId(), JSON.stringify(nightState));
+
+      // Calling without query options: falls back to owner's Asia/Shanghai timezone (2026-11-12 01:30 CST)
+      const grantsFallback = listSharingGrants(viewer.id, { now: () => simulatedUtcMs });
+      const nightGrant = grantsFallback.received.find(g => g.id === grantNight)!;
+      assert.equal(nightGrant.liveStatus?.state, 'idle'); // 01:30 CST < 09:00 CST -> NOT false 'missed'
+      assert.equal(nightGrant.liveStatus?.scheduledTime, '09:00');
+      assert.equal(nightGrant.liveStatus?.pendingMinutes, 128); // 59m40s + 58m40s = 118m20s + 10m = 128m20s -> floor 128m
+      assert.match(nightGrant.liveStatus?.missedText || '', /今日已学 228m 休息中/); // 100 + 128 = 228m, not past 09:00
+
+      // Calling with explicit client localDate & tzOffset (-480 = UTC+8), invalid localDate rejected gracefully
+      const grantsClient = listSharingGrants(viewer.id, {
+        localDate: '2026-11-12',
+        tzOffset: -480,
+        now: () => simulatedUtcMs,
+      });
+      assert.equal(grantsClient.received.find(g => g.id === grantNight)?.liveStatus?.pendingMinutes, 128);
+
+      const grantsBadDate = listSharingGrants(viewer.id, {
+        localDate: '2099-01-01',
+        tzOffset: 9999,
+        now: () => simulatedUtcMs,
+      });
+      assert.equal(grantsBadDate.received.find(g => g.id === grantNight)?.liveStatus?.pendingMinutes, 128);
+
+      // Owner 2: Standalone Pomodoro focusing (25m) coexisting with paused today plan (45m)
+      // plus running sub-minute check and archived noise
+      const pomoPausedState: any = structuredClone(BLANK_STATE);
+      pomoPausedState.plans = [
+        {
+          id: 'p-paused',
+          name: '暂停的申论真题',
+          date: '2026-11-12',
+          type: 'custom',
+          subject: '申论',
+          done: false,
+          timerStart: 0,
+          accumulatedMs: 45 * 60000,
+        },
+        {
+          id: 'p-resting',
+          name: '休息中的刷题',
+          date: '2026-11-12',
+          type: 'book',
+          subject: '资料分析',
+          done: false,
+          timerStart: 0,
+          restStart: simulatedUtcMs - 3 * 60000,
+          timerPhase: 'rest',
+          accumulatedMs: 15 * 60000,
+        },
+      ];
+      pomoPausedState.timerSessions = [
+        {
+          id: 'sess-pomo',
+          timerMode: 'pomodoro',
+          focusMinutes: 25,
+          restMinutes: 5,
+          subject: '判断推理',
+          phase: 'focus',
+          phaseMs: 0,
+          status: 'running',
+          createdAt: simulatedUtcMs - 25 * 60000,
+          runningSince: simulatedUtcMs - 25 * 60000,
+          segments: [],
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(pomodoroWithPaused.id, getCurrentGenerationId(), JSON.stringify(pomoPausedState));
+
+      const grantsPomo = listSharingGrants(viewer.id, { localDate: '2026-11-12', tzOffset: -480, now: () => simulatedUtcMs });
+      const pomoPausedGrant = grantsPomo.received.find(g => g.id === grantPomoPaused)!;
+      assert.equal(pomoPausedGrant.liveStatus?.state, 'focusing');
+      assert.equal(pomoPausedGrant.liveStatus?.focusTitle, '判断推理 专注');
+      assert.equal(pomoPausedGrant.liveStatus?.focusMinutes, 25);
+      // pendingMinutes = 45 + 15 = 60, and otherPendingMinutes MUST still be 60 (NOT 60 - 25 = 35!)
+      assert.equal(pomoPausedGrant.liveStatus?.pendingMinutes, 60);
+      assert.equal(pomoPausedGrant.liveStatus?.otherPendingMinutes, 60);
+
+      // Owner 3: Already finished a plan with a matching StudyRecord + one unfinished zero-elapsed plan (past 14:00? test with target 00:00 -> 01:30 CST)
+      db.prepare("INSERT INTO companion_settings (user_id, target_study_time, updated_at) VALUES (?, '00:00', datetime('now'))")
+        .run(doubleCountOwner.id);
+      const completedDoubleState: any = structuredClone(BLANK_STATE);
+      completedDoubleState.plans = [
+        {
+          id: 'done-plan-1',
+          name: '已完成计划',
+          date: '2026-11-12',
+          type: 'book',
+          subject: '资料分析',
+          done: true,
+          recordId: 'rec-done-1',
+          timerStart: 0,
+          accumulatedMs: 324 * 60000,
+          actualMinutes: 324,
+        },
+        {
+          id: 'todo-plan-2',
+          name: '待完成计划',
+          date: '2026-11-12',
+          type: 'custom',
+          subject: '申论',
+          done: false,
+          timerStart: 0,
+          accumulatedMs: 20 * 60000,
+        },
+      ];
+      completedDoubleState.records = [
+        {
+          id: 'rec-done-1',
+          planId: 'done-plan-1',
+          date: '2026-11-12',
+          type: 'book',
+          sourceId: 'b1',
+          questions: 80,
+          errors: 12,
+          minutes: 324,
+          subject: '资料分析',
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(doubleCountOwner.id, getCurrentGenerationId(), JSON.stringify(completedDoubleState));
+
+      const grantsDouble = listSharingGrants(viewer.id, { localDate: '2026-11-12', tzOffset: -480, now: () => simulatedUtcMs });
+      const doubleGrant = grantsDouble.received.find(g => g.id === grantCompleted)!;
+      // 324 (record) + 20 (pending) = 344m, NOT 324 + 324 + 20 = 668m!
+      assert.equal(doubleGrant.liveStatus?.missedText, '约定 00:00 学习，已学 344m · 暂未继续');
+      assert.equal(doubleGrant.liveStatus?.pendingMinutes, 20);
+
+      // Verify HTTP query parameter plumbing on GET /api/sharing/grants
+      const todayLocal = new Date().toISOString().slice(0, 10);
+      const httpRes = await fetch(`${base}/api/sharing/grants?localDate=${encodeURIComponent(todayLocal)}&tzOffset=-480`, {
+        headers: viewer.headers,
+      });
+      assert.equal(httpRes.status, 200);
+      const httpJson = await httpRes.json() as any;
+      assert.equal(httpJson.ok, true);
+      assert.ok(Array.isArray(httpJson.received));
+    });
+
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));

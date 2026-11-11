@@ -26,6 +26,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getLocalDateString } from '../../constants/initialData';
 import { SUBJECTS } from '../../types';
 import { Button, Modal } from '../common/UIComponents';
 import { Avatar } from '../common/Avatar';
@@ -160,7 +161,7 @@ function SharingSession({
   initialGrants,
 }: SharingModalProps & { userId: string; csrfToken: string }) {
   const { activeDate } = useApp();
-  const todayStr = activeDate || new Date().toISOString().slice(0, 10);
+  const todayStr = activeDate || getLocalDateString();
 
   const [owned, setOwned] = useState<SharedGrant[]>(() => initialGrants?.owned ?? []);
   const [received, setReceived] = useState<SharedGrant[]>(() => initialGrants?.received ?? []);
@@ -172,7 +173,7 @@ function SharingSession({
   const [codesExpanded, setCodesExpanded] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [listLoading, setListLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(!initialGrants);
   const [showDemoPartners, setShowDemoPartners] = useState(true);
   const [poking, setPoking] = useState<Record<string, boolean>>({});
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
@@ -354,6 +355,11 @@ function SharingSession({
   const listRequest = useRef(0);
   const viewRequest = useRef(0);
   const selectedRef = useRef(selectedId); selectedRef.current = selectedId;
+  const initialOverviewKey = useRef<string | null>(
+    initialOverview && initialSelectedId
+      ? `${initialSelectedId}|${initialPartnerTab === 'daily' ? todayStr : ''}|${initialPartnerTab}|1|0`
+      : null
+  );
 
   useEffect(() => {
     alive.current = true;
@@ -391,7 +397,9 @@ function SharingSession({
     const serial = ++listRequest.current;
     setListLoading(true); setError('');
     try {
-      const result = await api<SharingGrantsResponse>('/grants');
+      const localDate = encodeURIComponent(getLocalDateString());
+      const tzOffset = encodeURIComponent(String(new Date().getTimezoneOffset()));
+      const result = await api<SharingGrantsResponse>(`/grants?localDate=${localDate}&tzOffset=${tzOffset}`);
       if (!alive.current || serial !== listRequest.current) return;
       setOwned(result.owned); setReceived(result.received); setCodes(result.codes);
       if (selectedRef.current && !result.received.some(grant => grant.id === selectedRef.current) && !selectedRef.current.startsWith('demo-')) {
@@ -402,6 +410,7 @@ function SharingSession({
   }
 
   useEffect(() => {
+    if (initialGrants) return;
     void loadList();
     const interval = setInterval(() => { void loadList(); }, 12000);
     const onFocus = () => { void loadList(); };
@@ -424,6 +433,13 @@ function SharingSession({
   useEffect(() => {
     const serial = ++viewRequest.current;
     if (!selectedId) { setViewLoading(false); setOverview(null); return; }
+
+    const currentKey = `${selectedId}|${partnerTab === 'daily' ? selectedDate : ''}|${partnerTab}|${page}|${refresh}`;
+    if (initialOverviewKey.current === currentKey && initialOverview) {
+      setViewLoading(false);
+      setOverview(initialOverview);
+      return;
+    }
 
     if (selectedId.startsWith('demo-')) {
       setViewLoading(false);
@@ -530,83 +546,90 @@ function SharingSession({
               </div>
 
               {/* 顶部伙伴实时动态与打气/催学直达卡片 */}
-              <div className="p-3 rounded-2xl bg-gradient-to-r from-cream via-[#FAF7EE] to-sage-light/35 border border-line space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-[#E8EFE2] text-[#4B6240] font-bold flex items-center justify-center text-sm shrink-0 border border-[#D5E1CB] shadow-2xs">
-                      🥔
-                    </div>
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-ink-main block truncate">{selectedNickname || '学习伙伴'}</span>
-                      <span className="text-[10px] text-ink-muted block truncate">
-                        {selectedGrant?.liveStatus?.state === 'focusing'
-                          ? '正在专注备考中 · 守护专注流'
-                          : selectedGrant?.liveStatus?.state === 'completed'
-                          ? '今日任务已全部完成 👏'
-                          : selectedGrant?.liveStatus?.missedText || '今日备考中'}
-                      </span>
-                    </div>
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-cream via-[#FAF7EE] to-sage-light/35 border border-line space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-[#E8EFE2] text-[#4B6240] font-bold flex items-center justify-center text-sm shrink-0 border border-[#D5E1CB] shadow-2xs">
+                    🥔
                   </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="px-2.5 py-1 text-xs text-sage font-bold flex items-center gap-1 bg-paper hover:bg-cream"
-                      onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '学友' })}
-                    >
-                      <MessageSquarePlus size={13} />
-                      <span>贴便签</span>
-                    </Button>
-                    {selectedGrant && (
-                      selectedGrant.liveStatus?.state === 'focusing' ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled
-                          className="px-2.5 py-1 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center gap-1"
-                          title="学友正在专注学习中，请勿打扰~"
-                        >
-                          <Zap size={13} />
-                          <span>专注中</span>
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          className="font-bold flex items-center gap-1 shadow-sm px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white"
-                          disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
-                          onClick={() => handlePoke(selectedGrant)}
-                          title="向学友发送小猫催学信"
-                        >
-                          <Zap size={13} className="fill-current" />
-                          <span>
-                            {poking[selectedGrant.id]
-                              ? '发送中…'
-                              : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
-                              ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
-                              : '⚡️ 戳一下'}
-                          </span>
-                        </Button>
-                      )
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm font-bold text-ink-main block leading-snug break-words">{selectedNickname || '学习伙伴'}</span>
+                    <span className="text-[11px] text-ink-muted block leading-snug break-words mt-0.5">
+                      {selectedGrant?.liveStatus?.state === 'focusing'
+                        ? '正在专注备考中 · 守护专注流'
+                        : selectedGrant?.liveStatus?.state === 'completed'
+                        ? '今日任务已全部完成 👏'
+                        : selectedGrant?.liveStatus?.missedText || '今日备考中'}
+                    </span>
                   </div>
                 </div>
 
-                {/* 专注状态独占整行，彻底解决移动端被右侧按钮挤压截断问题 */}
+                {/* 专注状态独占整行且标题自然换行，彻底解决移动端被右侧按钮挤压截断问题 */}
                 {selectedGrant?.liveStatus?.state === 'focusing' && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-800">
-                    <span className="flex h-2 w-2 relative shrink-0">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                    </span>
-                    <span className="font-bold shrink-0">🟢 正在专注</span>
-                    <span className="truncate flex-1 font-medium">《{selectedGrant.liveStatus.focusTitle || '备考'}》</span>
-                    <span className="font-mono font-bold text-emerald-700 shrink-0 bg-emerald-100/70 px-2 py-0.5 rounded-lg text-[11px]">
-                      {selectedGrant.liveStatus.focusMinutes ?? 0}m
-                    </span>
+                  <div
+                    data-testid="partner-detail-focus-banner"
+                    className="px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-900 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800">
+                        <span className="flex h-2 w-2 relative shrink-0" aria-hidden="true">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                        </span>
+                        <span>正在专注</span>
+                      </span>
+                      <span className="font-mono font-bold text-emerald-700 shrink-0 bg-emerald-100/80 px-2 py-0.5 rounded-lg text-[11px] whitespace-nowrap">
+                        {selectedGrant.liveStatus.focusMinutes ?? 0}m
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-emerald-950 leading-snug break-words">
+                      《{selectedGrant.liveStatus.focusTitle || '备考'}》
+                    </p>
                   </div>
                 )}
+
+                <div className={`grid ${selectedGrant ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 px-2.5 text-xs text-sage font-bold flex items-center justify-center gap-1 bg-paper hover:bg-cream whitespace-nowrap"
+                    onClick={() => setNoteTarget({ id: selectedGrant?.partnerId || selectedId, grantId: selectedGrant?.id || selectedId, nickname: selectedNickname || '学友' })}
+                  >
+                    <MessageSquarePlus size={13} className="shrink-0" />
+                    <span>贴便签</span>
+                  </Button>
+                  {selectedGrant && (
+                    selectedGrant.liveStatus?.state === 'focusing' ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled
+                        className="h-8 px-2.5 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center justify-center gap-1 whitespace-nowrap"
+                        title="学友正在专注学习中，请勿打扰~"
+                      >
+                        <Zap size={13} className="shrink-0" />
+                        <span>专注中</span>
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        className="h-8 font-bold flex items-center justify-center gap-1 shadow-sm px-2.5 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white whitespace-nowrap"
+                        disabled={busy || poking[selectedGrant.id] || (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0}
+                        onClick={() => handlePoke(selectedGrant)}
+                        title="向学友发送小猫催学信"
+                      >
+                        <Zap size={13} className="fill-current shrink-0" />
+                        <span>
+                          {poking[selectedGrant.id]
+                            ? '发送中…'
+                            : (cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) > 0
+                            ? `${Math.ceil((cooldowns[selectedGrant.id] ?? selectedGrant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
+                            : '戳一下'}
+                        </span>
+                      </Button>
+                    )
+                  )}
+                </div>
               </div>
 
               <div className="flex items-start gap-2 rounded-xl bg-sage-light/50 px-3 py-2.5">
@@ -799,7 +822,7 @@ function SharingSession({
                         <p className="font-bold text-ink-main">💡 约定时间与戳一戳机制说明：</p>
                         <p>1. <strong className="text-ink-main">约定时间自由设置</strong>：可点选常用时段或点击「自定义时间」输入任意开学时间，云端自动保持同步。</p>
                         <p>2. <strong className="text-ink-main">学习中禁止戳</strong>：当学友正在专注做题或计时打卡时，系统禁止戳一戳打扰，守护专注流。</p>
-                        <p>3. <strong className="text-ink-main">未在学习随时戳</strong>：学友没在学习时，你可根据情况随时点击「⚡️ 戳一戳」投递小猫督学信，可自定义邮件内容并选择快捷打气短句。</p>
+                        <p>3. <strong className="text-ink-main">未在学习随时戳</strong>：学友没在学习时，你可根据情况随时点击「戳一戳」投递小猫督学信，可自定义邮件内容并选择快捷打气短句。</p>
                         <p>4. <strong className="text-ink-main">防打扰机制</strong>：每次戳一戳后有 30 分钟冷却期，避免频繁打扰；对方一旦开始学习立即解除状态。</p>
                       </div>
                     )}
@@ -901,83 +924,89 @@ function SharingSession({
                           return (
                             <div
                               key={grant.id}
-                              className="rounded-2xl border border-line bg-paper p-3.5 space-y-3 shadow-2xs hover:shadow-xs transition"
+                              className="rounded-2xl border border-line bg-paper p-3.5 space-y-2.5 shadow-2xs hover:shadow-xs transition"
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <Avatar avatar={grant.avatar || 'pose-0'} size={44} className="shadow-2xs shrink-0" />
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      {editingRemarkId === grant.id ? (
-                                        <div className="flex items-center gap-1">
-                                          <input
-                                            type="text"
-                                            value={remarkInput}
-                                            onChange={e => setRemarkInput(e.target.value)}
-                                            placeholder={grant.nickname}
-                                            maxLength={16}
-                                            className="w-24 px-1.5 py-0.5 text-xs border border-sage rounded bg-cream outline-none font-bold"
-                                            autoFocus
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setCompanionRemark(partnerKey, remarkInput, grant.id);
-                                              setEditingRemarkId(null);
-                                              onToast?.(`已将备注更新为「${remarkInput.trim() || grant.nickname}」`);
-                                            }}
-                                            className="p-1 text-sage hover:bg-sage-light rounded"
-                                            title="保存备注"
-                                          >
-                                            <Check size={12} />
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <>
-                                          <span className="break-words text-sm font-bold text-ink-main truncate max-w-[180px]">
-                                            {partnerDisplayName}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setEditingRemarkId(grant.id);
-                                              setRemarkInput(getCompanionRemark(partnerKey, grant.id));
-                                            }}
-                                            className="text-ink-muted hover:text-sage text-[10px] flex items-center gap-0.5"
-                                            title="修改学友备注名"
-                                          >
-                                            <Edit3 size={10} />
-                                            <span>备注</span>
-                                          </button>
-                                        </>
-                                      )}
-                                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage font-medium shrink-0">
-                                        学友
-                                      </span>
-                                    </div>
-
-                                    {/* 规范排版的状态胶囊 */}
-                                    {/* 状态胶囊：仅当好友在学习计时的时候显示其专注状态与内容，未计时证明没有学习，状态不显示 */}
-                                    {grant.liveStatus?.state === 'focusing' ? (
-                                      <div className="mt-1">
-                                        <span className="inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200/80 rounded-lg px-2 py-0.5">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                          <span className="shrink-0">🟢 正在专注</span>
-                                          <span className="truncate">《{grant.liveStatus.focusTitle || '备考'}》</span>
-                                          <span className="shrink-0 font-mono font-bold text-emerald-700">{grant.liveStatus.focusMinutes ?? 0}m</span>
-                                        </span>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Avatar avatar={grant.avatar || 'pose-0'} size={44} className="shadow-2xs shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {editingRemarkId === grant.id ? (
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="text"
+                                          value={remarkInput}
+                                          onChange={e => setRemarkInput(e.target.value)}
+                                          placeholder={grant.nickname}
+                                          maxLength={16}
+                                          className="w-24 px-1.5 py-0.5 text-xs border border-sage rounded bg-cream outline-none font-bold"
+                                          autoFocus
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCompanionRemark(partnerKey, remarkInput, grant.id);
+                                            setEditingRemarkId(null);
+                                            onToast?.(`已将备注更新为「${remarkInput.trim() || grant.nickname}」`);
+                                          }}
+                                          className="p-1 text-sage hover:bg-sage-light rounded"
+                                          title="保存备注"
+                                        >
+                                          <Check size={12} />
+                                        </button>
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <>
+                                        <span className="break-words text-sm font-bold text-ink-main leading-snug">
+                                          {partnerDisplayName}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingRemarkId(grant.id);
+                                            setRemarkInput(getCompanionRemark(partnerKey, grant.id));
+                                          }}
+                                          className="text-ink-muted hover:text-sage text-[10px] flex items-center gap-0.5 shrink-0"
+                                          title="修改学友备注名"
+                                        >
+                                          <Edit3 size={10} />
+                                          <span>备注</span>
+                                        </button>
+                                      </>
+                                    )}
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sage-light text-sage font-medium shrink-0">
+                                      学友
+                                    </span>
                                   </div>
                                 </div>
                               </div>
 
+                              {/* 规范排版的状态横幅：仅当好友在学习计时的时候显示其专注状态与内容，占满整张卡片宽度并允许换行 */}
+                              {grant.liveStatus?.state === 'focusing' ? (
+                                <div
+                                  data-testid="partner-list-focus-banner"
+                                  className="rounded-xl bg-emerald-50 border border-emerald-200/80 px-2.5 py-2 space-y-1 text-emerald-900"
+                                >
+                                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                                    <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" aria-hidden="true" />
+                                      <span>正在专注</span>
+                                    </span>
+                                    <span className="shrink-0 font-mono font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                      {grant.liveStatus.focusMinutes ?? 0}m
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-semibold text-emerald-950 leading-snug break-words">
+                                    《{grant.liveStatus.focusTitle || '备考'}》
+                                  </p>
+                                </div>
+                              ) : null}
+
                               {/* 3列均分规范对齐的操作按钮组 */}
-                              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-line/50">
+                              <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-line/50">
                                 <Button
                                   size="sm"
                                   variant="light"
-                                  className="h-8 text-xs font-bold flex items-center justify-center gap-1"
+                                  className="h-8 px-1.5 text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap"
                                   disabled={busy}
                                   onClick={() => {
                                     setPage(1);
@@ -989,18 +1018,18 @@ function SharingSession({
                                     setSelectedId(grant.id);
                                   }}
                                 >
-                                  <Eye size={13} />
+                                  <Eye size={13} className="shrink-0" />
                                   <span>学情</span>
                                 </Button>
 
                                 <Button
                                   size="sm"
                                   variant="secondary"
-                                  className="h-8 text-xs font-bold flex items-center justify-center gap-1 border-line"
+                                  className="h-8 px-1.5 text-xs font-bold flex items-center justify-center gap-1 border-line whitespace-nowrap"
                                   onClick={() => setNoteTarget({ id: grant.partnerId || grant.id, grantId: grant.id, nickname: partnerDisplayName })}
                                   title="给伙伴贴打气便签"
                                 >
-                                  <MessageSquarePlus size={13} />
+                                  <MessageSquarePlus size={13} className="shrink-0" />
                                   <span>贴便签</span>
                                 </Button>
 
@@ -1009,28 +1038,28 @@ function SharingSession({
                                     size="sm"
                                     variant="ghost"
                                     disabled
-                                    className="h-8 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center justify-center gap-1"
+                                    className="h-8 px-1.5 text-xs text-ink-muted border border-line/50 bg-cream/40 opacity-60 cursor-not-allowed flex items-center justify-center gap-1 whitespace-nowrap"
                                     title="学友正在专注备考中，请勿打扰~"
                                   >
-                                    <Zap size={13} />
+                                    <Zap size={13} className="shrink-0" />
                                     <span>专注中</span>
                                   </Button>
                                 ) : (
                                   <Button
                                     size="sm"
                                     variant="primary"
-                                    className="h-8 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center justify-center gap-1 shadow-2xs"
+                                    className="h-8 px-1.5 text-xs bg-amber-500 hover:bg-amber-600 border-amber-500 text-white font-bold flex items-center justify-center gap-1 shadow-2xs whitespace-nowrap"
                                     disabled={busy || poking[grant.id] || (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0}
                                     onClick={() => handlePoke(grant)}
                                     title="向学友发送小猫催学信"
                                   >
-                                    <Zap size={13} className="fill-current" />
+                                    <Zap size={13} className="fill-current shrink-0" />
                                     <span>
                                       {poking[grant.id]
                                         ? '发送中…'
                                         : (cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) > 0
                                         ? `${Math.ceil((cooldowns[grant.id] ?? grant.liveStatus?.cooldownSeconds ?? 0) / 60)}分后`
-                                        : '⚡️ 戳一戳'}
+                                        : '戳一戳'}
                                     </span>
                                   </Button>
                                 )}
@@ -1115,6 +1144,7 @@ function SharingSession({
           isOpen={isHistoryModalOpen}
           onClose={() => setIsHistoryModalOpen(false)}
           notes={companionNotes}
+          todayStr={todayStr}
           currentUserId={userId}
           onPinNoteToTop={(note) => {
             try {
@@ -1783,42 +1813,47 @@ function SharedOverview({
         <Totals totals={overview.selectedTotals} />
 
         {/* 当日待登记或实时专注辅助提示：消除口径偏差困惑 */}
-        {isTodaySelected && (selectedGrant?.liveStatus?.state === 'focusing' || (selectedGrant?.liveStatus?.pendingMinutes ?? 0) > 0) && (
-          <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#FAF7EE] border border-sage/20 text-xs text-ink-main shadow-2xs">
-            <span className="text-sm shrink-0 mt-0.5">💡</span>
-            <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-muted">
-              {selectedGrant?.liveStatus?.state === 'focusing' ? (
-                <>
-                  <span className="font-semibold text-emerald-800">学友当前正在专注《{selectedGrant.liveStatus.focusTitle || '备考'}》</span>
-                  <span className="text-ink-main font-mono font-bold">（约 {selectedGrant.liveStatus.focusMinutes ?? 0} 分钟进行中）</span>
-                  {(selectedGrant.liveStatus.pendingMinutes ?? 0) > (selectedGrant.liveStatus.focusMinutes ?? 0) && (
-                    <span>，另有约 {(selectedGrant.liveStatus.pendingMinutes ?? 0) - (selectedGrant.liveStatus.focusMinutes ?? 0)} 分钟暂存待登记</span>
-                  )}
-                  <span>。学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold text-ink-main">学友今日另有约 {selectedGrant?.liveStatus?.pendingMinutes} 分钟学习投入待登记</span>
-                  <span>，待学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
-                </>
-              )}
+        {isTodaySelected && (selectedGrant?.liveStatus?.state === 'focusing' || (selectedGrant?.liveStatus?.pendingMinutes ?? 0) > 0) && (() => {
+          const focusMin = selectedGrant?.liveStatus?.focusMinutes ?? 0;
+          const pendingMin = selectedGrant?.liveStatus?.pendingMinutes ?? 0;
+          const otherPending = selectedGrant?.liveStatus?.otherPendingMinutes ?? Math.max(0, pendingMin - focusMin);
+          return (
+            <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#FAF7EE] border border-sage/20 text-xs text-ink-main shadow-2xs">
+              <span className="text-sm shrink-0 mt-0.5">💡</span>
+              <div className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-muted break-words">
+                {selectedGrant?.liveStatus?.state === 'focusing' ? (
+                  <>
+                    <span className="font-semibold text-emerald-800">学友当前正在专注《{selectedGrant.liveStatus.focusTitle || '备考'}》</span>
+                    <span className="text-ink-main font-mono font-bold">（约 {focusMin} 分钟进行中）</span>
+                    {otherPending > 0 && (
+                      <span>，另有约 {otherPending} 分钟暂存待登记</span>
+                    )}
+                    <span>。学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-ink-main">学友今日另有约 {pendingMin} 分钟学习投入待登记</span>
+                    <span>，待学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 累计全部统计快捷胶囊（满足第一点需求：点击看全部统计） */}
         <button
           type="button"
           onClick={() => setPartnerTab('all')}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-cream/70 hover:bg-cream border border-line transition text-xs group text-left"
+          className="w-full flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2.5 rounded-xl bg-cream/70 hover:bg-cream border border-line transition text-xs group text-left"
         >
-          <span className="text-ink-muted text-[11px] flex items-center gap-1.5 truncate">
-            <span className="font-bold text-ink-main shrink-0">累计全部统计：</span>
-            <span className="truncate">
+          <span className="min-w-0 text-ink-muted text-[11px] leading-relaxed break-words">
+            <span className="font-bold text-ink-main">累计全部统计：</span>
+            <span>
               {formatNumber(overview.allTimeTotals.minutes)} 分钟 · {formatNumber(overview.allTimeTotals.questions)} 题 · 错 {formatNumber(overview.allTimeTotals.errors)} 题
             </span>
           </span>
-          <span className="inline-flex items-center text-sage font-medium text-[11px] shrink-0 group-hover:translate-x-0.5 transition ml-2">
+          <span className="inline-flex items-center text-sage font-medium text-[11px] shrink-0 group-hover:translate-x-0.5 transition ml-auto whitespace-nowrap">
             点击看全部
             <ArrowRight size={13} className="ml-0.5" />
           </span>
@@ -1844,8 +1879,8 @@ function SharedOverview({
           <div className="space-y-2">
             {dailyRecords.map((record, index) => (
               <div key={`${record.date}-${index}`} className="rounded-xl border border-line bg-paper p-3 space-y-1 shadow-sm">
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="font-bold text-ink-main truncate">{record.sourceName}</span>
+                <div className="flex items-start justify-between gap-2 text-xs">
+                  <span className="font-bold text-ink-main min-w-0 break-words">{record.sourceName}</span>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
                     record.type === 'book' ? 'bg-sage/10 text-sage' : record.type === 'course' ? 'bg-course-text/10 text-course-text' : 'bg-cream text-ink-muted'
                   }`}>

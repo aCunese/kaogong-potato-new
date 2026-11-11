@@ -154,7 +154,82 @@ export function updateCompanionSettings(userId: string, targetStudyTime: string)
   return { targetStudyTime };
 }
 
-function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: string): PartnerLiveStatus {
+export interface LiveStatusOptions {
+  localDate?: unknown;
+  tzOffset?: unknown;
+  timeZone?: unknown;
+  now?: () => number;
+}
+
+function parseTzOffset(value: unknown): number | null {
+  let num: number | null = null;
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    num = value;
+  } else if (typeof value === 'string' && /^-?\d{1,4}$/.test(value.trim())) {
+    num = Number(value.trim());
+  }
+  return num !== null && Number.isInteger(num) && num >= -840 && num <= 840 ? num : null;
+}
+
+function isValidTimeZone(zone: unknown): zone is string {
+  if (typeof zone !== 'string' || !zone.trim() || zone.length > 100) return false;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone.trim() }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatInTimeZone(ms: number, timeZone: string): { dateStr: string; hour: number; minute: number; hhmm: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(ms));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(p => p.type === type)?.value ?? '';
+  const rawHour = part('hour');
+  const hourStr = rawHour === '24' ? '00' : rawHour.padStart(2, '0');
+  const minStr = part('minute').padStart(2, '0');
+  return {
+    dateStr: `${part('year')}-${part('month')}-${part('day')}`,
+    hour: Number(hourStr),
+    minute: Number(minStr),
+    hhmm: `${hourStr}:${minStr}`,
+  };
+}
+
+function formatWithOffset(ms: number, tzOffsetMinutes: number): { dateStr: string; hour: number; minute: number; hhmm: string } {
+  const shifted = new Date(ms - tzOffsetMinutes * 60_000);
+  const hour = shifted.getUTCHours();
+  const minute = shifted.getUTCMinutes();
+  return {
+    dateStr: shifted.toISOString().slice(0, 10),
+    hour,
+    minute,
+    hhmm: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+  };
+}
+
+function validClientLocalDate(value: unknown, nowMs: number): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T12:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return null;
+  if (Math.abs(parsed.getTime() - nowMs) > 2 * 86_400_000) return null;
+  return value;
+}
+
+function computePartnerLiveStatus(
+  db: Database,
+  ownerId: string,
+  viewerId: string,
+  options?: LiveStatusOptions
+): PartnerLiveStatus {
+  const nowMs = options?.now ? options.now() : Date.now();
   let state: AppState | null = null;
   const wsRow = db.prepare('SELECT state_json FROM workspaces WHERE user_id = ?').get(ownerId) as { state_json: string } | undefined;
   if (wsRow) {
@@ -168,12 +243,30 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
   let cooldownSeconds = 0;
   let canPoke = true;
   if (lastNudge) {
-    const elapsed = Date.now() - Date.parse(lastNudge.created_at);
+    const elapsed = nowMs - Date.parse(lastNudge.created_at);
     if (elapsed < 30 * 60 * 1000) {
       cooldownSeconds = Math.ceil((30 * 60 * 1000 - elapsed) / 1000);
       canPoke = false;
     }
   }
+
+  const tzOffset = parseTzOffset(options?.tzOffset);
+  let fallbackZone = 'Asia/Shanghai';
+  if (isValidTimeZone(options?.timeZone)) {
+    fallbackZone = options.timeZone.trim();
+  } else if (tzOffset === null) {
+    const ownerZoneRow = db.prepare('SELECT timezone FROM email_reminders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(ownerId) as { timezone: string } | undefined;
+    if (ownerZoneRow && isValidTimeZone(ownerZoneRow.timezone)) {
+      fallbackZone = ownerZoneRow.timezone.trim();
+    }
+  }
+
+  const clock = tzOffset !== null
+    ? formatWithOffset(nowMs, tzOffset)
+    : formatInTimeZone(nowMs, fallbackZone);
+  const todayStr = validClientLocalDate(options?.localDate, nowMs) ?? clock.dateStr;
+  const currentH = clock.hour;
+  const currentM = clock.minute;
 
   // 1. Determine target scheduled time (约定学习时间)
   let scheduledTime = '14:00';
@@ -183,49 +276,31 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
   } else if (state?.profile && (state.profile as any).targetStudyTime && /^\d{2}:\d{2}$/.test((state.profile as any).targetStudyTime)) {
     scheduledTime = (state.profile as any).targetStudyTime;
   } else {
-    // Check if there is an active reminder for today
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const reminder = db.prepare(`
-      SELECT send_at FROM email_reminders
+    // Check if there is an active reminder for today in the user's local calendar day
+    const reminders = db.prepare(`
+      SELECT send_at, timezone FROM email_reminders
       WHERE user_id = ? AND send_at >= ? AND send_at <= ?
-      ORDER BY send_at ASC LIMIT 1
-    `).get(ownerId, todayStart.getTime(), todayEnd.getTime()) as { send_at: number } | undefined;
+      ORDER BY send_at ASC
+    `).all(ownerId, nowMs - 2 * 86_400_000, nowMs + 2 * 86_400_000) as { send_at: number; timezone: string }[];
 
-    if (reminder) {
-      const d = new Date(reminder.send_at);
-      scheduledTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    for (const r of reminders) {
+      const formatted = tzOffset !== null
+        ? formatWithOffset(r.send_at, tzOffset)
+        : formatInTimeZone(r.send_at, isValidTimeZone(r.timezone) ? r.timezone.trim() : fallbackZone);
+      if (formatted.dateStr === todayStr) {
+        scheduledTime = formatted.hhmm;
+        break;
+      }
     }
   }
 
   const [schedH, schedM] = scheduledTime.split(':').map(Number);
-  const now = new Date();
-  const currentH = now.getHours();
-  const currentM = now.getMinutes();
 
   // 2. Strict Active Timer Detection:
   // ONLY when a partner is actively running a focus timer (isStudying === true), return state: 'focusing'.
   // When timer is stopped, paused, or resting, partner is NOT studying, and focus state is never returned.
   if (state) {
-    const nowMs = now.getTime();
     const MAX_ACTIVE_FOCUS_MS = 4 * 3600 * 1000; // 4 hours maximum sensible continuous timer duration
-
-    // Calculate pending unrecorded study minutes for today's unfinished plans
-    const todayStr = now.toISOString().slice(0, 10);
-    const todayUnfinishedPlans = state.plans?.filter(p => p.date === todayStr && !p.done && !p.archived) ?? [];
-    let pendingMinutes = 0;
-    for (const p of todayUnfinishedPlans) {
-      let pMs = p.accumulatedMs || 0;
-      if (p.timerStart > 0 && p.timerPhase !== 'rest' && (nowMs - p.timerStart) < MAX_ACTIVE_FOCUS_MS) {
-        pMs += Math.max(0, nowMs - p.timerStart);
-      }
-      if (pMs > 0) {
-        pendingMinutes += Math.floor(pMs / 60000);
-      }
-    }
 
     // 2.1 Check active plan timer (must be not done, not archived, timerStart > 0, NOT in rest phase, within 4 hours)
     const runningPlan = state.plans?.find(p =>
@@ -245,8 +320,33 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
       (nowMs - s.runningSince) < MAX_ACTIVE_FOCUS_MS
     );
 
+    // Calculate pending unrecorded study minutes for today's unfinished plans (summing ms first to match TodayView)
+    const todayPlans = state.plans?.filter(p => p.date === todayStr && !p.archived) ?? [];
+    const todayUnfinishedPlans = todayPlans.filter(p => !p.done);
+    let totalPendingMs = 0;
+    let otherPendingMs = 0;
+    for (const p of todayUnfinishedPlans) {
+      let pMs = p.accumulatedMs ?? (p.actualMinutes || 0) * 60000;
+      if (
+        p.timerStart > 0 &&
+        p.timerPhase !== 'rest' &&
+        (p.restStart ?? 0) === 0 &&
+        (nowMs - p.timerStart) < MAX_ACTIVE_FOCUS_MS
+      ) {
+        pMs += Math.max(0, nowMs - p.timerStart);
+      }
+      if (pMs > 0) {
+        totalPendingMs += pMs;
+        if (!runningPlan || p.id !== runningPlan.id) {
+          otherPendingMs += pMs;
+        }
+      }
+    }
+    const pendingMinutes = Math.floor(totalPendingMs / 60000);
+    const otherPendingMinutes = Math.floor(otherPendingMs / 60000);
+
     if (runningPlan) {
-      const elapsedMs = (runningPlan.accumulatedMs ?? 0) + Math.max(0, nowMs - runningPlan.timerStart);
+      const elapsedMs = (runningPlan.accumulatedMs ?? (runningPlan.actualMinutes || 0) * 60000) + Math.max(0, nowMs - runningPlan.timerStart);
       const minutes = Math.max(1, Math.floor(elapsedMs / 60000));
       let title = runningPlan.name?.trim() || '';
       // Under no circumstances allow summary/fallback strings like "今日已学习 X 分钟" as titles
@@ -270,6 +370,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
         canPoke: false,
         cooldownSeconds,
         pendingMinutes: pendingMinutes > 0 ? pendingMinutes : undefined,
+        otherPendingMinutes: otherPendingMinutes > 0 ? otherPendingMinutes : undefined,
       };
     }
 
@@ -285,7 +386,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
       let title = '';
       if (runningSession.planId) {
         const linked = state.plans?.find(p => p.id === runningSession.planId);
-        if (linked?.name && !/今日已学|已学习/.test(linked.name)) {
+        if (linked?.name && !/今日已学|已学习|暂未继续|尚未开始/.test(linked.name)) {
           title = linked.name.trim();
         }
       }
@@ -302,16 +403,17 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
         canPoke: false,
         cooldownSeconds,
         pendingMinutes: pendingMinutes > 0 ? pendingMinutes : undefined,
+        otherPendingMinutes: otherPendingMinutes > 0 ? otherPendingMinutes : undefined,
       };
     }
 
     // 2.3 When NOT timing: Partner is not studying. Focus badge/state is strictly not returned.
-    const todayPlans = state.plans?.filter(p => p.date === todayStr) ?? [];
     const todayRecords = state.records?.filter(r => r.date === todayStr) ?? [];
-    const totalMinutesToday = Math.round(
-      todayPlans.reduce((sum, p) => sum + (p.accumulatedMs || 0), 0) / 60000 +
-      todayRecords.reduce((sum, r) => sum + (r.minutes || 0), 0)
-    );
+    const recordedMinutes = todayRecords.reduce((sum, r) => sum + (r.minutes || 0), 0);
+    const unrecordedDoneMs = todayPlans
+      .filter(p => p.done && !todayRecords.some(r => (p.recordId && r.id === p.recordId) || r.planId === p.id))
+      .reduce((sum, p) => sum + (p.accumulatedMs ?? (p.actualMinutes || 0) * 60000), 0);
+    const totalMinutesToday = Math.round(recordedMinutes + (totalPendingMs + unrecordedDoneMs) / 60000);
 
     // If all today's plans are done
     if (todayPlans.length > 0 && todayPlans.every(p => p.done)) {
@@ -364,7 +466,7 @@ function computePartnerLiveStatus(db: Database, ownerId: string, viewerId: strin
   };
 }
 
-export function listSharingGrants(userId: string): SharingGrantsResponse {
+export function listSharingGrants(userId: string, options?: LiveStatusOptions): SharingGrantsResponse {
   const db = getDb(); const generation = getCurrentGenerationId();
   const list = (side: 'owner' | 'viewer'): SharedGrant[] => {
     const rows = db.prepare(`SELECT g.id, g.owner_id, g.viewer_id, g.created_at, u.nickname FROM sharing_grants g
@@ -387,7 +489,7 @@ export function listSharingGrants(userId: string): SharingGrantsResponse {
         nickname: displayName(row.nickname, '备考伙伴', 64),
         avatar: avatar || 'pose-0',
         createdAt: row.created_at,
-        liveStatus: side === 'viewer' ? computePartnerLiveStatus(db, row.owner_id, userId) : undefined,
+        liveStatus: side === 'viewer' ? computePartnerLiveStatus(db, row.owner_id, userId, options) : undefined,
       };
     });
   };
