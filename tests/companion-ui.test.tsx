@@ -2,11 +2,12 @@ import { expect, it, describe } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AppContext } from '../src/context/AppContext';
-import { BLANK_STATE } from '../src/constants/initialData';
+import { BLANK_STATE, getLocalDateString } from '../src/constants/initialData';
 import { TodayView } from '../src/components/views/TodayView';
 import { CompanionNoteDetailModal } from '../src/components/views/CompanionNoteDetailModal';
 import { EditCompanionNoteModal } from '../src/components/views/EditCompanionNoteModal';
 import { SharingModal } from '../src/components/views/SharingModal';
+import { ErrorBoundary } from '../src/components/common/ErrorBoundary';
 import { CompanionNotesHistoryModal } from '../src/components/views/CompanionNotesHistoryModal';
 import { PokeCustomModal } from '../src/components/views/PokeCustomModal';
 import type { CompanionNote } from '../src/types/companionNote';
@@ -690,10 +691,9 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     expect(pendingHtml).toContain('今日已累计学习');
     expect(pendingHtml).toContain('含 45 分钟待登记投入');
 
-    // Helper banner above plan list reminds user to click 完成登记
-    expect(pendingHtml).toContain('项已投入');
-    expect(pendingHtml).toContain('45');
-    expect(pendingHtml).toContain('分钟待登记');
+    // Removed yellow pending banner above plan list must NOT render
+    expect(pendingHtml).not.toContain('today-pending-banner');
+    expect(pendingHtml).not.toContain('项已投入');
     expect(pendingHtml).toContain('完成登记');
 
     // State with all plans completed: no pending banner
@@ -850,10 +850,12 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
         />
       </AppContext.Provider>
     );
-    expect(pausedHtml).toContain('已累计不足 1 分钟待登记');
+    expect(pausedHtml).not.toContain('today-pending-banner');
+    expect(pausedHtml).not.toContain('待登记投入');
     expect(pausedHtml).not.toContain('正在计时中');
+    expect(pausedHtml).toContain('已累计 0 分钟');
 
-    // 3. Running <1m plan: accurately shows 正在计时中（暂不足 1 分钟）
+    // 3. Running <1m plan: accurately omits yellow banner and keeps whole-minute totals clean
     const runningSubMinState = {
       ...BLANK_STATE,
       plans: [
@@ -884,7 +886,9 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
         />
       </AppContext.Provider>
     );
-    expect(runningHtml).toContain('正在计时中（暂不足 1 分钟）');
+    expect(runningHtml).not.toContain('today-pending-banner');
+    expect(runningHtml).not.toContain('待登记投入');
+    expect(runningHtml).toContain('暂停');
   });
 
   it('SharingModal uses otherPendingMinutes for Pomodoro sessions and renders untruncated full-width partner list banner', () => {
@@ -949,6 +953,160 @@ describe('Partner Live Status & Poke Action in SharingModal', () => {
     );
     expect(detailHtml).toContain('约 25 分钟进行中');
     expect(detailHtml).toContain('另有约 40 分钟暂存待登记');
+  });
+
+  it('TodayView includes active/paused standalone Pomodoro focus minutes in cumulative study total and excludes rest/registered sessions', () => {
+    const todayStr = getLocalDateString();
+    const now = Date.now();
+    const pomoState = {
+      ...structuredClone(BLANK_STATE),
+      plans: [
+        {
+          id: 'plan-registered',
+          name: '番茄钟 · 资料分析',
+          date: todayStr,
+          libraryId: '',
+          type: 'custom' as const,
+          sourceId: '',
+          subject: '资料分析' as const,
+          plannedMinutes: 25,
+          actualMinutes: 20,
+          accumulatedMs: 20 * 60 * 1000,
+          timerStart: 0,
+          done: true,
+          recordId: 'r1',
+          sessionId: 'sess-registered',
+        },
+      ],
+      records: [
+        {
+          id: 'r1',
+          planId: 'plan-registered',
+          date: todayStr,
+          subject: '资料分析' as const,
+          type: 'custom' as const,
+          sourceId: '',
+          minutes: 20,
+          questions: 0,
+          errors: 0,
+          lessons: 0,
+          sessionId: 'sess-registered',
+        },
+      ],
+      timerSessions: [
+        {
+          id: 'sess-running',
+          title: '独立专注刷题',
+          subject: '判断推理' as const,
+          timerMode: 'pomodoro' as const,
+          focusMinutes: 25,
+          restMinutes: 5,
+          phase: 'focus' as const,
+          phaseMs: 10 * 60 * 1000,
+          status: 'running' as const,
+          runningSince: now - 5 * 60 * 1000,
+          createdAt: now - 20 * 60 * 1000,
+          endedAt: 0,
+          segments: [
+            { phase: 'focus' as const, start: now - 20 * 60 * 1000, end: now - 10 * 60 * 1000 },
+            { phase: 'rest' as const, start: now - 10 * 60 * 1000, end: now - 5 * 60 * 1000 }, // rest must NOT count
+          ],
+        },
+        {
+          id: 'sess-registered',
+          title: '已登记会话',
+          subject: '资料分析' as const,
+          timerMode: 'pomodoro' as const,
+          focusMinutes: 25,
+          restMinutes: 5,
+          phase: 'focus' as const,
+          phaseMs: 20 * 60 * 1000,
+          status: 'registered' as const,
+          planId: 'plan-registered',
+          runningSince: 0,
+          createdAt: now - 60 * 60 * 1000,
+          endedAt: now - 40 * 60 * 1000,
+          segments: [{ phase: 'focus' as const, start: now - 60 * 60 * 1000, end: now - 40 * 60 * 1000 }],
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <AppContext.Provider value={{ state: pomoState, dispatch: () => {}, activeDate: todayStr, currentUser: { id: 'u1', nickname: '我' }, csrfToken: 't' } as any}>
+        <TodayView
+          onOpenAddPlan={() => {}}
+          onOpenFocus={() => {}}
+          onOpenComplete={() => {}}
+          onOpenCountdownEdit={() => {}}
+          onAddCountdown={() => {}}
+        />
+      </AppContext.Provider>
+    );
+
+    // 20m recorded + 15m unrecorded Pomodoro focus = 35m total (no double-count, no rest counted)
+    expect(html).toContain('35');
+    expect(html).toContain('含 15 分钟待登记投入');
+    expect(html).not.toContain('today-pending-banner');
+  });
+
+  it('SharingModal renders 学习中 status when selectedTotals has minutes without formal records, and renders library/all tabs cleanly', () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const liveOverview = {
+      ownerNickname: '阿土同学',
+      updatedAt: new Date().toISOString(),
+      range: { from: todayStr, to: todayStr },
+      selectedTotals: { minutes: 34, questions: 0, errors: 0, accuracy: null, lessons: 0 },
+      allTimeTotals: { minutes: 134, questions: 20, errors: 2, accuracy: 90, lessons: 0 },
+      recordedMinutes: 0,
+      pendingMinutes: 34,
+      books: [{ id: 'b1', name: '行测5000题', subject: '判断推理', done: 100, total: 500, errors: 10, minutes: 100 }],
+      courses: [],
+      records: { items: [], page: 1, pageSize: 30, total: 0 },
+      studyDates: [],
+    };
+
+    const dailyHtml = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialSelectedId="p1"
+        initialPartnerTab="daily"
+        initialOverview={liveOverview}
+        initialGrants={{ owned: [], received: [{ id: 'p1', nickname: '阿土同学', createdAt: '' }], codes: [] }}
+      />
+    );
+    expect(dailyHtml).toContain('学习中 ⏱️');
+    expect(dailyHtml).toContain('34');
+    expect(dailyHtml).toContain('上方学习分钟已实时同步');
+
+    const libHtml = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialSelectedId="p1"
+        initialPartnerTab="library"
+        initialOverview={liveOverview}
+        initialGrants={{ owned: [], received: [{ id: 'p1', nickname: '阿土同学', createdAt: '' }], codes: [] }}
+      />
+    );
+    expect(libHtml).toContain('累计资料进度');
+    expect(libHtml).toContain('行测5000题');
+
+    const allHtml = render(
+      <SharingModal
+        isOpen
+        onClose={() => {}}
+        initialSelectedId="p1"
+        initialPartnerTab="all"
+        initialOverview={liveOverview}
+        initialGrants={{ owned: [], received: [{ id: 'p1', nickname: '阿土同学', createdAt: '' }], codes: [] }}
+      />
+    );
+    expect(allHtml).toContain('全部学习记录统计');
+    expect(allHtml).toContain('134');
+
+    const errState = ErrorBoundary.getDerivedStateFromError(new Error('boom'));
+    expect(errState.hasError).toBe(true);
   });
 });
 

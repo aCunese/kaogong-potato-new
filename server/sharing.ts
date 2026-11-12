@@ -215,12 +215,93 @@ function formatWithOffset(ms: number, tzOffsetMinutes: number): { dateStr: strin
   };
 }
 
+const MAX_ACTIVE_FOCUS_MS = 4 * 3600 * 1000; // 4 hours maximum sensible continuous timer duration
+
 function validClientLocalDate(value: unknown, nowMs: number): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const parsed = new Date(`${value}T12:00:00.000Z`);
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return null;
   if (Math.abs(parsed.getTime() - nowMs) > 2 * 86_400_000) return null;
   return value;
+}
+
+function resolveFallbackTimeZone(db: Database, ownerId: string, timeZoneOption: unknown, tzOffset: number | null): string {
+  if (isValidTimeZone(timeZoneOption)) {
+    return timeZoneOption.trim();
+  }
+  if (tzOffset === null) {
+    const ownerZoneRow = db.prepare('SELECT timezone FROM email_reminders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(ownerId) as { timezone: string } | undefined;
+    if (ownerZoneRow && isValidTimeZone(ownerZoneRow.timezone)) {
+      return ownerZoneRow.timezone.trim();
+    }
+  }
+  return 'Asia/Shanghai';
+}
+
+function formatClock(ms: number, tzOffset: number | null, timeZone: string): { dateStr: string; hour: number; minute: number; hhmm: string } {
+  return tzOffset !== null ? formatWithOffset(ms, tzOffset) : formatInTimeZone(ms, timeZone);
+}
+
+function nextCalendarDate(dateStr: string): string {
+  const d = new Date(`${dateStr}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function localMidnightMs(dateStr: string, tzOffset: number | null, timeZone: string): number {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const wallUtc = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  if (!Number.isFinite(wallUtc)) return 0;
+  if (tzOffset !== null) {
+    return wallUtc + tzOffset * 60_000;
+  }
+  let guess = wallUtc;
+  for (let i = 0; i < 2; i++) {
+    const fmt = formatInTimeZone(guess, timeZone);
+    const [fy, fm, fd] = fmt.dateStr.split('-').map(Number);
+    const fmtWall = Date.UTC(fy, fm - 1, fd, fmt.hour, fmt.minute, 0, 0);
+    guess += wallUtc - fmtWall;
+  }
+  return guess;
+}
+
+function localDayEndMs(dateStr: string, tzOffset: number | null, timeZone: string): number {
+  return localMidnightMs(nextCalendarDate(dateStr), tzOffset, timeZone);
+}
+
+function splitSessionFocusByDay(
+  session: NonNullable<AppState['timerSessions']>[number],
+  nowMs: number,
+  tzOffset: number | null,
+  timeZone: string
+): Map<string, number> {
+  const segments: Array<{ start: number; end: number }> = [];
+  for (const seg of session.segments || []) {
+    if (seg.phase === 'focus' && typeof seg.start === 'number' && typeof seg.end === 'number' && Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.end > seg.start) {
+      segments.push({ start: seg.start, end: seg.end });
+    }
+  }
+  if (
+    session.status === 'running' &&
+    session.phase === 'focus' &&
+    typeof session.runningSince === 'number' &&
+    session.runningSince > 0 &&
+    (nowMs - session.runningSince) < MAX_ACTIVE_FOCUS_MS
+  ) {
+    segments.push({ start: session.runningSince, end: Math.max(session.runningSince, nowMs) });
+  }
+  const byDay = new Map<string, number>();
+  for (const seg of segments) {
+    let cursor = seg.start;
+    while (cursor < seg.end) {
+      const day = formatClock(cursor, tzOffset, timeZone).dateStr;
+      const dayEnd = localDayEndMs(day, tzOffset, timeZone);
+      const chunkEnd = dayEnd > cursor ? Math.min(seg.end, dayEnd) : seg.end;
+      byDay.set(day, (byDay.get(day) ?? 0) + (chunkEnd - cursor));
+      cursor = chunkEnd;
+    }
+  }
+  return byDay;
 }
 
 function computePartnerLiveStatus(
@@ -251,19 +332,9 @@ function computePartnerLiveStatus(
   }
 
   const tzOffset = parseTzOffset(options?.tzOffset);
-  let fallbackZone = 'Asia/Shanghai';
-  if (isValidTimeZone(options?.timeZone)) {
-    fallbackZone = options.timeZone.trim();
-  } else if (tzOffset === null) {
-    const ownerZoneRow = db.prepare('SELECT timezone FROM email_reminders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(ownerId) as { timezone: string } | undefined;
-    if (ownerZoneRow && isValidTimeZone(ownerZoneRow.timezone)) {
-      fallbackZone = ownerZoneRow.timezone.trim();
-    }
-  }
+  const fallbackZone = resolveFallbackTimeZone(db, ownerId, options?.timeZone, tzOffset);
 
-  const clock = tzOffset !== null
-    ? formatWithOffset(nowMs, tzOffset)
-    : formatInTimeZone(nowMs, fallbackZone);
+  const clock = formatClock(nowMs, tzOffset, fallbackZone);
   const todayStr = validClientLocalDate(options?.localDate, nowMs) ?? clock.dateStr;
   const currentH = clock.hour;
   const currentM = clock.minute;
@@ -300,8 +371,6 @@ function computePartnerLiveStatus(
   // ONLY when a partner is actively running a focus timer (isStudying === true), return state: 'focusing'.
   // When timer is stopped, paused, or resting, partner is NOT studying, and focus state is never returned.
   if (state) {
-    const MAX_ACTIVE_FOCUS_MS = 4 * 3600 * 1000; // 4 hours maximum sensible continuous timer duration
-
     // 2.1 Check active plan timer (must be not done, not archived, timerStart > 0, NOT in rest phase, within 4 hours)
     const runningPlan = state.plans?.find(p =>
       !p.done &&
@@ -320,9 +389,10 @@ function computePartnerLiveStatus(
       (nowMs - s.runningSince) < MAX_ACTIVE_FOCUS_MS
     );
 
-    // Calculate pending unrecorded study minutes for today's unfinished plans (summing ms first to match TodayView)
+    // Calculate pending unrecorded study minutes for today's unfinished plans + paused/pending Pomodoro sessions (summing ms first to match TodayView)
     const todayPlans = state.plans?.filter(p => p.date === todayStr && !p.archived) ?? [];
     const todayUnfinishedPlans = todayPlans.filter(p => !p.done);
+    const recordedSessionIds = new Set((state.records ?? []).map(r => r.sessionId).filter((id): id is string => Boolean(id)));
     let totalPendingMs = 0;
     let otherPendingMs = 0;
     for (const p of todayUnfinishedPlans) {
@@ -333,13 +403,24 @@ function computePartnerLiveStatus(
         (p.restStart ?? 0) === 0 &&
         (nowMs - p.timerStart) < MAX_ACTIVE_FOCUS_MS
       ) {
-        pMs += Math.max(0, nowMs - p.timerStart);
+        const dayEnd = localDayEndMs(p.date, tzOffset, fallbackZone);
+        pMs += Math.max(0, Math.min(nowMs, dayEnd) - p.timerStart);
       }
       if (pMs > 0) {
         totalPendingMs += pMs;
         if (!runningPlan || p.id !== runningPlan.id) {
           otherPendingMs += pMs;
         }
+      }
+    }
+    for (const s of state.timerSessions ?? []) {
+      if ((s.status !== 'paused' && s.status !== 'pending') || s.planId || recordedSessionIds.has(s.id)) {
+        continue;
+      }
+      const sTodayMs = splitSessionFocusByDay(s, nowMs, tzOffset, fallbackZone).get(todayStr) ?? 0;
+      if (sTodayMs > 0) {
+        totalPendingMs += sTodayMs;
+        otherPendingMs += sTodayMs;
       }
     }
     const pendingMinutes = Math.floor(totalPendingMs / 60000);
@@ -815,7 +896,15 @@ export function revokeSharingGrant(ownerId: string, id: string): void {
   if (!result.changes) throw new SharingError(404, 'SHARING_GRANT_NOT_FOUND', '授权已撤销或不存在');
 }
 
-export interface SharingOverviewQuery { from?: unknown; to?: unknown; page?: unknown; pageSize?: unknown }
+export interface SharingOverviewQuery {
+  from?: unknown;
+  to?: unknown;
+  page?: unknown;
+  pageSize?: unknown;
+  localDate?: unknown;
+  tzOffset?: unknown;
+  timeZone?: unknown;
+}
 
 function dateValue(value: unknown): string | null {
   if (value === undefined || value === '') return null;
@@ -850,8 +939,14 @@ function summarize(records: SharedStudyRecord[]): SharedStudyTotals {
   return { minutes, questions, errors, accuracy: questions ? Math.round((questions - errors) / questions * 10000) / 100 : null, lessons };
 }
 
-export function getSharedStudyOverview(viewerId: string, grantId: string, query: SharingOverviewQuery): SharedStudyOverview {
+export function getSharedStudyOverview(
+  viewerId: string,
+  grantId: string,
+  query: SharingOverviewQuery,
+  options?: { now?: () => number }
+): SharedStudyOverview {
   const db = getDb(); const generation = getCurrentGenerationId();
+  const nowMs = options?.now ? options.now() : Date.now();
   const owner = db.prepare(`SELECT u.id,u.nickname FROM sharing_grants g
     JOIN users u ON u.id = g.owner_id AND u.is_active = 1
     WHERE g.id = ? AND g.viewer_id = ? AND g.generation_id = ? AND g.revoked_at IS NULL`)
@@ -864,7 +959,8 @@ export function getSharedStudyOverview(viewerId: string, grantId: string, query:
     .get(owner.id) as { state_json: string; schema_version: number; updated_at: string; generation_id: string } | undefined;
   const empty: SharedStudyOverview = {
     ownerNickname: displayName(owner.nickname, '备考伙伴', 64), updatedAt: null, range: { from, to },
-    selectedTotals: summarize([]), allTimeTotals: summarize([]), books: [], courses: [], records: { items: [], page, pageSize, total: 0 },
+    selectedTotals: summarize([]), allTimeTotals: summarize([]), recordedMinutes: 0, pendingMinutes: 0,
+    books: [], courses: [], records: { items: [], page, pageSize, total: 0 },
     studyDates: [],
   };
   if (!row) return empty;
@@ -904,9 +1000,83 @@ export function getSharedStudyOverview(viewerId: string, grantId: string, query:
   }).sort((left, right) => right.date.localeCompare(left.date));
   const selected = records.filter(record => (!from || record.date >= from) && (!to || record.date <= to));
   const studyDates = Array.from(new Set(records.map(record => record.date))).sort();
+
+  const tzOffset = parseTzOffset(query.tzOffset);
+  const fallbackZone = resolveFallbackTimeZone(db, owner.id, query.timeZone, tzOffset);
+  const recordedPlanIds = new Set<string>();
+  const recordedRecordIds = new Set<string>();
+  const recordedSessionIds = new Set<string>();
+  for (const record of state.records) {
+    if (record.planId) recordedPlanIds.add(record.planId);
+    if (record.id) recordedRecordIds.add(record.id);
+    if (record.sessionId) recordedSessionIds.add(record.sessionId);
+  }
+  const isPlanRecorded = (plan: AppState['plans'][number]) =>
+    recordedPlanIds.has(plan.id) || Boolean(plan.recordId && recordedRecordIds.has(plan.recordId));
+
+  let rangeUnrecordedMs = 0;
+  let allUnrecordedMs = 0;
+  for (const plan of state.plans) {
+    if (plan.archived || isPlanRecorded(plan)) continue;
+    const baseMs = typeof plan.accumulatedMs === 'number' && Number.isFinite(plan.accumulatedMs) && plan.accumulatedMs >= 0
+      ? plan.accumulatedMs
+      : numberValue(plan.actualMinutes) * 60_000;
+    let liveMs = 0;
+    if (
+      !plan.done &&
+      plan.timerStart > 0 &&
+      plan.timerPhase !== 'rest' &&
+      (plan.restStart ?? 0) === 0 &&
+      (nowMs - plan.timerStart) < MAX_ACTIVE_FOCUS_MS
+    ) {
+      const dayEnd = localDayEndMs(plan.date, tzOffset, fallbackZone);
+      liveMs = Math.max(0, Math.min(nowMs, dayEnd) - plan.timerStart);
+    }
+    const planMs = baseMs + liveMs;
+    if (planMs <= 0) continue;
+    allUnrecordedMs += planMs;
+    if ((!from || plan.date >= from) && (!to || plan.date <= to)) {
+      rangeUnrecordedMs += planMs;
+    }
+  }
+
+  for (const session of state.timerSessions ?? []) {
+    if (
+      (session.status !== 'running' && session.status !== 'paused' && session.status !== 'pending') ||
+      session.planId ||
+      recordedSessionIds.has(session.id)
+    ) {
+      continue;
+    }
+    const byDay = splitSessionFocusByDay(session, nowMs, tzOffset, fallbackZone);
+    for (const [date, ms] of byDay.entries()) {
+      if (ms <= 0) continue;
+      allUnrecordedMs += ms;
+      if ((!from || date >= from) && (!to || date <= to)) {
+        rangeUnrecordedMs += ms;
+      }
+    }
+  }
+
+  const selectedRecorded = summarize(selected);
+  const allRecorded = summarize(records);
+  const pendingMinutes = Math.floor(rangeUnrecordedMs / 60_000);
+  const allPendingMinutes = Math.floor(allUnrecordedMs / 60_000);
+  const selectedTotals: SharedStudyTotals = {
+    ...selectedRecorded,
+    minutes: add(selectedRecorded.minutes, pendingMinutes),
+  };
+  const allTimeTotals: SharedStudyTotals = {
+    ...allRecorded,
+    minutes: add(allRecorded.minutes, allPendingMinutes),
+  };
+
   return {
     ownerNickname: empty.ownerNickname, updatedAt: Number.isFinite(Date.parse(row.updated_at)) ? row.updated_at : null,
-    range: { from, to }, selectedTotals: summarize(selected), allTimeTotals: summarize(records), books, courses,
+    range: { from, to }, selectedTotals, allTimeTotals,
+    recordedMinutes: selectedRecorded.minutes,
+    pendingMinutes,
+    books, courses,
     records: { items: selected.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: selected.length },
     studyDates,
   };

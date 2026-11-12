@@ -18,6 +18,7 @@ import { PhotoImportModal, AddPlanModal, WrongDetailModal } from '../../src/comp
 import { AnalysisView } from '../../src/components/views/AnalysisView';
 import { WrongView } from '../../src/components/views/WrongView';
 import { SharingModal } from '../../src/components/views/SharingModal';
+import { ErrorBoundary } from '../../src/components/common/ErrorBoundary';
 import { TodayView } from '../../src/components/views/TodayView';
 import { closeTopModal } from '../../src/components/common/UIComponents';
 import { BLANK_STATE, DEMO_STATE } from '../../src/constants/initialData';
@@ -47,6 +48,7 @@ Object.assign(w, {
   AnalysisView,
   WrongView,
   SharingModal,
+  ErrorBoundary,
   TodayView,
   closeTopModal,
   useWrongImageOrientation,

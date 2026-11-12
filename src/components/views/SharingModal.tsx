@@ -30,6 +30,7 @@ import { getLocalDateString } from '../../constants/initialData';
 import { SUBJECTS } from '../../types';
 import { Button, Modal } from '../common/UIComponents';
 import { Avatar } from '../common/Avatar';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import { EditCompanionNoteModal } from './EditCompanionNoteModal';
 import { PokeCustomModal } from './PokeCustomModal';
 import { CompanionNotesHistoryModal } from './CompanionNotesHistoryModal';
@@ -393,9 +394,12 @@ function SharingSession({
     setError(cause instanceof Error ? cause.message : '网络连接失败，请重试');
   }
 
-  async function loadList() {
+  async function loadList(silent = false) {
     const serial = ++listRequest.current;
-    setListLoading(true); setError('');
+    if (!silent) {
+      setListLoading(true);
+      setError('');
+    }
     try {
       const localDate = encodeURIComponent(getLocalDateString());
       const tzOffset = encodeURIComponent(String(new Date().getTimezoneOffset()));
@@ -405,19 +409,31 @@ function SharingSession({
       if (selectedRef.current && !result.received.some(grant => grant.id === selectedRef.current) && !selectedRef.current.startsWith('demo-')) {
         setSelectedId(null); setOverview(null); setError('分享授权已失效，请向分享者重新获取授权');
       }
-    } catch (cause) { if (serial === listRequest.current) showFailure(cause); }
-    finally { if (alive.current && serial === listRequest.current) setListLoading(false); }
+    } catch (cause) {
+      if (!silent && serial === listRequest.current) showFailure(cause);
+    } finally {
+      if (!silent && alive.current && serial === listRequest.current) setListLoading(false);
+    }
   }
 
   useEffect(() => {
     if (initialGrants) return;
     void loadList();
-    const interval = setInterval(() => { void loadList(); }, 12000);
-    const onFocus = () => { void loadList(); };
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void loadList(true);
+      }
+    }, 12000);
+    const onFocus = () => { void loadList(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadList(true);
+    };
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -447,19 +463,79 @@ function SharingSession({
       return;
     }
 
-    const controller = new AbortController();
-    const query = new URLSearchParams({ page: String(page), pageSize: '30' });
-    if (partnerTab === 'daily' && selectedDate) {
-      query.set('from', selectedDate);
-      query.set('to', selectedDate);
+    let disposed = false;
+    let activeController: AbortController | null = null;
+
+    const fetchOverview = (silent: boolean) => {
+      const requestSerial = silent ? ++viewRequest.current : serial;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+
+      const query = new URLSearchParams({
+        page: String(page),
+        pageSize: '30',
+        localDate: getLocalDateString(),
+        tzOffset: String(new Date().getTimezoneOffset()),
+      });
+      if (partnerTab === 'daily' && selectedDate) {
+        query.set('from', selectedDate);
+        query.set('to', selectedDate);
+      }
+
+      if (!silent) {
+        setViewLoading(true);
+        setError('');
+      }
+
+      void api<{ ok: true; overview: SharedStudyOverview }>(`/grants/${encodeURIComponent(selectedId)}/overview?${query}`, 'GET', undefined, controller)
+        .then(result => {
+          if (!disposed && alive.current && requestSerial === viewRequest.current) {
+            setOverview(result.overview);
+          }
+        })
+        .catch(cause => {
+          if (!disposed && !silent && requestSerial === viewRequest.current) {
+            showFailure(cause);
+          }
+        })
+        .finally(() => {
+          if (!disposed && !silent && alive.current && requestSerial === viewRequest.current) {
+            setViewLoading(false);
+          }
+        });
+    };
+
+    fetchOverview(false);
+
+    if (initialOverview) {
+      return () => {
+        disposed = true;
+        viewRequest.current += 1;
+        activeController?.abort();
+      };
     }
 
-    setViewLoading(true); setError('');
-    void api<{ ok: true; overview: SharedStudyOverview }>(`/grants/${encodeURIComponent(selectedId)}/overview?${query}`, 'GET', undefined, controller)
-      .then(result => { if (alive.current && serial === viewRequest.current) setOverview(result.overview); })
-      .catch(cause => { if (serial === viewRequest.current) showFailure(cause); })
-      .finally(() => { if (alive.current && serial === viewRequest.current) setViewLoading(false); });
-    return () => { viewRequest.current += 1; controller.abort(); };
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchOverview(true);
+      }
+    }, 12000);
+    const onFocus = () => { fetchOverview(true); };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchOverview(true);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      viewRequest.current += 1;
+      activeController?.abort();
+    };
   }, [selectedId, partnerTab === 'daily' ? selectedDate : null, partnerTab, page, refresh]);
 
   async function mutate(action: () => Promise<void>) {
@@ -643,7 +719,7 @@ function SharingSession({
                   type="button"
                   role="tab"
                   aria-selected={partnerTab === 'daily'}
-                  onClick={() => { setPartnerTab('daily'); setError(''); }}
+                  onClick={() => { setPartnerTab('daily'); setPage(1); setError(''); }}
                   className={`rounded-lg py-2 transition-colors ${partnerTab === 'daily' ? 'bg-paper text-sage-dark shadow-sm' : 'text-ink-muted hover:text-ink-main'}`}
                 >
                   当日学情
@@ -652,7 +728,7 @@ function SharingSession({
                   type="button"
                   role="tab"
                   aria-selected={partnerTab === 'library'}
-                  onClick={() => { setPartnerTab('library'); setError(''); }}
+                  onClick={() => { setPartnerTab('library'); setPage(1); setError(''); }}
                   className={`rounded-lg py-2 transition-colors ${partnerTab === 'library' ? 'bg-paper text-sage-dark shadow-sm' : 'text-ink-muted hover:text-ink-main'}`}
                 >
                   累计资料 {overview ? `(${overview.books.length + overview.courses.length})` : ''}
@@ -673,24 +749,32 @@ function SharingSession({
               )}
 
               {overview && (
-                <SharedOverview
-                  overview={overview}
-                  selectedGrant={selectedGrant}
-                  partnerTab={partnerTab}
-                  setPartnerTab={setPartnerTab}
-                  selectedDate={selectedDate}
-                  setSelectedDate={setSelectedDate}
-                  todayStr={todayStr}
-                  showCalendar={showCalendar}
-                  setShowCalendar={setShowCalendar}
-                  calYear={calYear}
-                  setCalYear={setCalYear}
-                  calMonth={calMonth}
-                  setCalMonth={setCalMonth}
-                  initialYear={initialYear}
-                  initialMonth={initialMonth}
-                  onPage={setPage}
-                />
+                <ErrorBoundary
+                  key={`${selectedId}:${partnerTab}:${selectedDate}`}
+                  title="伙伴学情渲染失败"
+                  description="该学情分栏在渲染时遇到异常，您可以重试或返回伙伴列表。"
+                  secondaryLabel="返回伙伴列表"
+                  onSecondaryAction={() => { setSelectedId(null); setOverview(null); setError(''); }}
+                >
+                  <SharedOverview
+                    overview={overview}
+                    selectedGrant={selectedGrant}
+                    partnerTab={partnerTab}
+                    setPartnerTab={(nextTab) => { setPartnerTab(nextTab); setPage(1); setError(''); }}
+                    selectedDate={selectedDate}
+                    setSelectedDate={setSelectedDate}
+                    todayStr={todayStr}
+                    showCalendar={showCalendar}
+                    setShowCalendar={setShowCalendar}
+                    calYear={calYear}
+                    setCalYear={setCalYear}
+                    calMonth={calMonth}
+                    setCalMonth={setCalMonth}
+                    initialYear={initialYear}
+                    initialMonth={initialMonth}
+                    onPage={setPage}
+                  />
+                </ErrorBoundary>
               )}
             </>
           ) : (
@@ -1219,10 +1303,12 @@ function Totals({
   totals,
   streakText,
   streakType,
+  hasCheckIn,
 }: {
   totals: SharedStudyTotals;
   streakText?: string;
   streakType?: 'streak' | 'break' | 'none';
+  hasCheckIn?: boolean;
 }) {
   const values = [
     ['学习分钟', formatNumber(totals.minutes)],
@@ -1231,6 +1317,9 @@ function Totals({
     ['正确率', totals.accuracy === null ? '暂无题量' : `${formatNumber(totals.accuracy)}%`],
     ['完成节数', formatNumber(totals.lessons)],
   ];
+  const fallbackStatus = totals.minutes > 0 || totals.questions > 0
+    ? (hasCheckIn === false ? '学习中 ⏱️' : '已打卡 🔥')
+    : '未打卡';
   return (
     <dl className="grid grid-cols-3 gap-2 rounded-2xl bg-sage-light/45 p-3.5 border border-sage/15">
       {values.map(([label, value]) => (
@@ -1244,31 +1333,14 @@ function Totals({
         <dd className={`mt-0.5 text-xs font-bold ${
           streakType === 'break' ? 'text-amber-800' : 'text-sage'
         }`}>
-          {streakText || (totals.minutes > 0 || totals.questions > 0 ? '已打卡 🔥' : '未打卡')}
+          {streakText || fallbackStatus}
         </dd>
       </div>
     </dl>
   );
 }
 
-function SharedOverview({
-  overview,
-  selectedGrant,
-  partnerTab,
-  setPartnerTab,
-  selectedDate,
-  setSelectedDate,
-  todayStr,
-  showCalendar,
-  setShowCalendar,
-  calYear,
-  setCalYear,
-  calMonth,
-  setCalMonth,
-  initialYear,
-  initialMonth,
-  onPage,
-}: {
+function SharedOverview(props: {
   overview: SharedStudyOverview;
   selectedGrant?: SharedGrant;
   partnerTab: 'daily' | 'library' | 'all';
@@ -1286,14 +1358,25 @@ function SharedOverview({
   initialMonth: number;
   onPage: (page: number) => void;
 }) {
-  const studyDatesSet = useMemo(() => new Set(overview.studyDates ?? []), [overview.studyDates]);
-  const pageCount = Math.max(1, Math.ceil(overview.records.total / overview.records.pageSize));
-  const streak = useMemo(() => calculatePartnerStreak(overview.studyDates, todayStr), [overview.studyDates, todayStr]);
+  if (props.partnerTab === 'library') {
+    return <PartnerLibraryTab overview={props.overview} />;
+  }
+  if (props.partnerTab === 'all') {
+    return (
+      <PartnerAllStatsTab
+        overview={props.overview}
+        todayStr={props.todayStr}
+        onPage={props.onPage}
+      />
+    );
+  }
+  return <PartnerDailyTab {...props} />;
+}
 
-  // Library subject filter state
+// 1. 【累计资料】分栏
+function PartnerLibraryTab({ overview }: { overview: SharedStudyOverview }) {
   const [selectedSubject, setSelectedSubject] = useState<'ALL' | string>('ALL');
 
-  // Compute available subjects for library tab
   const availableSubjects = useMemo(() => {
     const counts: Record<string, { books: number; courses: number; total: number }> = {};
     overview.books.forEach(b => {
@@ -1332,76 +1415,7 @@ function SharedOverview({
     return overview.courses.filter(c => c.subject === selectedSubject);
   }, [overview.courses, selectedSubject]);
 
-  // Group historical records by date for all tab
-  const dateGroups = useMemo(() => {
-    const groups: {
-      date: string;
-      items: typeof overview.records.items;
-      totalMinutes: number;
-      totalQuestions: number;
-      totalErrors: number;
-      totalLessons: number;
-    }[] = [];
-    const map = new Map<string, typeof groups[0]>();
-
-    for (const item of overview.records.items) {
-      let group = map.get(item.date);
-      if (!group) {
-        group = {
-          date: item.date,
-          items: [],
-          totalMinutes: 0,
-          totalQuestions: 0,
-          totalErrors: 0,
-          totalLessons: 0,
-        };
-        map.set(item.date, group);
-        groups.push(group);
-      }
-      group.items.push(item);
-      group.totalMinutes += item.minutes || 0;
-      if (item.type === 'book') {
-        group.totalQuestions += item.quantity || 0;
-        group.totalErrors += item.errors || 0;
-      } else if (item.type === 'course') {
-        group.totalLessons += item.quantity || 0;
-      }
-    }
-    return groups;
-  }, [overview.records.items]);
-
-  // Expanded dates state: default expands first date
-  const [expandedDates, setExpandedDates] = useState<Set<string>>(() => {
-    const initial = overview.records.items[0]?.date;
-    return initial ? new Set([initial]) : new Set();
-  });
-
-  useEffect(() => {
-    if (expandedDates.size === 0 && overview.records.items.length > 0) {
-      setExpandedDates(new Set([overview.records.items[0].date]));
-    }
-  }, [overview.records.items]);
-
-  const toggleDate = (date: string) => {
-    setExpandedDates(prev => {
-      const next = new Set(prev);
-      if (next.has(date)) {
-        next.delete(date);
-      } else {
-        next.add(date);
-      }
-      return next;
-    });
-  };
-
-  // Calendar calculations
-  const firstDayIndex = new Date(calYear, calMonth - 1, 1).getDay();
-  const totalDaysInMonth = new Date(calYear, calMonth, 0).getDate();
-  const isViewingCurrentMonth = calYear === initialYear && calMonth === initialMonth;
-
-  // 1. 【累计资料】分栏
-  if (partnerTab === 'library') {
-    return (
+  return (
       <div className="space-y-3" aria-label="累计资料进度">
         <div className="flex items-center justify-between">
           <div>
@@ -1561,12 +1575,84 @@ function SharedOverview({
           )}
         </div>
       </div>
-    );
-  }
+  );
+}
 
-  // 2. 【全部统计】分栏
-  if (partnerTab === 'all') {
-    return (
+// 2. 【全部统计】分栏
+function PartnerAllStatsTab({
+  overview,
+  todayStr,
+  onPage,
+}: {
+  overview: SharedStudyOverview;
+  todayStr: string;
+  onPage: (page: number) => void;
+}) {
+  const studyDatesSet = useMemo(() => new Set(overview.studyDates ?? []), [overview.studyDates]);
+  const pageCount = Math.max(1, Math.ceil(overview.records.total / overview.records.pageSize));
+  const streak = useMemo(() => calculatePartnerStreak(overview.studyDates, todayStr), [overview.studyDates, todayStr]);
+
+  const dateGroups = useMemo(() => {
+    const groups: {
+      date: string;
+      items: typeof overview.records.items;
+      totalMinutes: number;
+      totalQuestions: number;
+      totalErrors: number;
+      totalLessons: number;
+    }[] = [];
+    const map = new Map<string, typeof groups[0]>();
+
+    for (const item of overview.records.items) {
+      let group = map.get(item.date);
+      if (!group) {
+        group = {
+          date: item.date,
+          items: [],
+          totalMinutes: 0,
+          totalQuestions: 0,
+          totalErrors: 0,
+          totalLessons: 0,
+        };
+        map.set(item.date, group);
+        groups.push(group);
+      }
+      group.items.push(item);
+      group.totalMinutes += item.minutes || 0;
+      if (item.type === 'book') {
+        group.totalQuestions += item.quantity || 0;
+        group.totalErrors += item.errors || 0;
+      } else if (item.type === 'course') {
+        group.totalLessons += item.quantity || 0;
+      }
+    }
+    return groups;
+  }, [overview.records.items]);
+
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(() => {
+    const initial = overview.records.items[0]?.date;
+    return initial ? new Set([initial]) : new Set();
+  });
+
+  useEffect(() => {
+    if (expandedDates.size === 0 && overview.records.items.length > 0) {
+      setExpandedDates(new Set([overview.records.items[0].date]));
+    }
+  }, [overview.records.items]);
+
+  const toggleDate = (date: string) => {
+    setExpandedDates(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  };
+
+  return (
       <div className="space-y-4" aria-label="全部统计与历史记录">
         <section className="space-y-2">
           <div className="flex items-center justify-between">
@@ -1657,10 +1743,47 @@ function SharedOverview({
           )}
         </section>
       </div>
-    );
-  }
+  );
+}
 
-  // 3. 【当日学情】分栏（默认展示）
+// 3. 【当日学情】分栏（默认展示）
+function PartnerDailyTab({
+  overview,
+  selectedGrant,
+  setPartnerTab,
+  selectedDate,
+  setSelectedDate,
+  todayStr,
+  showCalendar,
+  setShowCalendar,
+  calYear,
+  setCalYear,
+  calMonth,
+  setCalMonth,
+  initialYear,
+  initialMonth,
+}: {
+  overview: SharedStudyOverview;
+  selectedGrant?: SharedGrant;
+  partnerTab: 'daily' | 'library' | 'all';
+  setPartnerTab: (tab: 'daily' | 'library' | 'all') => void;
+  selectedDate: string;
+  setSelectedDate: React.Dispatch<React.SetStateAction<string>>;
+  todayStr: string;
+  showCalendar: boolean;
+  setShowCalendar: React.Dispatch<React.SetStateAction<boolean>>;
+  calYear: number;
+  setCalYear: React.Dispatch<React.SetStateAction<number>>;
+  calMonth: number;
+  setCalMonth: React.Dispatch<React.SetStateAction<number>>;
+  initialYear: number;
+  initialMonth: number;
+  onPage: (page: number) => void;
+}) {
+  const studyDatesSet = useMemo(() => new Set(overview.studyDates ?? []), [overview.studyDates]);
+  const firstDayIndex = new Date(calYear, calMonth - 1, 1).getDay();
+  const totalDaysInMonth = new Date(calYear, calMonth, 0).getDate();
+  const isViewingCurrentMonth = calYear === initialYear && calMonth === initialMonth;
   const isTodaySelected = selectedDate === todayStr;
 
   const dailyRecords = useMemo(() => {
@@ -1810,12 +1933,12 @@ function SharedOverview({
           </span>
         </div>
 
-        <Totals totals={overview.selectedTotals} />
+        <Totals totals={overview.selectedTotals} hasCheckIn={dailyRecords.length > 0} />
 
-        {/* 当日待登记或实时专注辅助提示：消除口径偏差困惑 */}
-        {isTodaySelected && (selectedGrant?.liveStatus?.state === 'focusing' || (selectedGrant?.liveStatus?.pendingMinutes ?? 0) > 0) && (() => {
+        {/* 当日待登记或实时专注辅助提示：说明学习分钟已实时同步，与下方正式打卡明细的区别 */}
+        {isTodaySelected && (selectedGrant?.liveStatus?.state === 'focusing' || Math.max(selectedGrant?.liveStatus?.pendingMinutes ?? 0, overview.pendingMinutes ?? 0) > 0) && (() => {
           const focusMin = selectedGrant?.liveStatus?.focusMinutes ?? 0;
-          const pendingMin = selectedGrant?.liveStatus?.pendingMinutes ?? 0;
+          const pendingMin = Math.max(selectedGrant?.liveStatus?.pendingMinutes ?? 0, overview.pendingMinutes ?? 0);
           const otherPending = selectedGrant?.liveStatus?.otherPendingMinutes ?? Math.max(0, pendingMin - focusMin);
           return (
             <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#FAF7EE] border border-sage/20 text-xs text-ink-main shadow-2xs">
@@ -1828,12 +1951,12 @@ function SharedOverview({
                     {otherPending > 0 && (
                       <span>，另有约 {otherPending} 分钟暂存待登记</span>
                     )}
-                    <span>。学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                    <span>。上方学习分钟已实时同步，待「完成登记」后将转为正式打卡明细。</span>
                   </>
                 ) : (
                   <>
-                    <span className="font-semibold text-ink-main">学友今日另有约 {pendingMin} 分钟学习投入待登记</span>
-                    <span>，待学友在日程中点击「完成登记」后将自动汇总计入正式打卡。</span>
+                    <span className="font-semibold text-ink-main">学友今日另有约 {pendingMin} 分钟学习投入暂存待登记</span>
+                    <span>，上方学习分钟已实时同步，待「完成登记」后将转为正式打卡明细。</span>
                   </>
                 )}
               </div>

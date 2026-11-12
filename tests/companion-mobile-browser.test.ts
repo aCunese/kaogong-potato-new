@@ -307,7 +307,7 @@ it('renders SharingModal detail card and list card without mobile truncation or 
   }
 }, 25000);
 
-it('renders TodayView pending registration banner and untruncated status popover at 360px and forwards timezone params', async () => {
+it('renders TodayView without removed yellow pending banner, includes Pomodoro minutes, renders untruncated status popover at 360px, and forwards timezone params', async () => {
   const shotDir = process.env.COMPANION_SHOT_DIR;
   if (shotDir) fs.mkdirSync(shotDir, { recursive: true });
 
@@ -325,7 +325,8 @@ it('renders TodayView pending registration banner and untruncated status popover
     try {
       await page.evaluate(() => {
         const w = window as any;
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const d = new Date();
+        const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const state = structuredClone(w.BLANK_STATE);
         state.plans = [
           {
@@ -383,21 +384,20 @@ it('renders TodayView pending registration banner and untruncated status popover
         );
       });
 
-      const pendingBanner = page.getByTestId('today-pending-banner');
-      await pendingBanner.waitFor();
       const popover = page.getByRole('region', { name: '学友实时学情详情' });
       await popover.waitFor();
 
       const todayMetrics = await page.evaluate(() => {
         const docOverflow = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
-        const banner = document.querySelector('[data-testid="today-pending-banner"]') as HTMLElement;
+        const hasPendingBanner = document.querySelector('[data-testid="today-pending-banner"]') !== null;
+        const bodyText = document.body.textContent || '';
         const pop = document.querySelector('[aria-label="学友实时学情详情"]') as HTMLElement;
         const popText = Array.from(pop.querySelectorAll('span')).find(s => s.textContent?.includes('正在专注')) as HTMLElement;
         const popRect = pop.getBoundingClientRect();
         return {
           docOverflow,
-          bannerText: banner.textContent,
-          bannerOverflow: banner.scrollWidth > banner.clientWidth + 1,
+          hasPendingBanner,
+          bodyText,
           popRight: popRect.right,
           viewportWidth: window.innerWidth,
           popText: popText.textContent,
@@ -406,9 +406,8 @@ it('renders TodayView pending registration banner and untruncated status popover
       });
 
       expect(todayMetrics.docOverflow).toBe(false);
-      expect(todayMetrics.bannerOverflow).toBe(false);
-      expect(todayMetrics.bannerText).toContain('有 1 项已投入 45 分钟待登记');
-      expect(todayMetrics.bannerText).toContain('完成登记');
+      expect(todayMetrics.hasPendingBanner).toBe(false);
+      expect(todayMetrics.bodyText).toContain('含 45 分钟待登记投入');
       expect(todayMetrics.popRight).toBeLessThanOrEqual(width + 1);
       expect(todayMetrics.popTextOverflow).toBe(false);
       expect(todayMetrics.popText).toContain('34m');
@@ -417,7 +416,8 @@ it('renders TodayView pending registration banner and untruncated status popover
       // Mount TodayView WITHOUT initialPartner to confirm /api/sharing/grants includes localDate & tzOffset
       await page.evaluate(() => {
         const w = window as any;
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const d = new Date();
+        const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const state = structuredClone(w.BLANK_STATE);
         const ctxValue = {
           state,
@@ -448,5 +448,150 @@ it('renders TodayView pending registration banner and untruncated status popover
     } finally {
       await context.close();
     }
+  }
+}, 25000);
+
+it('switches SharingModal tabs (点击看全部, 累计资料, 全部统计, 当日学情) with zero React errors and auto-syncs study minutes on focus', async () => {
+  const { page, context } = await setupMobilePage(375);
+  const pageErrors: string[] = [];
+  page.on('pageerror', err => pageErrors.push(err.message));
+
+  const overviewUrls: string[] = [];
+  let currentLiveMinutes = 34;
+
+  await page.route('**/api/sharing/grants**', async route => {
+    const url = route.request().url();
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (url.includes('/overview')) {
+      overviewUrls.push(url);
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          overview: {
+            ownerNickname: '阿土同学',
+            updatedAt: new Date().toISOString(),
+            range: { from: todayStr, to: todayStr },
+            selectedTotals: { minutes: currentLiveMinutes, questions: 0, errors: 0, accuracy: null, lessons: 0 },
+            allTimeTotals: { minutes: 100 + currentLiveMinutes, questions: 20, errors: 2, accuracy: 90, lessons: 1 },
+            recordedMinutes: 0,
+            pendingMinutes: currentLiveMinutes,
+            books: [{ id: 'b1', name: '行测5000题', subject: '判断推理', done: 120, total: 500, errors: 10, minutes: 100 }],
+            courses: [{ id: 'c1', name: '资料分析系统课', subject: '资料分析', done: 4, total: 10, minutes: 60 }],
+            records: {
+              items: [
+                { date: '2026-10-20', type: 'book', subject: '判断推理', sourceName: '行测5000题', quantity: 20, minutes: 100, errors: 2 },
+              ],
+              page: 1,
+              pageSize: 30,
+              total: 1,
+            },
+            studyDates: ['2026-10-20'],
+          },
+        }),
+      });
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        owned: [],
+        received: [
+          {
+            id: 'g-live',
+            nickname: '阿土同学',
+            createdAt: '',
+            liveStatus: {
+              state: 'focusing',
+              focusTitle: '独立番茄专注',
+              focusMinutes: currentLiveMinutes,
+              pendingMinutes: currentLiveMinutes,
+            },
+          },
+        ],
+        codes: [],
+      }),
+    });
+  });
+
+  try {
+    await page.evaluate(() => {
+      const w = window as any;
+      const d = new Date();
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const state = structuredClone(w.BLANK_STATE);
+      const ctxValue = {
+        state,
+        activeDate: todayStr,
+        currentUser: { id: 'viewer-1', nickname: '我' },
+        csrfToken: 'test-csrf',
+      };
+      w.__modalRoot = w.createRoot(document.getElementById('root')!);
+      w.__modalRoot.render(
+        w.React.createElement(
+          w.AppContext.Provider,
+          { value: ctxValue },
+          w.React.createElement(w.SharingModal, {
+            isOpen: true,
+            onClose: () => {},
+            initialSelectedId: 'g-live',
+          })
+        )
+      );
+    });
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText('今日学情概况').waitFor();
+    expect(await dialog.textContent()).toContain('34');
+    expect(await dialog.textContent()).toContain('学习中 ⏱️');
+
+    // Click "点击看全部" -> opens "全部学习记录统计" cleanly without React #300 crash
+    await dialog.locator('button', { hasText: '点击看全部' }).click();
+    await dialog.getByText('全部学习记录统计').waitFor();
+
+    // Switch to "累计资料" tab
+    await dialog.getByRole('tab', { name: /累计资料/ }).click();
+    await dialog.getByText('累计资料进度').waitFor();
+    expect(await dialog.textContent()).toContain('行测5000题');
+
+    // Switch to "全部统计" tab
+    await dialog.getByRole('tab', { name: '全部统计' }).click();
+    await dialog.getByText('全部学习记录统计').waitFor();
+
+    // Switch back to "当日学情" tab
+    await dialog.getByRole('tab', { name: '当日学情' }).click();
+    await dialog.getByText('今日学情概况').waitFor();
+
+    // Simulate partner advancing study minutes and viewer window regaining focus
+    currentLiveMinutes = 48;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await dialog.getByText('48', { exact: true }).waitFor();
+    expect(await dialog.textContent()).toContain('148 分钟');
+
+    expect(overviewUrls.some(u => u.includes('localDate=') && u.includes('tzOffset='))).toBe(true);
+    expect(pageErrors).toEqual([]);
+
+    // Also verify ErrorBoundary isolates a throwing child and resets cleanly
+    await page.evaluate(() => {
+      const w = window as any;
+      let shouldThrow = true;
+      function FragileChild() {
+        if (shouldThrow) throw new Error('simulated tab crash');
+        return w.React.createElement('div', { 'data-testid': 'recovered-child' }, '已恢复正常');
+      }
+      w.__modalRoot.render(
+        w.React.createElement(
+          w.ErrorBoundary,
+          { onReset: () => { shouldThrow = false; }, title: '局部异常' },
+          w.React.createElement(FragileChild)
+        )
+      );
+    });
+    await page.getByTestId('error-boundary-fallback').waitFor();
+    await page.getByRole('button', { name: /重试/ }).click();
+    await page.getByTestId('recovered-child').waitFor();
+  } finally {
+    await context.close();
   }
 }, 25000);

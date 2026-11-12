@@ -10,6 +10,7 @@ import { Card, Button, Tag, useModalBack } from '../common/UIComponents';
 import { Plus, Play, Pause, CheckCircle2, Clock, Trash2, MoreHorizontal, Sparkles, ChevronRight, ClipboardList, ChevronUp, Zap, Archive } from 'lucide-react';
 import { Plan, StudyRecord, MutationResult, TimerMode, getSubjectLabel } from '../../types';
 import { isPlanRunning } from '../../utils/studyTimers';
+import { sessionDays } from '../../utils/timerSessions';
 import { canCorrectStudyRecord, getPlanCompletion, getPlanElapsedMs, getStudyRecordName, studyDateLabel } from '../../utils/workflowPresentation';
 import { CompanionNoteDetailModal } from './CompanionNoteDetailModal';
 import { EditCompanionNoteModal } from './EditCompanionNoteModal';
@@ -467,13 +468,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   // Keep live timer tick
   useEffect(() => {
-    const hasRunning = state.plans.some(isPlanRunning);
+    const hasRunning =
+      state.plans.some(isPlanRunning) ||
+      Boolean(state.timerSessions?.some(s => s.status === 'running' && s.phase === 'focus'));
     if (!hasRunning) return;
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
-  }, [state.plans]);
+  }, [state.plans, state.timerSessions]);
 
-  const relevantPlans = state.plans.filter(p => p.date === activeDate);
+  const relevantPlans = state.plans.filter(p => p.date === activeDate && !p.archived);
   const recentRecords = [...state.records]
     .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
     .slice(0, 3);
@@ -520,17 +523,30 @@ export const TodayView: React.FC<TodayViewProps> = ({
 
   const doneCount = displayedPlans.filter(p => p.done).length;
   const visiblePlans = onlyUnfinished ? displayedPlans.filter(plan => !plan.done) : displayedPlans;
+  const recordedSessionIds = new Set(state.records.map(r => r.sessionId).filter((id): id is string => Boolean(id)));
+  const now = Date.now();
+  const todaySessionFocusMs = forcedMode === 'empty'
+    ? 0
+    : (state.timerSessions ?? []).reduce((sum, session) => {
+        if (
+          (session.status !== 'running' && session.status !== 'paused' && session.status !== 'pending') ||
+          session.planId ||
+          recordedSessionIds.has(session.id)
+        ) {
+          return sum;
+        }
+        const entry = sessionDays(session, now).find(d => d.date === activeDate);
+        return sum + (entry?.focusMs ?? 0);
+      }, 0);
   const totalElapsedMs = displayedPlans.reduce((sum, p) => {
-    const elapsed = getPlanElapsedMs(p);
+    const elapsed = getPlanElapsedMs(p, now);
     return sum + elapsed;
-  }, 0);
+  }, 0) + todaySessionFocusMs;
   const totalMinutes = Math.floor(totalElapsedMs / 60000);
 
-  const pendingPlans = displayedPlans.filter(p => !p.done && (getPlanElapsedMs(p) > 0 || isPlanRunning(p)));
-  const pendingCount = pendingPlans.length;
-  const pendingElapsedMs = pendingPlans.reduce((sum, p) => sum + getPlanElapsedMs(p), 0);
+  const pendingPlans = displayedPlans.filter(p => !p.done && (getPlanElapsedMs(p, now) > 0 || isPlanRunning(p)));
+  const pendingElapsedMs = pendingPlans.reduce((sum, p) => sum + getPlanElapsedMs(p, now), 0) + todaySessionFocusMs;
   const pendingMinutes = Math.floor(pendingElapsedMs / 60000);
-  const hasRunningPending = pendingPlans.some(p => isPlanRunning(p) && p.timerPhase !== 'rest');
 
   // 倒数日展示：未设置日期 / 今天 / N 天 / 已结束
   const countdownState = (targetDate: string) => {
@@ -878,31 +894,6 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
         )}
       </div>
-
-      {/* 待登记投入轻量级辅助提示：当检测到今日计划存在投入但未登记时展示 */}
-      {pendingCount > 0 && (
-        <div
-          data-testid="today-pending-banner"
-          className="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-900 shadow-2xs"
-        >
-          <span className="text-sm shrink-0 mt-0.5">💡</span>
-          <span className="flex-1 min-w-0 text-[11px] leading-relaxed">
-            {pendingMinutes > 0 ? (
-              <>
-                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项已投入 <strong className="font-bold text-amber-950">{pendingMinutes}</strong> 分钟待登记，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
-              </>
-            ) : hasRunningPending ? (
-              <>
-                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项正在计时中（暂不足 1 分钟），记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
-              </>
-            ) : (
-              <>
-                有 <strong className="font-bold text-amber-950">{pendingCount}</strong> 项已累计不足 1 分钟待登记，记得完成后点击「<strong>完成登记</strong>」计入正式打卡。
-              </>
-            )}
-          </span>
-        </div>
-      )}
 
       {/* 3. 待执行日程列表头部 */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">

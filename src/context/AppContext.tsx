@@ -332,6 +332,8 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryAttemptRef = useRef(0);
   const lastFocusSyncAtRef = useRef(0);
+  const pendingSyncCountRef = useRef(0);
+  pendingSyncCountRef.current = pendingSyncCount;
   const bootRanRef = useRef(false);
   const authQueueRef = useRef<Promise<any>>(Promise.resolve());
 
@@ -396,11 +398,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
   const refreshPendingCount = useCallback(async (userId: string | null): Promise<number> => {
     if (!userId) {
+      pendingSyncCountRef.current = 0;
       setPendingSyncCount(0);
       return 0;
     }
     try {
       const unresolved = await getUnresolvedLocalChanges(userId);
+      pendingSyncCountRef.current = unresolved.total;
       setPendingSyncCount(unresolved.total);
       return unresolved.total;
     } catch {
@@ -1013,10 +1017,19 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       maybeSync();
     };
 
+    const flushPendingOnHide = () => {
+      if (preview) return;
+      if (currentUserRef.current && pendingSyncCountRef.current > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+        triggerSyncRef.current().catch(() => {});
+      }
+    };
+
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         checkMidnightRollover();
         maybeSync();
+      } else if (document.visibilityState === 'hidden') {
+        flushPendingOnHide();
       }
     };
 
@@ -1037,12 +1050,14 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
 
     window.addEventListener('focus', handleWindowFocus);
     window.addEventListener('online', handleOnline);
+    window.addEventListener('pagehide', flushPendingOnHide);
     document.addEventListener('visibilitychange', handleVisibility);
     const interval = setInterval(checkMidnightRollover, 30000);
 
     return () => {
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('pagehide', flushPendingOnHide);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(interval);
     };

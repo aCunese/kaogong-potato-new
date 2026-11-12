@@ -77,6 +77,8 @@ export interface SharedStudyOverview {
   range: { from: string | null; to: string | null };
   selectedTotals: SharedStudyTotals;
   allTimeTotals: SharedStudyTotals;
+  recordedMinutes?: number;
+  pendingMinutes?: number;
   /** Catalogue counters are cumulative and independent of the selected range. */
   books: SharedSourceProgress[];
   courses: SharedSourceProgress[];
