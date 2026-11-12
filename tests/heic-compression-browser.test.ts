@@ -4,7 +4,12 @@ import fs from 'node:fs';
 import { isHeicImage } from '../src/utils/imageCompressor';
 import { buildBrowserHarness, createHarnessPage } from '../scripts/lib/boundary-checks';
 
-const REAL_HEIC_PATH = '/Users/ruyne./Library/Caches/com.apple.AppleMediaServices/Engagement/internal/downloads/c9f97730-9acc-11ef-b054-9bbbb1252411zh-hans+marketing%3Atcc-pre-warm-full-sheet-books%3AbreakoutFullScreen.heic';
+import path from 'node:path';
+
+const FIXTURE_HEIC = path.resolve('tests/fixtures/sample.heic');
+const REAL_HEIC_PATH = fs.existsSync(FIXTURE_HEIC)
+  ? FIXTURE_HEIC
+  : '/Users/ruyne./Library/Caches/com.apple.AppleMediaServices/Engagement/internal/downloads/c9f97730-9acc-11ef-b054-9bbbb1252411zh-hans+marketing%3Atcc-pre-warm-full-sheet-books%3AbreakoutFullScreen.heic';
 
 describe('HEIC Photo Support & Compression Regressions', () => {
   let browser: Browser;

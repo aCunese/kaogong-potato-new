@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, ExecuteMutationOptions, MutationResult, OperationScope } from '../types';
 import { applyPrepareWrongImageOrientations, applyWrongImageOrientation, getWrongRecordImages, MutatorReturn } from '../utils/workflowMutators';
 import { orientationMediaId } from '../utils/imageOrientation';
-import { requestImageOrientation } from '../utils/orientationClient';
+import { requestImageOrientation, OrientationClientError } from '../utils/orientationClient';
 
 interface Options {
   state: AppState;
@@ -20,6 +20,7 @@ export function useWrongImageOrientation(options: Options) {
   const running = useRef(false);
   const mounted = useRef(true);
   const retryAt = useRef(new Map<string, number>());
+  const retryCounts = useRef(new Map<string, number>());
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const [activity, setActivity] = useState<{ recordId: string; index: number } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -67,14 +68,30 @@ export function useWrongImageOrientation(options: Options) {
             if (saved.code === 'IMAGE_CHANGED' || saved.code === 'NOT_FOUND' || saved.code === 'AUTH_EPOCH_CHANGED') continue;
             throw new Error(saved.message);
           }
-          if (mounted.current && o.isValid(scope)) setErrors(prev => { const next = { ...prev }; delete next[task.key]; return next; });
+          if (mounted.current && o.isValid(scope)) {
+            retryCounts.current.delete(task.key);
+            setErrors(prev => { const next = { ...prev }; delete next[task.key]; return next; });
+          }
         } catch (error) {
           const current = latest.current;
           const record = current.state.wrong.find(record => record.id === task.id);
           const image = record && getWrongRecordImages(record)[task.index];
           if (o.isValid(scope) && mounted.current && image && keyFor(current.userId, task.id, task.index, image) === task.key) {
+            const isBusy = (error instanceof OrientationClientError && error.status === 429) || (error instanceof Error && error.message.includes('排队'));
+            if (isBusy) {
+              const attempts = (retryCounts.current.get(task.key) ?? 0) + 1;
+              retryCounts.current.set(task.key, attempts);
+              if (attempts <= 5) {
+                const retryAfterSec = error instanceof OrientationClientError ? error.retryAfterSeconds : 2;
+                const delayMs = Math.max(retryAfterSec * 1000, 1500 * Math.pow(1.5, attempts - 1));
+                retryAt.current.set(task.key, Date.now() + delayMs);
+                setErrors(prev => { const next = { ...prev }; delete next[task.key]; return next; });
+                continue;
+              }
+            }
             retryAt.current.set(task.key, Infinity);
-            setErrors(prev => ({ ...prev, [task.key]: error instanceof Error && error.name !== 'AbortError' ? error.message : '识别暂未完成，请重试' }));
+            const message = error instanceof Error && error.name !== 'AbortError' ? error.message : '识别暂未完成，请重试';
+            setErrors(prev => ({ ...prev, [task.key]: message }));
           }
         } finally {
           if (mounted.current && o.isValid(scope)) setActivity(null);
@@ -84,15 +101,21 @@ export function useWrongImageOrientation(options: Options) {
   }, []);
   pumpRef.current = () => { void pump(); };
 
-  const request = useCallback(async (id: string, force = false) => {
+  const request = useCallback(async (id: string, force = false, targetIndex?: number) => {
     const o = latest.current;
     const record = o.state.wrong.find(record => record.id === id);
     if (!record) return;
     const images = getWrongRecordImages(record);
-    images.forEach((image, index) => retryAt.current.delete(keyFor(o.userId, id, index, image)));
-    if (record.imageOrientations === undefined || (force && record.imageOrientations.some(result => result?.status === 'unresolved'))) {
+    images.forEach((image, index) => {
+      if (targetIndex === undefined || index === targetIndex) {
+        const k = keyFor(o.userId, id, index, image);
+        retryAt.current.delete(k);
+        retryCounts.current.delete(k);
+      }
+    });
+    if (record.imageOrientations === undefined || force || (images.some((_, index) => record.imageOrientations?.[index] == null))) {
       const scope = o.createScope(o.userId ?? null);
-      const result = await o.mutate(draft => applyPrepareWrongImageOrientations(draft, id, images, force), 'prepare_image_orientation', {
+      const result = await o.mutate(draft => applyPrepareWrongImageOrientations(draft, id, images, force, targetIndex), 'prepare_image_orientation', {
         context: { scope, isCurrent: () => o.isValid(scope), abortSignal: scope.signal },
       });
       if (!result.ok) return;
@@ -101,12 +124,12 @@ export function useWrongImageOrientation(options: Options) {
   }, []);
 
   useEffect(() => {
-    retryAt.current.clear(); setErrors({}); setActivity(null);
+    retryAt.current.clear(); retryCounts.current.clear(); setErrors({}); setActivity(null);
   }, [options.userId]);
   useEffect(() => { pumpRef.current(); }, [options.state, options.enabled, options.csrf, options.userId]);
   useEffect(() => {
     mounted.current = true;
-    const resume = () => { retryAt.current.clear(); pumpRef.current(); };
+    const resume = () => { retryAt.current.clear(); retryCounts.current.clear(); pumpRef.current(); };
     window.addEventListener('online', resume);
     window.addEventListener('focus', resume);
     return () => { mounted.current = false; clearTimeout(timer.current); window.removeEventListener('online', resume); window.removeEventListener('focus', resume); };

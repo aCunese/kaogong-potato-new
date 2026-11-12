@@ -655,7 +655,37 @@ export function applyWrongImageOrientation(draft: AppState, id: string, index: n
   return { nextState: draft, value: record };
 }
 
-export function applyPrepareWrongImageOrientations(draft: AppState, id: string, expectedImages: string[], force: boolean): MutatorReturn<void> {
+export function applyRotateWrongImage(
+  draft: AppState,
+  id: string,
+  index: number,
+  delta: 90 | 270
+): MutatorReturn<WrongRecord> {
+  const record = draft.wrong.find(item => item.id === id);
+  if (!record) return { error: { code: 'NOT_FOUND', message: '错题记录已不存在。' } };
+  const images = getWrongRecordImages(record);
+  if (!Number.isInteger(index) || index < 0 || index >= images.length) {
+    return { error: { code: 'INVALID_INDEX', message: '图片索引无效。' } };
+  }
+  const currentRotation = record.imageOrientations?.[index]?.rotation ?? 0;
+  const nextRotation = (((currentRotation + delta) % 360 + 360) % 360) as 0 | 90 | 180 | 270;
+  const orientations = images.map((_, i) => record.imageOrientations?.[i] ?? null);
+  orientations[index] = {
+    status: 'resolved',
+    rotation: nextRotation,
+    version: 1,
+  };
+  record.imageOrientations = orientations;
+  return { nextState: draft, value: record };
+}
+
+export function applyPrepareWrongImageOrientations(
+  draft: AppState,
+  id: string,
+  expectedImages: string[],
+  force: boolean,
+  targetIndex?: number
+): MutatorReturn<void> {
   const record = draft.wrong.find(item => item.id === id);
   if (!record) return { error: { code: 'NOT_FOUND', message: '错题记录已不存在。' } };
   const images = getWrongRecordImages(record);
@@ -664,7 +694,13 @@ export function applyPrepareWrongImageOrientations(draft: AppState, id: string, 
   }
   record.imageOrientations = images.map((_, index) => {
     const result = record.imageOrientations?.[index];
-    return force && result?.status === 'unresolved' ? null : result ?? null;
+    if (force) {
+      if (typeof targetIndex === 'number') {
+        return index === targetIndex ? null : result ?? null;
+      }
+      return null;
+    }
+    return result ?? null;
   });
   return { nextState: draft, value: undefined };
 }

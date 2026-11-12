@@ -167,3 +167,23 @@ it('swaps the image coordinate system for quarter turns while keeping zoom on th
     expect(await image.locator('image').getAttribute('transform')).toBe('translate(40 0) rotate(90)');
   } finally { await context.close(); }
 });
+
+it('automatically retries after 429 ORIENTATION_BUSY without locking to Infinity', async () => {
+  const { page, context } = await createHarnessPage(browser, harness); let calls = 0;
+  try {
+    await page.route('**/api/media/*/orientation', route => {
+      calls++;
+      if (calls === 1) {
+        return route.fulfill({
+          status: 429,
+          headers: { 'retry-after': '1' },
+          json: { ok: false, code: 'ORIENTATION_BUSY', error: 'busy', retryAfterSeconds: 1 },
+        });
+      }
+      return route.fulfill({ json: { ok: true, mediaId: 'media_one', orientation: resolved(90) } });
+    });
+    await mountQueue(page, ['/api/media/media_one']);
+    await page.waitForFunction(() => (window as any).orientationState.wrong[0].imageOrientations?.[0]?.rotation === 90, { timeout: 10000 });
+    expect(calls).toBe(2);
+  } finally { await context.close(); }
+}, 15000);

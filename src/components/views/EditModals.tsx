@@ -8,7 +8,7 @@ import { SUBJECTS, STUDY_SUBJECTS, StudySubject, isStudySubjectForType, Subject,
 import { CountdownReminderItem } from '../../utils/workflowPresentation';
 import { SUBJECT_COLORS } from './TimeDistribution';
 import { PotatoSprite } from '../common/PotatoSprite';
-import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Edit2, Sparkles, Plus } from 'lucide-react';
+import { Smartphone, Download, CheckCircle2, AlertCircle, Camera, Image as ImageIcon, Loader2, Eye, EyeOff, Calendar, ChevronLeft, ChevronRight, ZoomIn, X, ArrowRightLeft, Edit2, Sparkles, Plus, RotateCw } from 'lucide-react';
 import { FloatingDatePicker } from '../common/FloatingDatePicker';
 import { compressImage, compressWrongPhoto, validateImageBatch, MAX_BATCH_COUNT } from '../../utils/imageCompressor';
 import {
@@ -1181,7 +1181,7 @@ export const WrongDetailModal: React.FC<{
   onClose: () => void;
   onToast?: (msg: string) => void;
 }> = ({ record, isOpen, onClose, onToast }) => {
-  const { state, updateWrongRecord, requestWrongImageOrientations, orientationActivity, orientationErrors } = useApp();
+  const { state, updateWrongRecord, rotateWrongImage, requestWrongImageOrientations, orientationActivity, orientationErrors } = useApp();
   const liveRecord = state.wrong.find(w => w.id === record?.id) ?? record;
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -1438,9 +1438,18 @@ export const WrongDetailModal: React.FC<{
           </div>
           {editImages.length > 0 ? (
             <div className="grid grid-cols-4 gap-2 max-h-36 overflow-y-auto p-1.5 bg-cream/40 rounded-xl border border-line/60">
-              {editImages.map((img, idx) => (
-                <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-line group">
-                  <img src={img} alt={`图${idx + 1}`} className="w-full h-full object-cover" />
+              {editImages.map((img, idx) => {
+                const origIdx = getWrongRecordImages(liveRecord).indexOf(img);
+                const rot = origIdx >= 0 ? liveRecord.imageOrientations?.[origIdx]?.rotation : undefined;
+                return (
+                  <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-line group">
+                    <OrientedImage
+                      src={img}
+                      rotation={rot}
+                      cover
+                      alt={`图${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
                   <span className="absolute bottom-0.5 left-0.5 px-1 rounded bg-black/60 text-white text-[9px] font-bold">
                     {idx === 0 ? '封面' : `图${idx + 1}`}
                   </span>
@@ -1461,8 +1470,9 @@ export const WrongDetailModal: React.FC<{
                   >
                     ×
                   </button>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
               {editImages.length < MAX_SINGLE_WRONG_IMAGES && (
                 <label
                   title="追加错题图片"
@@ -1598,6 +1608,7 @@ export const WrongDetailModal: React.FC<{
                 <OrientedImage
                   src={img}
                   rotation={liveRecord.imageOrientations?.[idx]?.rotation}
+                  cover
                   alt={`缩略图${idx + 1}`}
                   className="w-full h-full object-cover"
                 />
@@ -1627,11 +1638,35 @@ export const WrongDetailModal: React.FC<{
         )}
 
         {images.length > 0 && <div className="flex items-center justify-between gap-2 text-[11px] text-ink-muted" aria-live="polite">
-          <span>{orientationActivity?.recordId === liveRecord.id && orientationActivity.index === safeIndex
+          <span className="truncate">{orientationActivity?.recordId === liveRecord.id && orientationActivity.index === safeIndex
             ? '正在自动摆正…'
             : orientationErrors?.[`${liveRecord.id}:${safeIndex}`]
               ?? (liveRecord.imageOrientations?.[safeIndex]?.status === 'resolved' ? '已自动确认图片方向' : liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' ? '未能确认方向，保留原图' : '联网后自动摆正图片')}</span>
-          {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? <button type="button" className="shrink-0 text-sage font-bold px-2 py-1" onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}>重新识别</button> : null}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? (
+              <button
+                type="button"
+                className="shrink-0 text-sage font-bold px-2 py-1 hover:underline"
+                onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}
+              >
+                重新识别
+              </button>
+            ) : null}
+            <button
+              type="button"
+              title="顺时针旋转90°"
+              aria-label="顺时针旋转90°"
+              disabled={isSavingMeta}
+              onClick={async () => {
+                const res = await rotateWrongImage(liveRecord.id, safeIndex, 90);
+                if (res.ok) onToast?.('已旋转 90°');
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-cream hover:bg-cream-dark text-ink-main border border-line text-xs font-bold transition active:scale-95 disabled:opacity-50"
+            >
+              <RotateCw size={12} />
+              <span>旋转 90°</span>
+            </button>
+          </div>
         </div>}
 
         {isCompressing && (
@@ -1705,15 +1740,29 @@ export const WrongDetailModal: React.FC<{
                   : '双指捏合放大 · 放大后单指拖动 · 轻点画面退出'}
               </div>
             </div>
-            <button
-              type="button"
-              aria-label="退出全屏放大"
-              onClick={() => setZoomOpen(false)}
-              className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm hover:bg-white/25 active:scale-95"
-            >
-              <X size={15} />
-              <span>退出放大</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="顺时针旋转90°"
+                onClick={async () => {
+                  const res = await rotateWrongImage(liveRecord.id, safeIndex, 90);
+                  if (res.ok) onToast?.('已旋转 90°');
+                }}
+                className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm hover:bg-white/25 active:scale-95"
+              >
+                <RotateCw size={14} />
+                <span>旋转 90°</span>
+              </button>
+              <button
+                type="button"
+                aria-label="退出全屏放大"
+                onClick={() => setZoomOpen(false)}
+                className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm hover:bg-white/25 active:scale-95"
+              >
+                <X size={15} />
+                <span>退出放大</span>
+              </button>
+            </div>
           </div>
 
           {/* 中央可左右滑切图、双指缩放与单指拖动图片画布 */}

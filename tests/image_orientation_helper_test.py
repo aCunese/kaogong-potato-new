@@ -92,6 +92,47 @@ class OrientationBoundaryTests(unittest.TestCase):
             with patch.object(helper, 'run_tesseract', native):
                 self.assertEqual(helper.orient(image_path), {'status': 'resolved', 'rotation': 270, 'version': 1})
 
+    def test_composite_evidence_ranking_ignores_few_character_high_confidence_noise(self):
+        # 3 chars at 95% confidence must not outrank or block 40 real chars at 75% confidence
+        candidates = [(180, 95.0, 3, 2), (0, 75.0, 40, 30), (90, 10.0, 2, 0), (270, 0.0, 0, 0)]
+        self.assertEqual(helper.select_rotation(candidates), {'status': 'resolved', 'rotation': 0, 'version': 1})
+
+    def test_long_image_slice_protection_crops_tall_images_before_downscaling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tall_image_path = Path(directory) / 'tall_scroll.png'
+            # 1000 x 3000 (aspect 3.0 > 2.5)
+            Image.new('RGB', (1000, 3000), 'white').save(tall_image_path)
+            normalized_sizes = []
+            def native(candidate, *arguments):
+                with Image.open(candidate) as img:
+                    normalized_sizes.append(img.size)
+                return SimpleNamespace(returncode=0, stdout='Rotate: 0\nOrientation confidence: 16.00\n')
+            with patch.object(helper, 'run_tesseract', native):
+                res = helper.orient(tall_image_path)
+                self.assertEqual(res, {'status': 'resolved', 'rotation': 0, 'version': 1})
+            # 1000 x 2200 sliced thumbnail into 1600x1600 produces (727, 1600) instead of (533, 1600)
+            self.assertEqual(normalized_sizes[0], (727, 1600))
+
+    def test_osd_hint_ranking_and_pruning_avoids_unnecessary_rotations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / 'question.png'
+            Image.new('RGB', (800, 600), 'white').save(image_path)
+            called_stems = []
+            def native(candidate, *arguments):
+                if arguments[1] == 'osd':
+                    return SimpleNamespace(returncode=0, stdout='Rotate: 90\nOrientation confidence: 10.00\n')
+                called_stems.append(candidate.stem)
+                # Rotation 90 has strong text evidence
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout='level\tconf\ttext\n5\t85\t这是一道完整的行测常识判断题目\n5\t90\t正确选项分析突破口清晰\n5\t88\t考点梳理到位\n'
+                )
+            with patch.object(helper, 'run_tesseract', native):
+                res = helper.orient(image_path)
+                self.assertEqual(res, {'status': 'resolved', 'rotation': 90, 'version': 1})
+            # Rotation 90 tested first and pruned remaining rotations (0, 180, 270 not called in native OCR)
+            self.assertEqual(called_stems, ['90'])
+
 
 if __name__ == '__main__':
     unittest.main()

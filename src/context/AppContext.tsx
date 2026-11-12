@@ -100,6 +100,7 @@ import {
   applyAddWrongRecords,
   applyDeleteWrongRecord,
   applyUpdateWrongRecord,
+  applyRotateWrongImage,
   applyUpdateSubjectLabel,
   applyMovePlansToDate,
   applyUpdateProfile,
@@ -192,6 +193,7 @@ export interface AppContextType {
   addWrongRecords: (bookId: string, note: string, images: string[], date?: string) => Promise<MutationResult<WrongRecord[]>>;
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
   updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string; images?: string[] }) => Promise<MutationResult<WrongRecord>>;
+  rotateWrongImage: (id: string, index: number, delta: 90 | 270) => Promise<MutationResult<WrongRecord>>;
   requestWrongImageOrientations: (id: string, force?: boolean) => Promise<void>;
   orientationActivity: { recordId: string; index: number } | null;
   orientationErrors: Record<string, string>;
@@ -608,7 +610,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
             const latest = await loadLatestState(user.id);
             if (isCurrent(user.id, epoch)) applyLocalState(latest.state, latest.revision);
           }
-        } else if (result.status === 'conflict') {
+        } else {
+          if (!preview) {
+            const latest = await loadLatestState(user.id);
+            if (isCurrent(user.id, epoch) && latest.revision !== localRevisionRef.current) {
+              applyLocalState(latest.state, latest.revision);
+            }
+          }
+        }
+        if (result.status === 'conflict') {
           setSyncStatus('conflict');
           setSyncMessage(result.message || '需要处理版本冲突');
           setConflictData({
@@ -1432,6 +1442,13 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
   const updateWrongRecord = useCallback(
     async (id: string, updates: { subject?: StudySubject; note?: string; images?: string[] }): Promise<MutationResult<WrongRecord>> => {
       return executeMutation(draft => applyUpdateWrongRecord(draft, id, updates), 'update_wrong_record');
+    },
+    [executeMutation]
+  );
+
+  const rotateWrongImage = useCallback(
+    async (id: string, index: number, delta: 90 | 270): Promise<MutationResult<WrongRecord>> => {
+      return executeMutation(draft => applyRotateWrongImage(draft, id, index, delta), 'rotate_wrong_image');
     },
     [executeMutation]
   );
@@ -2439,6 +2456,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         addWrongRecords,
         deleteWrongRecord,
         updateWrongRecord,
+        rotateWrongImage,
         ...orientation,
         updateSubjectLabel,
         updateProfile,
