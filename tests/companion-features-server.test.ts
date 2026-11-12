@@ -733,6 +733,33 @@ test('companion note and nudge system with 30-min cooldown and rich HTML email',
       assert.equal(pomoPausedGrant.liveStatus?.pendingMinutes, 60);
       assert.equal(pomoPausedGrant.liveStatus?.otherPendingMinutes, 60);
 
+      // When that Pomodoro session transitions to rest phase, its completed 25m focus segment must still count in liveStatus
+      pomoPausedState.plans = [];
+      pomoPausedState.timerSessions = [
+        {
+          id: 'sess-pomo-rest',
+          timerMode: 'pomodoro',
+          focusMinutes: 25,
+          restMinutes: 5,
+          subject: '判断推理',
+          phase: 'rest',
+          phaseMs: 60_000,
+          status: 'running',
+          createdAt: simulatedUtcMs - 26 * 60000,
+          runningSince: simulatedUtcMs - 60_000,
+          segments: [
+            { phase: 'focus', start: simulatedUtcMs - 26 * 60000, end: simulatedUtcMs - 60_000 },
+          ],
+        },
+      ];
+      db.prepare("INSERT OR REPLACE INTO workspaces (user_id, generation_id, state_json, schema_version, updated_at) VALUES (?, ?, ?, 5, datetime('now'))")
+        .run(pomodoroWithPaused.id, getCurrentGenerationId(), JSON.stringify(pomoPausedState));
+      const grantsPomoRest = listSharingGrants(viewer.id, { localDate: '2026-11-12', tzOffset: -480, now: () => simulatedUtcMs });
+      const pomoRestGrant = grantsPomoRest.received.find(g => g.id === grantPomoPaused)!;
+      assert.equal(pomoRestGrant.liveStatus?.state, 'idle');
+      assert.equal(pomoRestGrant.liveStatus?.pendingMinutes, 25);
+      assert.match(pomoRestGrant.liveStatus?.missedText || '', /今日已学 25m 休息中/);
+
       // Owner 3: Already finished a plan with a matching StudyRecord + one unfinished zero-elapsed plan (past 14:00? test with target 00:00 -> 01:30 CST)
       db.prepare("INSERT INTO companion_settings (user_id, target_study_time, updated_at) VALUES (?, '00:00', datetime('now'))")
         .run(doubleCountOwner.id);

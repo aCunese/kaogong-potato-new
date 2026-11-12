@@ -414,7 +414,12 @@ function computePartnerLiveStatus(
       }
     }
     for (const s of state.timerSessions ?? []) {
-      if ((s.status !== 'paused' && s.status !== 'pending') || s.planId || recordedSessionIds.has(s.id)) {
+      if (
+        (s.status !== 'running' && s.status !== 'paused' && s.status !== 'pending') ||
+        s.planId ||
+        recordedSessionIds.has(s.id) ||
+        (runningSession && s.id === runningSession.id)
+      ) {
         continue;
       }
       const sTodayMs = splitSessionFocusByDay(s, nowMs, tzOffset, fallbackZone).get(todayStr) ?? 0;

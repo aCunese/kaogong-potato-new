@@ -1093,6 +1093,7 @@ function SharingSession({
                                   className="h-8 px-1.5 text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap"
                                   disabled={busy}
                                   onClick={() => {
+                                    setError('');
                                     setPage(1);
                                     setSelectedDate(todayStr);
                                     setPartnerTab('daily');
