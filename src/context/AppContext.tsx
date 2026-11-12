@@ -604,7 +604,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         if (result.status === 'synced') {
           retryAttemptRef.current = 0;
           setSyncStatus('synced');
-          setSyncMessage(result.message || '全部学情与照片已保存到服务器');
+          setSyncMessage(null);
           setConflictData(null);
           if (!preview) {
             const latest = await loadLatestState(user.id);
@@ -617,26 +617,26 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
               applyLocalState(latest.state, latest.revision);
             }
           }
-        }
-        if (result.status === 'conflict') {
-          setSyncStatus('conflict');
-          setSyncMessage(result.message || '需要处理版本冲突');
-          setConflictData({
-            serverRevision: result.serverRevision || 0,
-            serverState: result.serverState ?? null,
-            serverGenerationId: result.serverGenerationId,
-            serverContentHash: result.serverContentHash,
-          });
-        } else if (result.status === 'offline') {
-          setSyncStatus('idle');
-          setSyncMessage(result.message || '离线保存');
-        } else if (result.status === 'waiting') {
-          setSyncStatus('idle');
-          setSyncMessage(result.message || (result.waitingReason === 'lease' ? '另一标签页正在同步中' : '正在等待重试'));
-          setConflictData(null);
-        } else {
-          setSyncStatus('failed');
-          setSyncMessage(result.message || '同步暂未完成，正在自动重试');
+          if (result.status === 'conflict') {
+            setSyncStatus('conflict');
+            setSyncMessage(result.message || '需要处理版本冲突');
+            setConflictData({
+              serverRevision: result.serverRevision || 0,
+              serverState: result.serverState ?? null,
+              serverGenerationId: result.serverGenerationId,
+              serverContentHash: result.serverContentHash,
+            });
+          } else if (result.status === 'offline') {
+            setSyncStatus('idle');
+            setSyncMessage(result.message || '离线保存');
+          } else if (result.status === 'waiting') {
+            setSyncStatus('idle');
+            setSyncMessage(result.message || (result.waitingReason === 'lease' ? '另一标签页正在同步中' : '正在等待重试'));
+            setConflictData(null);
+          } else {
+            setSyncStatus('failed');
+            setSyncMessage(result.message || '同步暂未完成，正在自动重试');
+          }
         }
       }
 
@@ -703,7 +703,7 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       setInitChoice(hydrate.initChoice ?? null);
       if (hydrate.status === 'synced') {
         setSyncStatus('synced');
-        setSyncMessage(hydrate.message || '已载入云端工作区');
+        setSyncMessage(null);
       } else {
         setSyncStatus('failed');
         setSyncMessage(hydrate.message || '当前无法连接云端，已载入本机可靠缓存，联网后将自动同步');
@@ -782,6 +782,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         setCsrfToken(csrf);
         saveLastActiveUser(user);
         setActiveUserPartition(user.id);
+
+        // 用户下次登录进去就自动更新：静默激活等待中的新版 Service Worker
+        if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg?.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          }).catch(() => {});
+        }
         const hydrate = await initialHydrate(user.id, csrf, { guard: () => isCurrent(user.id, epoch) });
         await applyHydrateResult(user, csrf, hydrate, epoch);
         return;
@@ -900,16 +909,9 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
       if (!mountedRef.current) return result;
       setUpdateCheckState(result);
       if (result.status === 'update_available') {
-        const version = result.remoteInfo?.version || result.installedVersionName || '';
-        const build = result.remoteInfo?.build || '';
-        const bannerKey = `${version}-${build}`;
-        // R17: a dismissed update banner stays dismissed for the same release.
-        if (!isUpdateBannerDismissed(bannerKey)) {
-          setUpdateInfo({
-            version,
-            build,
-            summary: result.remoteInfo?.summary || '发现新版本发布',
-          });
+        // 用户要求这次更新不用提醒用户，不弹窗、不展示顶部 banner，并在后台安全静默激活 Service Worker
+        if (updateGuard().ok) {
+          void applyWebUpdate({ canActivate: updateGuard });
         }
       }
       return result;
@@ -1899,6 +1901,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         saveLastActiveUser(user);
         setActiveUserPartition(user.id);
 
+        // 用户下次登录进去就自动更新：静默激活等待中的新版 Service Worker
+        if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg?.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          }).catch(() => {});
+        }
+
         try {
           if (typeof BroadcastChannel !== 'undefined') {
             const bc = new BroadcastChannel('kaogong_auth');
@@ -1977,6 +1988,15 @@ export const AppProvider: React.FC<{ children: ReactNode; preview?: boolean }> =
         setCsrfToken(csrf);
         saveLastActiveUser(user);
         setActiveUserPartition(user.id);
+
+        // 用户下次登录进去就自动更新：静默激活等待中的新版 Service Worker
+        if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg?.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+          }).catch(() => {});
+        }
 
         try {
           if (typeof BroadcastChannel !== 'undefined') {

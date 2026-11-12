@@ -1812,5 +1812,30 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
       fs.writeFileSync = origWriteFileSync;
     }
   });
+
+  test('server reads runtime env overrides from data/.env.runtime if present', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-runtime-env-'));
+    try {
+      const runtimeEnvFile = path.join(tempDir, '.env.runtime');
+      fs.writeFileSync(runtimeEnvFile, 'SMTP_TEST_KEY=smtp_test_value\n# Comment\nINVALID_LINE\nEMPTY_KEY=\n');
+      const raw = fs.readFileSync(runtimeEnvFile, 'utf8');
+      const parsed: Record<string, string> = {};
+      for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim();
+          if (val) parsed[key] = val;
+        }
+      }
+      assert.equal(parsed['SMTP_TEST_KEY'], 'smtp_test_value');
+      assert.equal(parsed['INVALID_LINE'], undefined);
+      assert.equal(parsed['EMPTY_KEY'], undefined);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 

@@ -107,7 +107,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       const res = await triggerSync();
       if (res.ok) {
-        onToast('全部学情已与云端完成同步！');
+        // 同步状态只要是绿色那就默认同步了不用提醒用户
       } else if (res.status === 'offline') {
         onToast('当前处于离线状态，修改已安全保存在本地');
       } else if (res.status === 'conflict') {
@@ -275,7 +275,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <Button variant="ghost" size="sm" onClick={onOpenProfile} className="shrink-0 text-xs px-2">编辑资料</Button>
         </div>
         <button type="button" aria-label="云端同步状态" onClick={handleManualSync} disabled={isSyncingNow} className="mt-3 pt-3 border-t border-line/60 w-full flex items-center justify-between gap-2 text-left disabled:opacity-60"><span className="text-[11px] text-ink-muted shrink-0">同步状态</span>{renderSyncBadge()}</button>
-        {syncStatus === 'failed' && <p className="mt-2 text-xs text-alarm">{syncMessage || '同步暂未完成，点击同步状态重试。'}</p>}
+        {syncStatus === 'failed' && syncMessage && syncMessage !== '全部学情与照片已保存到服务器' && <p className="mt-2 text-xs text-alarm">{syncMessage}</p>}
       </Card>
       <section aria-label="常用功能" className="grid grid-cols-2 gap-3">
         <button type="button" aria-label="学习提醒" disabled={!currentUser} onClick={() => setShowEmailReminders(true)} className="min-w-0 text-left rounded-2xl border border-[#E8DFC6] bg-[#F7F0DE] p-4 min-h-[138px] flex flex-col gap-2.5 transition-colors hover:bg-[#F1E7CE] active:scale-[0.99] disabled:opacity-50">

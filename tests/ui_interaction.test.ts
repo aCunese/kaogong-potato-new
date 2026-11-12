@@ -661,5 +661,45 @@ describe('S09: Conflict Deferral & Recoverable Workflow (ConflictModal & Setting
     expect(htmlClean).not.toContain('检测到数据版本冲突待处理');
     expect(htmlClean).not.toContain('处理冲突');
     expect(htmlClean).toContain('已同步');
+    expect(htmlClean).not.toContain('全部学情与照片已保存到服务器');
+  });
+
+  it('SettingsView suppresses "全部学情与照片已保存到服务器" even if syncStatus was failed with that message', () => {
+    const mockAppContext = {
+      state: DEMO_STATE,
+      currentUser: { id: 'u1', username: 'testuser', nickname: 'Tester' },
+      syncStatus: 'failed',
+      syncMessage: '全部学情与照片已保存到服务器',
+      triggerSync: async () => ({ ok: false, status: 'failed' }),
+      conflictData: null,
+      storageError: null,
+      clearStorageError: () => {},
+      offlineReady: true,
+      pendingSyncCount: 0,
+      hasUnsyncedChanges: false,
+      clearSafeCache: async () => ({ ok: true, message: 'ok' }),
+      restoreLatestRecovery: async () => ({ ok: true }),
+      updateCheckState: null,
+      isCheckingUpdate: false,
+      checkForUpdate: async () => null,
+      updateGuard: () => ({ ok: true }),
+    } as any;
+
+    const html = renderToStaticMarkup(
+      React.createElement(
+        AppContext.Provider,
+        { value: mockAppContext },
+        React.createElement(SettingsView, {
+          onOpenProfile: () => {},
+          onOpenBackup: () => {},
+          onOpenConflict: () => {},
+          onOpenLogoutConfirm: () => {},
+          onOpenResetConfirm: () => {},
+          onToast: () => {},
+        })
+      )
+    );
+
+    expect(html).not.toContain('全部学情与照片已保存到服务器');
   });
 });

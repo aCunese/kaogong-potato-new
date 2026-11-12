@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261112.04",
+  "webBuild": "20261113.01",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-12T14:50:00Z",
-  "summary": "修复错题单图重新识别误清空整道错题已摆正方向、纠偏后残留错误状态与竞态覆盖，补全旋转单测与防御性检查。"
+  "deployedAt": "2026-11-13T03:00:00Z",
+  "summary": "修复同步状态逻辑错误与冗余提示、修复邮件提醒服务环境变量注入，实现平滑静默更新。"
 }
