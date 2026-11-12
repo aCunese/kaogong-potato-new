@@ -149,39 +149,55 @@ with tarfile.open(archive, 'r:gz') as tar:
         assert p.parts[0] not in ('data', '.git', 'node_modules', '.superpowers', 'output')
         assert not p.name.startswith('.env') or p.name.endswith('.example')
         assert p.suffix not in ('.keystore', '.jks', '.db')
-    tar.extractall(source)
-apk_path = source / 'public' / 'kaogong-potato.apk'
-if not apk_path.exists():
-    legacy_apk = Path('/home/ubuntu/kaogong-releases/1.2.6-20261110.01/source/public/kaogong-potato.apk')
-    assert legacy_apk.exists()
-    import shutil
-    shutil.copyfile(legacy_apk, apk_path)
-apk_bytes = apk_path.read_bytes()
-assert hashlib.sha256(apk_bytes).hexdigest() == '394fc45d9bbc90a163479e334ad86f42945bb269543883296063c8c871d6d738'
-version_json = json.loads((source / 'public' / 'version.json').read_text())
+    tar.extractall(source, filter='data')
 release = json.loads((source / 'release.json').read_text())
-assert version_json['version'] == '{version}' and version_json['build'] == '{build}'
-assert release['webVersion'] == '{version}' and release['webBuild'] == '{build}'
+assert (release['webVersion'], release['webBuild'], release['schemaVersion']) == ('{version}', '{build}', 5)
 image = 'kaogong-potato-app:{version}-{build}'
-subprocess.run(['docker', 'build', '-t', image, '.'], cwd=source, check=True)
+print('Starting docker build for', image)
+with (root / 'build.log').open('w') as log:
+    build = subprocess.run(['docker', 'build', '--pull=false', '-t', image, str(source)], stdout=log, stderr=subprocess.STDOUT)
+if build.returncode:
+    print('\\n'.join((root / 'build.log').read_text().splitlines()[-30:]))
+    raise RuntimeError('Image build failed')
 image_id = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{{{.Id}}}}', image], text=True).strip()
-smoke_name = 'kaogong-smoke-{version}-{build}'
+smoke_data = root / 'smoke-data'
+if not smoke_data.exists():
+    smoke_data.mkdir(mode=0o700)
+smoke_name = 'kaogong-potato-smoke-{version}-{build}'
 subprocess.run(['docker', 'rm', '-f', smoke_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-subprocess.run(['docker', 'run', '-d', '--name', smoke_name, '--memory', '512m', '--memory-swap', '512m', '--cpus', '1', '-p', '127.0.0.1:3099:3000', '-e', 'NODE_ENV=production', image], check=True)
+subprocess.run(['docker', 'run', '-d', '--name', smoke_name, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+    '--cpus', '1', '--memory', '512m', '--memory-swap', '512m', '-p', '127.0.0.1:3001:3000', '--mount', 'type=bind,src=' + str(smoke_data) + ',dst=/app/data',
+    '-e', 'NODE_ENV=production', '-e', 'DATA_DIR=/app/data', image], check=True, stdout=subprocess.DEVNULL)
+def fetch(route):
+    with urllib.request.urlopen('http://127.0.0.1:3001' + route, timeout=5) as r:
+        return r.status, r.read()
 try:
-    for attempt in range(40):
+    for attempt in range(50):
         try:
-            with urllib.request.urlopen('http://127.0.0.1:3099/api/health', timeout=3) as r:
-                health = json.load(r)
-            with urllib.request.urlopen('http://127.0.0.1:3099/version.json', timeout=3) as r:
-                smoke_version = json.load(r)
-            if health['status'] == 'healthy' and (smoke_version['version'], smoke_version['build']) == ('{version}', '{build}'):
+            status, health = fetch('/api/health')
+            health = json.loads(health)
+            if status == 200 and health['status'] == 'healthy':
                 break
         except (OSError, ValueError):
             pass
         time.sleep(1)
     else:
-        raise RuntimeError('Smoke container readiness check timed out')
+        raise RuntimeError('Isolated image did not become healthy')
+    status, body = fetch('/version.json')
+    version_json = json.loads(body)
+    assert (version_json['version'], version_json['build']) == ('{version}', '{build}')
+    status, sw = fetch('/sw.js')
+    assert f"RELEASE_VERSION = '{version}'".encode() in sw and f"RELEASE_BUILD = '{build}'".encode() in sw
+    status, html = fetch('/')
+    assert status == 200 and b'<div id="root">' in html
+    status, apk = fetch('/api/download/apk')
+    assert len(apk) == release['apkSizeBytes']
+    assert hashlib.sha256(apk).hexdigest() == release['apkSha256']
+    try:
+        fetch('/api/auth/me')
+        raise RuntimeError('Anonymous auth check should be unauthorized')
+    except urllib.error.HTTPError as error:
+        assert error.code == 401
     with (root / 'linux-process-gate.log').open('w') as gate_log:
         lifecycle = subprocess.run(['docker', 'run', '--rm', '--cpus', '1', '--memory', '512m', '--memory-swap', '512m', '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--mount', 'type=bind,src=' + str(source / 'tests') + ',dst=/app/tests,readonly', image, 'node', '--import', 'tsx', '--test', 'tests/image-orientation-service.test.ts', 'tests/image-orientation-shutdown-server.test.ts'], stdout=gate_log, stderr=subprocess.STDOUT)
     assert lifecycle.returncode == 0, 'Linux lifecycle gate failed; inspect release log'
