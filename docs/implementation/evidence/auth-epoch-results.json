@@ -1,8 +1,8 @@
 {
-  "runId": "run-20261112-193404-ea6bdd",
-  "checkedAt": "2026-11-12T19:34:23.484Z",
-  "baseUrl": "http://127.0.0.1:53395",
-  "dataDir": "/tmp/run-20261112-193404-ea6bdd-hpS6EY/data",
+  "runId": "run-20261112-203907-830054",
+  "checkedAt": "2026-11-12T20:39:26.282Z",
+  "baseUrl": "http://127.0.0.1:54356",
+  "dataDir": "/tmp/run-20261112-203907-830054-gdmcA7/data",
   "webBuild": {
     "version": "1.2.6",
     "build": "20261113.01",
@@ -17,10 +17,10 @@
     "apkReleased": true,
     "deployedAt": "2026-11-13T03:00:00Z",
     "summary": "修复同步状态逻辑错误与冗余提示、修复邮件提醒服务环境变量注入，实现平滑静默更新。",
-    "servedAt": "2026-11-12T19:34:23.485Z",
-    "nonce": "run-20261112-193404-ea6bdd"
+    "servedAt": "2026-11-12T20:39:26.283Z",
+    "nonce": "run-20261112-203907-830054"
   },
-  "gitHead": "29693356aad8fd23741466e7aa966c599fa14387",
+  "gitHead": "5580bca48bdab31dca917cf1e4e20204207e4aa3",
   "total": 14,
   "passed": 14,
   "failed": 0,
@@ -98,7 +98,7 @@
       "name": "R10: migrated guest wrong-photo is uploaded to server media reference",
       "passed": true,
       "detail": {
-        "image": "/api/media/media_1794512061840_47938821f9d5"
+        "image": "/api/media/media_1794515964630_77a487b29316"
       }
     },
     {

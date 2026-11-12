@@ -17,6 +17,7 @@ const TEST_DATA_DIR = path.resolve('/tmp', `potato-test-${Date.now()}-${Math.ran
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 import app, { validateReleaseConfig } from '../server/app';
+import { loadRuntimeEnvOverrides } from '../server/runtimeEnv';
 import { createInviteCode, createPasswordResetCode, restoreUserWorkspace } from '../server/admin';
 import { getCurrentGenerationId, rotateGenerationId, closeDb, getDb, getAttachmentsDir } from '../server/db';
 import { BLANK_STATE } from '../src/constants/initialData';
@@ -1813,26 +1814,42 @@ describe('Server contracts: R06 media/avatar, R18 validation+quota+retention, R1
     }
   });
 
-  test('server reads runtime env overrides from data/.env.runtime if present', () => {
+  test('loadRuntimeEnvOverrides reads overrides from data/.env.runtime without clobbering existing env', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'potato-runtime-env-'));
     try {
+      // 1. Missing file returns 0
+      const targetEnv: NodeJS.ProcessEnv = {
+        PRE_EXISTING: 'original_val',
+      };
+      assert.equal(loadRuntimeEnvOverrides(tempDir, targetEnv), 0);
+      assert.equal(targetEnv['PRE_EXISTING'], 'original_val');
+
+      // 2. Write test .env.runtime with various formats
       const runtimeEnvFile = path.join(tempDir, '.env.runtime');
-      fs.writeFileSync(runtimeEnvFile, 'SMTP_TEST_KEY=smtp_test_value\n# Comment\nINVALID_LINE\nEMPTY_KEY=\n');
-      const raw = fs.readFileSync(runtimeEnvFile, 'utf8');
-      const parsed: Record<string, string> = {};
-      for (const line of raw.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx > 0) {
-          const key = trimmed.slice(0, eqIdx).trim();
-          const val = trimmed.slice(eqIdx + 1).trim();
-          if (val) parsed[key] = val;
-        }
-      }
-      assert.equal(parsed['SMTP_TEST_KEY'], 'smtp_test_value');
-      assert.equal(parsed['INVALID_LINE'], undefined);
-      assert.equal(parsed['EMPTY_KEY'], undefined);
+      fs.writeFileSync(
+        runtimeEnvFile,
+        [
+          '# Comment line',
+          'SMTP_HOST=smtp.qq.com',
+          'SMTP_PORT="465"',
+          "SMTP_USER='user@qq.com'",
+          'PRE_EXISTING=new_val_should_be_ignored',
+          'INVALID_LINE_NO_EQUALS',
+          'EMPTY_KEY=',
+          '   # Indented comment',
+          '   EMAIL_CODE_SECRET = a_very_long_secret_123456   ',
+        ].join('\n')
+      );
+
+      const count = loadRuntimeEnvOverrides(tempDir, targetEnv);
+      assert.equal(count, 4); // SMTP_HOST, SMTP_PORT, SMTP_USER, EMAIL_CODE_SECRET
+      assert.equal(targetEnv['SMTP_HOST'], 'smtp.qq.com');
+      assert.equal(targetEnv['SMTP_PORT'], '465'); // Quotes stripped
+      assert.equal(targetEnv['SMTP_USER'], 'user@qq.com'); // Single quotes stripped
+      assert.equal(targetEnv['EMAIL_CODE_SECRET'], 'a_very_long_secret_123456');
+      assert.equal(targetEnv['PRE_EXISTING'], 'original_val'); // Not clobbered
+      assert.equal(targetEnv['INVALID_LINE_NO_EQUALS'], undefined);
+      assert.equal(targetEnv['EMPTY_KEY'], undefined);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

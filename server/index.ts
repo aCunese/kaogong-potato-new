@@ -3,6 +3,7 @@ import path from 'node:path';
 import app, { getReleaseValidation } from './app';
 import { getDb, getCurrentGenerationId, getDataDir, closeDb } from './db';
 import { acquireDataDirectoryLock, DataDirectoryLock } from './dataLock';
+import { loadRuntimeEnvOverrides } from './runtimeEnv';
 import { startReminderWorker } from './reminders';
 import { imageOrientationService } from './imageOrientation';
 
@@ -23,26 +24,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 // 0. 读取持久化数据卷中的运行时环境变量覆盖（如 SMTP / EMAIL_CODE_SECRET）
-const runtimeEnvFile = path.join(dataDir, '.env.runtime');
-if (fs.existsSync(runtimeEnvFile)) {
-  try {
-    const raw = fs.readFileSync(runtimeEnvFile, 'utf8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        const key = trimmed.slice(0, eqIdx).trim();
-        const val = trimmed.slice(eqIdx + 1).trim();
-        if (!process.env[key] && val) {
-          process.env[key] = val;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[ENV] Failed to load data/.env.runtime overrides:', err);
-  }
-}
+loadRuntimeEnvOverrides(dataDir);
 
 let lock: DataDirectoryLock;
 try {
