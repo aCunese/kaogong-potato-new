@@ -1641,13 +1641,13 @@ export const WrongDetailModal: React.FC<{
           <span className="truncate">{orientationActivity?.recordId === liveRecord.id && orientationActivity.index === safeIndex
             ? '正在自动摆正…'
             : orientationErrors?.[`${liveRecord.id}:${safeIndex}`]
-              ?? (liveRecord.imageOrientations?.[safeIndex]?.status === 'resolved' ? '已自动确认图片方向' : liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' ? '未能确认方向，保留原图' : '联网后自动摆正图片')}</span>
+              ?? (liveRecord.imageOrientations?.[safeIndex]?.status === 'resolved' ? '已确认图片方向' : liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' ? '未能确认方向，保留原图' : '联网后自动摆正图片')}</span>
           <div className="flex items-center gap-1.5 shrink-0">
             {liveRecord.imageOrientations?.[safeIndex]?.status === 'unresolved' || orientationErrors?.[`${liveRecord.id}:${safeIndex}`] ? (
               <button
                 type="button"
                 className="shrink-0 text-sage font-bold px-2 py-1 hover:underline"
-                onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true); }}
+                onClick={() => { void requestWrongImageOrientations?.(liveRecord.id, true, safeIndex); }}
               >
                 重新识别
               </button>

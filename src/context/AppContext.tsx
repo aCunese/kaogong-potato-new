@@ -194,7 +194,7 @@ export interface AppContextType {
   deleteWrongRecord: (id: string) => Promise<MutationResult<void>>;
   updateWrongRecord: (id: string, updates: { subject?: StudySubject; note?: string; images?: string[] }) => Promise<MutationResult<WrongRecord>>;
   rotateWrongImage: (id: string, index: number, delta: 90 | 270) => Promise<MutationResult<WrongRecord>>;
-  requestWrongImageOrientations: (id: string, force?: boolean) => Promise<void>;
+  requestWrongImageOrientations: (id: string, force?: boolean, targetIndex?: number) => Promise<void>;
   orientationActivity: { recordId: string; index: number } | null;
   orientationErrors: Record<string, string>;
   updateSubjectLabel: (subject: StudySubject, label: string) => Promise<MutationResult<void>>;

@@ -30,6 +30,7 @@ class OrientationBoundaryTests(unittest.TestCase):
         self.assertEqual(helper.weighted_confidence(tsv, 35), (80.0, 4))
 
     def test_confidence_lead_and_character_thresholds_all_must_pass(self):
+        self.assertEqual(helper.select_rotation([]), {'status': 'unresolved', 'rotation': 0, 'version': 1})
         self.assertEqual(helper.select_rotation([(90, 45, 12, 12), (0, 35, 20, 12), (180, 10, 8, 0), (270, 0, 0, 0)]), {'status': 'resolved', 'rotation': 90, 'version': 1})
         for score, lead, count in [(44.99, 15, 20), (80, 9.99, 20), (80, 15, 11)]:
             self.assertEqual(helper.select_rotation([(180, score, count, count), (0, score-lead, 20, 12), (90, 0, 0, 0), (270, 0, 0, 0)]), {'status': 'unresolved', 'rotation': 0, 'version': 1})

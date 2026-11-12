@@ -1,6 +1,6 @@
 {
   "webVersion": "1.2.6",
-  "webBuild": "20261112.03",
+  "webBuild": "20261112.04",
   "schemaVersion": 5,
   "apkVersion": "1.0.5",
   "apkVersionCode": 6,
@@ -10,6 +10,6 @@
   "apkCertFingerprint": "85:75:82:EF:D9:20:83:CC:75:E5:C5:A0:C2:0D:B3:26:25:2C:BF:80:E7:11:23:23:4B:6B:F5:9D:CD:17:36:C1",
   "apkReleased": true,
   "apkDownloadUrl": "/api/download/apk",
-  "deployedAt": "2026-11-12T13:45:00Z",
-  "summary": "错题详情弹窗支持手动旋转90°快捷纠偏；优化图片自动摆正识别速度（DPI优化、长图保护与剪枝）；完善错题方向重试调度与媒体缓存策略。"
+  "deployedAt": "2026-11-12T14:50:00Z",
+  "summary": "修复错题单图重新识别误清空整道错题已摆正方向、纠偏后残留错误状态与竞态覆盖，补全旋转单测与防御性检查。"
 }

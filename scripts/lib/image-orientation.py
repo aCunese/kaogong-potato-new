@@ -56,6 +56,8 @@ def candidate_evidence(candidate):
 
 
 def select_rotation(candidates):
+    if not candidates:
+        return {'status': 'unresolved', 'rotation': 0, 'version': VERSION}
     # Each candidate has its own effective-character count; punctuation does not
     # make a short or uncertain image look like a substantial OCR sample.
     ordered = sorted(candidates, key=candidate_evidence, reverse=True)

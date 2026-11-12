@@ -61,7 +61,14 @@ export function useWrongImageOrientation(options: Options) {
         try {
           const result = await requestImageOrientation(task.mediaId, o.csrf, o.userId, scope.signal);
           if (!o.isValid(scope)) continue;
-          const saved = await o.mutate(draft => applyWrongImageOrientation(draft, task.id, task.index, task.mediaId, result), 'wrong_image_orientation', {
+          const saved = await o.mutate(draft => {
+            const currentRecord = draft.wrong.find(r => r.id === task.id);
+            // If user manually rotated/resolved the image while recognition was in flight, preserve the manual decision
+            if (currentRecord?.imageOrientations?.[task.index]?.status === 'resolved') {
+              return { nextState: draft, value: currentRecord };
+            }
+            return applyWrongImageOrientation(draft, task.id, task.index, task.mediaId, result);
+          }, 'wrong_image_orientation', {
             context: { scope, isCurrent: () => o.isValid(scope), abortSignal: scope.signal },
           });
           if (!saved.ok) {
@@ -137,6 +144,8 @@ export function useWrongImageOrientation(options: Options) {
   const orientationErrors: Record<string, string> = {};
   for (const record of options.state.wrong) {
     getWrongRecordImages(record).forEach((image, index) => {
+      // Resolved images should never linger with stale transient errors
+      if (record.imageOrientations?.[index]?.status === 'resolved') return;
       const error = errors[keyFor(options.userId, record.id, index, image)];
       if (error) orientationErrors[`${record.id}:${index}`] = error;
     });
